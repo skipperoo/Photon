@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Dialogs
-import Main
+import Main 1.0
 
 Window {
     id: window

@@ -12,8 +12,7 @@ Window {
     title: "Photon"
     color: Theme.background
 
-    property string currentView: "develop" // "library", "develop", "settings"
-
+    // File dialog for opening individual RAW files (in Develop view)
     FileDialog {
         id: fileDialog
         title: "Please choose a RAW file"
@@ -23,18 +22,37 @@ Window {
         }
     }
 
+    // Folder dialog for opening folders (from Welcome view)
+    FolderDialog {
+        id: folderDialog
+        title: "Select a folder containing RAW images"
+        onAccepted: {
+            AppState.setCurrentFolder(selectedFolder.toString().replace("file://", ""))
+            AppState.setCurrentView(AppStateManager.ViewState.Library)
+        }
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 0
 
-        // --- Sidebar Navigation ---
+        // --- Sidebar Navigation (hidden on Welcome screen) ---
         Rectangle {
-            Layout.preferredWidth: 64
+            Layout.preferredWidth: AppState.currentView === AppStateManager.ViewState.Welcome ? 0 : 64
             Layout.fillHeight: true
             color: Theme.background
             border.color: Theme.border
             border.width: 0
-            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Theme.border }
+            visible: AppState.currentView !== AppStateManager.ViewState.Welcome
+            clip: true
+            
+            Rectangle { 
+                anchors.right: parent.right; 
+                width: 1; 
+                height: parent.height; 
+                color: Theme.border 
+                visible: parent.visible
+            }
 
             ColumnLayout {
                 anchors.top: parent.top
@@ -42,12 +60,13 @@ Window {
                 anchors.right: parent.right
                 anchors.topMargin: 20
                 spacing: 20
+                visible: AppState.currentView !== AppStateManager.ViewState.Welcome
 
                 Button {
                     text: "L"
                     Layout.alignment: Qt.AlignHCenter
-                    variantOutline: window.currentView !== "library"
-                    onClicked: window.currentView = "library"
+                    variantOutline: AppState.currentView !== AppStateManager.ViewState.Library
+                    onClicked: AppState.setCurrentView(AppStateManager.ViewState.Library)
                     ToolTip.visible: hovered
                     ToolTip.text: "Library"
                 }
@@ -55,8 +74,8 @@ Window {
                 Button {
                     text: "D"
                     Layout.alignment: Qt.AlignHCenter
-                    variantOutline: window.currentView !== "develop"
-                    onClicked: window.currentView = "develop"
+                    variantOutline: AppState.currentView !== AppStateManager.ViewState.Develop
+                    onClicked: AppState.setCurrentView(AppStateManager.ViewState.Develop)
                     ToolTip.visible: hovered
                     ToolTip.text: "Develop"
                 }
@@ -66,30 +85,47 @@ Window {
                 Button {
                     text: "S"
                     Layout.alignment: Qt.AlignHCenter
-                    variantOutline: window.currentView !== "settings"
-                    onClicked: window.currentView = "settings"
+                    variantOutline: AppState.currentView !== AppStateManager.ViewState.Welcome
+                    onClicked: AppState.setCurrentView(AppStateManager.ViewState.Welcome)
                     ToolTip.visible: hovered
-                    ToolTip.text: "Settings"
+                    ToolTip.text: "Welcome"
                 }
                 
                 Item { height: 20 }
             }
         }
 
-        // --- Main Content Area ---
+        // --- Main Content Area with Transitions ---
         StackLayout {
+            id: mainStack
             Layout.fillWidth: true
             Layout.fillHeight: true
             currentIndex: {
-                if (window.currentView === "library") return 0
-                if (window.currentView === "develop") return 1
-                if (window.currentView === "settings") return 2
-                return 0
+                switch (AppState.currentView) {
+                    case AppStateManager.ViewState.Welcome: return 0
+                    case AppStateManager.ViewState.Library: return 1
+                    case AppStateManager.ViewState.Develop: return 2
+                    default: return 0
+                }
             }
 
+            // 0: Welcome View
+            WelcomeView {
+                onOpenFolderRequested: folderDialog.open()
+                onContinueSessionRequested: {
+                    AppState.setCurrentView(AppStateManager.ViewState.Library)
+                }
+                onSettingsRequested: {
+                    // TODO: Show settings modal
+                    console.log("Settings requested")
+                }
+                hasLastSession: AppState.hasLastSession
+            }
+
+            // 1: Library View
             LibraryView {}
 
-            // Develop View Layout (Holy Grail)
+            // 2: Develop View Layout (Holy Grail)
             ColumnLayout {
                 spacing: 0
                 
@@ -184,8 +220,6 @@ Window {
                     }
                 }
             }
-
-            SettingView {}
         }
     }
 }

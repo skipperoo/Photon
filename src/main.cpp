@@ -6,6 +6,8 @@
 
 #include "components/RawViewport.h"
 #include "managers/AppStateManager.h"
+#include "managers/FileScanner.h"
+#include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
 
 int main(int argc, char* argv[]) {
@@ -15,6 +17,13 @@ int main(int argc, char* argv[]) {
 
   QQmlApplicationEngine engine;
 
+  // Create managers
+  ThumbnailProvider* thumbProvider = new ThumbnailProvider(&app);
+
+  // Register image provider
+  engine.addImageProvider("thumbnail",
+                          new ThumbnailImageProvider(thumbProvider));
+
   // Register AppStateManager singleton
   qmlRegisterSingletonType<AppStateManager>(
       "Main", 1, 0, "AppState", &AppStateManager::createQmlInstance);
@@ -22,8 +31,12 @@ int main(int argc, char* argv[]) {
   // Register RawViewport component
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");
 
-  // Register ThumbnailProvider component
-  qmlRegisterType<ThumbnailProvider>("Main", 1, 0, "ThumbnailProvider");
+  // Register ThumbnailProvider component (as an instance for QML to call
+  // generateThumbnailAsync)
+  engine.rootContext()->setContextProperty("thumbnailProvider", thumbProvider);
+
+  // Register FileScanner component
+  qmlRegisterType<FileScanner>("Main", 1, 0, "FileScanner");
 
   const QUrl url(QStringLiteral("qrc:/Main/content/views/App.qml"));
 

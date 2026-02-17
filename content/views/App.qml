@@ -12,13 +12,41 @@ Window {
     title: "Photon"
     color: Theme.background
 
-    // File dialog for opening individual RAW files (in Develop view)
-    FileDialog {
-        id: fileDialog
-        title: "Please choose a RAW file"
-        nameFilters: ["RAW files (*.ARW *.CR2 *.NEF *.DNG *.ORF *.RAF)", "All files (*)"]
-        onAccepted: {
-            rawViewport.source = selectedFile.toString().replace("file://", "")
+    // File scanner for finding RAW files in the current folder
+    FileScanner {
+        id: fileScanner
+    }
+
+    // List model to hold the RAW files
+    ListModel {
+        id: rawFilesModel
+    }
+
+    // Function to refresh the file list
+    function refreshFiles() {
+        rawFilesModel.clear();
+        
+        // Scan for RAW files in the current folder
+        var files = fileScanner.scanForRawFiles(AppState.currentFolder);
+        for (var i = 0; i < files.length; i++) {
+            var file = files[i];
+            rawFilesModel.append({
+                "path": file.path,
+                "name": file.name,
+                "size": file.size,
+                "modified": file.modified
+            });
+            
+            // Pre-generate thumbnails
+            thumbnailProvider.generateThumbnailAsync(file.path);
+        }
+    }
+
+    // Refresh files when the folder changes
+    Connections {
+        target: AppState
+        function onCurrentFolderChanged() {
+            refreshFiles();
         }
     }
 
@@ -52,13 +80,13 @@ Window {
                 anchors.right: parent.right
                 anchors.topMargin: 20
                 spacing: 20
-                visible: AppState.currentView !== AppStateManager.ViewState.Welcome
+                visible: AppState.currentView !== AppState.ViewState.Welcome
 
                 Button {
                     text: "L"
                     Layout.alignment: Qt.AlignHCenter
-                    variantOutline: AppState.currentView !== AppStateManager.ViewState.Library
-                    onClicked: AppState.setCurrentView(AppStateManager.ViewState.Library)
+                    variantOutline: AppState.currentView !== AppState.ViewState.Library
+                    onClicked: AppState.setCurrentView(AppState.ViewState.Library)
                     ToolTip.visible: hovered
                     ToolTip.text: "Library"
                 }
@@ -66,8 +94,8 @@ Window {
                 Button {
                     text: "D"
                     Layout.alignment: Qt.AlignHCenter
-                    variantOutline: AppState.currentView !== AppStateManager.ViewState.Develop
-                    onClicked: AppState.setCurrentView(AppStateManager.ViewState.Develop)
+                    variantOutline: AppState.currentView !== AppState.ViewState.Develop
+                    onClicked: AppState.setCurrentView(AppState.ViewState.Develop)
                     ToolTip.visible: hovered
                     ToolTip.text: "Develop"
                 }
@@ -77,8 +105,8 @@ Window {
                 Button {
                     text: "S"
                     Layout.alignment: Qt.AlignHCenter
-                    variantOutline: AppState.currentView !== AppStateManager.ViewState.Welcome
-                    onClicked: AppState.setCurrentView(AppStateManager.ViewState.Welcome)
+                    variantOutline: AppState.currentView !== AppState.ViewState.Welcome
+                    onClicked: AppState.setCurrentView(AppState.ViewState.Welcome)
                     ToolTip.visible: hovered
                     ToolTip.text: "Welcome"
                 }
@@ -104,7 +132,7 @@ Window {
             // 0: Welcome View
             WelcomeView {
                 onContinueSessionRequested: {
-                    AppState.setCurrentView(AppStateManager.ViewState.Library)
+                    AppState.setCurrentView(AppState.ViewState.Library)
                 }
                 onSettingsRequested: {
                     // TODO: Show settings modal
@@ -196,7 +224,7 @@ Window {
                         anchors.fill: parent
                         orientation: ListView.Horizontal
                         spacing: 10
-                        model: 10
+                        model: rawFilesModel
                         delegate: Rectangle {
                             width: 150
                             height: 100
@@ -205,6 +233,26 @@ Window {
                             radius: Theme.radiusSm
                             border.color: Theme.primary
                             border.width: index === 0 ? 2 : 0
+                            
+                            // Thumbnail image
+                            Image {
+                                id: filmstripThumbnail
+                                anchors.fill: parent
+                                anchors.margins: 4
+                                fillMode: Image.PreserveAspectFit
+                                source: "image://thumbnail/" + model.path
+                                asynchronous: true
+                                visible: status === Image.Ready
+                                
+                                // Fallback text when no thumbnail is available
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "RAW"
+                                    color: Theme.mutedFg
+                                    font: Theme.fontSmall
+                                    visible: filmstripThumbnail.status !== Image.Ready
+                                }
+                            }
                         }
                         leftMargin: 20
                         rightMargin: 20

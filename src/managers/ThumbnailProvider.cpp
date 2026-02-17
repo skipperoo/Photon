@@ -18,24 +18,25 @@ ThumbnailProvider::ThumbnailProvider(QObject* parent)
 ThumbnailProvider::~ThumbnailProvider() { m_threadPool->waitForDone(); }
 
 QString ThumbnailProvider::getCacheDirectory() const {
-  QString cacheDir =
-      QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-  if (cacheDir.isEmpty()) {
-    cacheDir = QDir::tempPath() + "/Photon/thumbnails";
-  } else {
-    cacheDir += "/thumbnails";
-  }
-  return cacheDir;
+  // This is a dummy implementation, as getCacheDirectory should probably take
+  // the image path
+  return QString();
 }
 
 QString ThumbnailProvider::getThumbnailCachePath(
     const QString& imagePath) const {
-  // Generate a hash of the image path to use as filename
-  QByteArray hash =
-      QCryptographicHash::hash(imagePath.toUtf8(), QCryptographicHash::Md5);
+  QFileInfo fileInfo(imagePath);
+  QString folder = fileInfo.absolutePath();
+  QString photonDataPath = folder + "/.PhotonData/cache/thumbnails";
+
+  // Generate a hash of the filename to use as thumbnail name
+  // Using filename instead of full path because we are inside the folder's
+  // .PhotonData
+  QByteArray hash = QCryptographicHash::hash(fileInfo.fileName().toUtf8(),
+                                             QCryptographicHash::Md5);
   QString filename = QString(hash.toHex()) + ".jpg";
 
-  return getCacheDirectory() + "/" + filename;
+  return photonDataPath + "/" + filename;
 }
 
 bool ThumbnailProvider::saveThumbnailToCache(const QString& imagePath,
@@ -52,12 +53,12 @@ bool ThumbnailProvider::saveThumbnailToCache(const QString& imagePath,
     }
   }
 
-  // Scale thumbnail to a reasonable size for caching
+  // Scale thumbnail to 360px as per specification
   QImage scaledThumb =
       thumbnail.scaled(360, 360, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
   QImageWriter writer(cachePath, "JPEG");
-  writer.setQuality(85);  // Good balance between quality and file size
+  writer.setQuality(85);
 
   return writer.write(scaledThumb);
 }
@@ -78,12 +79,7 @@ QImage ThumbnailProvider::loadThumbnailFromCache(
 }
 
 QImage ThumbnailProvider::generateThumbnail(const QString& imagePath) const {
-  RawEngine engine;
-  engine.setSource(imagePath);
-
-  // Wait for the image to load (in a real implementation, we'd make this async)
-  // For now, we'll just return the thumbnail directly from RawEngine
-  return engine.getThumbnail();
+  return RawEngine::extractThumbnail(imagePath);
 }
 
 QImage ThumbnailProvider::getThumbnail(const QString& imagePath) {

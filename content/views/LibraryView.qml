@@ -10,9 +10,49 @@ Control {
         color: Theme.background
     }
 
-    // Thumbnail provider for generating and caching thumbnails
-    ThumbnailProvider {
-        id: thumbnailProvider
+    // File scanner for finding RAW files in the current folder
+    FileScanner {
+        id: fileScanner
+    }
+
+    // List model to hold the RAW files
+    ListModel {
+        id: rawFilesModel
+    }
+
+    // Function to refresh the file list
+    function refreshFiles() {
+        rawFilesModel.clear();
+        
+        // Scan for RAW files in the current folder
+        var files = fileScanner.scanForRawFiles(AppState.currentFolder);
+        for (var i = 0; i < files.length; i++) {
+            var file = files[i];
+            rawFilesModel.append({
+                "path": file.path,
+                "name": file.name,
+                "size": file.size,
+                "modified": file.modified
+            });
+            
+            // Pre-generate thumbnails
+            thumbnailProvider.generateThumbnailAsync(file.path);
+        }
+    }
+
+    // Refresh files when the view becomes visible or when the folder changes
+    Connections {
+        target: AppState
+        function onCurrentFolderChanged() {
+            refreshFiles();
+        }
+    }
+
+    // Refresh files when the view is loaded
+    Component.onCompleted: {
+        if (AppState.currentFolder !== "") {
+            refreshFiles();
+        }
     }
 
     ColumnLayout {
@@ -50,9 +90,7 @@ Control {
             cellHeight: 200
             clip: true
 
-            // For now, we'll use a dummy model
-            // In a real implementation, this would be populated with actual files from the current folder
-            model: 12 // Dummy 12 items
+            model: rawFilesModel
 
             delegate: Item {
                 width: 200
@@ -73,14 +111,16 @@ Control {
                             color: Theme.secondary
                             radius: Theme.radiusSm
                             
-                            // Placeholder for thumbnail
+                            // Thumbnail image
                             Image {
                                 id: thumbnailImage
                                 anchors.fill: parent
                                 anchors.margins: 4
                                 fillMode: Image.PreserveAspectFit
-                                source: "image://thumbnail/IMG_" + (index + 1).toString().padStart(4, '0') + ".ARW"
-                                visible: status === Image.Ready
+                                asynchronous: true
+                                
+                                // Generate thumbnail asynchronously
+                                source: "image://thumbnail/" + model.path
                                 
                                 // Fallback text when no thumbnail is available
                                 Text {
@@ -96,11 +136,20 @@ Control {
                         // Filename
                         Text {
                             Layout.fillWidth: true
-                            text: "IMG_" + (index + 1).toString().padStart(4, '0') + ".ARW"
+                            text: model.name
                             font: Theme.fontSmall
                             color: Theme.foreground
                             elide: Text.ElideRight
                             horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+                    
+                    // Handle click to open in Develop view
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            // TODO: Open the selected file in Develop view
+                            console.log("Selected file:", model.path);
                         }
                     }
                 }

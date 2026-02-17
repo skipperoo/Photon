@@ -113,6 +113,30 @@ QImage RawEngine::getThumbnail() {
   return img;
 }
 
+QImage RawEngine::extractThumbnail(const QString& path) {
+  LibRaw processor;
+  int ret = processor.open_file(path.toLocal8Bit().data());
+  if (ret != LIBRAW_SUCCESS) return QImage();
+
+  ret = processor.unpack_thumb();
+  if (ret != LIBRAW_SUCCESS) return QImage();
+
+  libraw_processed_image_t* thumb = processor.dcraw_make_mem_thumb(&ret);
+  if (!thumb) return QImage();
+
+  QImage img;
+  if (thumb->type == LIBRAW_IMAGE_JPEG) {
+    img.loadFromData(thumb->data, thumb->data_size, "JPEG");
+  } else if (thumb->type == LIBRAW_IMAGE_BITMAP) {
+    img =
+        QImage(thumb->data, thumb->width, thumb->height, QImage::Format_RGB888)
+            .copy();
+  }
+
+  LibRaw::dcraw_clear_mem(thumb);
+  return img;
+}
+
 const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
   if (!m_isLoaded) return nullptr;
 

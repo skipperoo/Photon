@@ -5,6 +5,7 @@
 
 RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   setFlag(ItemHasContents, true);
+  setAcceptedMouseButtons(Qt::LeftButton);
 
   connect(&m_engine, &RawEngine::imageLoaded, this,
           &RawViewport::onImageLoaded);
@@ -22,6 +23,52 @@ void RawViewport::setExposure(float ev) {
   if (qFuzzyCompare(m_engine.exposure(), ev)) return;
   m_engine.setExposure(ev);
   emit exposureChanged();
+}
+
+void RawViewport::setZoom(float zoom) {
+  if (qFuzzyCompare(m_zoom, zoom)) return;
+  m_zoom = zoom;
+  m_engine.setHalfSize(m_zoom <= 1.0f);
+  emit zoomChanged();
+  update();
+}
+
+void RawViewport::setPan(const QPointF& offset) {
+  if (m_panOffset == offset) return;
+  m_panOffset = offset;
+  emit panChanged();
+  update();
+}
+
+void RawViewport::mousePressEvent(QMouseEvent* event) {
+  if (event->button() == Qt::LeftButton) {
+    m_isPanning = true;
+    m_lastMousePos = event->position();
+    event->accept();
+  }
+}
+
+void RawViewport::mouseMoveEvent(QMouseEvent* event) {
+  if (m_isPanning) {
+    QPointF delta = event->position() - m_lastMousePos;
+    m_lastMousePos = event->position();
+    setPan(m_panOffset + delta);
+    event->accept();
+  }
+}
+
+void RawViewport::mouseReleaseEvent(QMouseEvent* event) {
+  if (event->button() == Qt::LeftButton) {
+    m_isPanning = false;
+    event->accept();
+  }
+}
+
+void RawViewport::wheelEvent(QWheelEvent* event) {
+  qreal angleDelta = event->angleDelta().y();
+  qreal factor = qPow(1.001, angleDelta);
+  setZoom(qBound(0.1f, static_cast<float>(m_zoom * factor), 10.0f));
+  event->accept();
 }
 
 void RawViewport::onImageLoaded() {
@@ -51,9 +98,13 @@ QRectF RawViewport::calculateTargetRect() {
     targetHeight = targetWidth / imageAspect;
   }
 
+  // Apply zoom
+  targetWidth *= m_zoom;
+  targetHeight *= m_zoom;
+
   // Center the image
-  qreal x = viewport.x() + (viewport.width() - targetWidth) / 2.0;
-  qreal y = viewport.y() + (viewport.height() - targetHeight) / 2.0;
+  qreal x = viewport.x() + (viewport.width() - targetWidth) / 2.0 + m_panOffset.x();
+  qreal y = viewport.y() + (viewport.height() - targetHeight) / 2.0 + m_panOffset.y();
 
   return QRectF(x, y, targetWidth, targetHeight);
 }

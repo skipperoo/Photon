@@ -60,6 +60,11 @@ qt_add_qml_module(appPhoton
         content/components/Slider.qml
         content/components/Card.qml
         content/theme/Theme.qml
+    RESOURCES
+        assets/icons/search.svg
+        assets/icons/hand.svg
+        assets/icons/zoom-in.svg
+        assets/icons/zoom-out.svg
 )
 
 set_target_properties(appPhoton PROPERTIES

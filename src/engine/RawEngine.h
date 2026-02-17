@@ -16,6 +16,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(
       float exposure READ exposure WRITE setExposure NOTIFY exposureChanged)
   Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+  Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
 
  public:
   explicit RawEngine(QObject* parent = nullptr);
@@ -28,6 +29,9 @@ class RawEngine : public QObject {
   void setExposure(float ev);
 
   bool isLoading() const { return m_isLoading; }
+
+  bool halfSize() const { return m_halfSize; }
+  void setHalfSize(bool half);
 
   // Asynchronous load
   void loadRawFileAsync(const QString& path);
@@ -43,12 +47,14 @@ class RawEngine : public QObject {
   void exposureChanged();
   void imageLoaded();
   void isLoadingChanged();
+  void halfSizeChanged();
   void errorOccurred(const QString& error);
 
  private:
   QString m_source;
   float m_exposure = 0.0f;
   bool m_isLoading = false;
+  bool m_halfSize = false;
   std::unique_ptr<LibRaw> m_processor;
   libraw_processed_image_t* m_processedImage = nullptr;
   bool m_isLoaded = false;

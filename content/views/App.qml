@@ -164,41 +164,68 @@ Window {
                             id: rawViewport
                             anchors.fill: parent
                             anchors.margins: 2
+                            source: AppState.currentImage
                         }
 
-                        // Toolbar Overlay
-                        RowLayout {
+                        // Bottom Toolbar (Tiny, as wide as the viewport)
+                        Rectangle {
                             anchors.bottom: parent.bottom
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.margins: 20
-                            spacing: 10
+                            width: parent.width
+                            height: 36
+                            color: "#CC09090B"
+                            border.color: Theme.border
+                            border.width: 0
                             
-                            Rectangle {
-                                color: "#CC09090B"
-                                radius: Theme.radius
-                                border.color: Theme.border
-                                width: toolbarLayout.implicitWidth + 24
-                                height: 44
-                                
-                                RowLayout {
-                                    id: toolbarLayout
-                                    anchors.centerIn: parent
-                                    spacing: 12
-                                    Button { text: "Open"; variantOutline: true; onClicked: fileDialog.open() }
-                                    Button { text: "Fit"; variantOutline: true }
-                                    Button { text: "1:1"; variantOutline: true }
+                            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Theme.border }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 20
+                                anchors.rightMargin: 20
+                                spacing: 12
+
+                                Image {
+                                    source: "qrc:/Main/assets/icons/search.svg"
+                                    sourceSize: Qt.size(16, 16)
+                                    opacity: 0.6
+                                }
+
+                                Image {
+                                    source: "qrc:/Main/assets/icons/zoom-out.svg"
+                                    sourceSize: Qt.size(16, 16)
+                                    opacity: 0.6
+                                }
+
+                                Slider {
+                                    id: zoomSlider
+                                    Layout.preferredWidth: 200
+                                    from: 0.1
+                                    to: 10.0
+                                    value: rawViewport.zoom
+                                    onMoved: rawViewport.zoom = value
+                                }
+
+                                Image {
+                                    source: "qrc:/Main/assets/icons/zoom-in.svg"
+                                    sourceSize: Qt.size(16, 16)
+                                    opacity: 0.6
+                                }
+
+                                Image {
+                                    source: "qrc:/Main/assets/icons/hand.svg"
+                                    sourceSize: Qt.size(16, 16)
+                                    opacity: 0.6
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                // Info Overlay (Moved into toolbar for cleaner look)
+                                Text {
+                                    text: AppState.currentImage !== "" ? AppState.currentImage.split('/').pop() : "No file loaded"
+                                    color: Theme.mutedFg
+                                    font: Theme.fontSmall
                                 }
                             }
-                        }
-
-                        // Info Overlay
-                        Text {
-                            anchors.top: parent.top
-                            anchors.left: parent.left
-                            anchors.margins: 20
-                            text: rawViewport.source !== "" ? rawViewport.source.split('/').pop() : "No file loaded"
-                            color: Theme.mutedFg
-                            font: Theme.fontSmall
                         }
                     }
 
@@ -232,7 +259,7 @@ Window {
                             color: Theme.secondary
                             radius: Theme.radiusSm
                             border.color: Theme.primary
-                            border.width: index === 0 ? 2 : 0
+                            border.width: AppState.currentImage === model.path ? 2 : 0
                             
                             // Thumbnail image
                             Image {
@@ -252,6 +279,11 @@ Window {
                                     font: Theme.fontSmall
                                     visible: filmstripThumbnail.status !== Image.Ready
                                 }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: AppState.setCurrentImage(model.path)
                             }
                         }
                         leftMargin: 20

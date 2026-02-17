@@ -26,7 +26,17 @@ void RawEngine::updateProcessingParams() {
   m_processor->imgdata.params.use_camera_wb = 1;
   m_processor->imgdata.params.output_bps = 16;
   m_processor->imgdata.params.no_auto_bright = 1;
-  m_processor->imgdata.params.half_size = 0;
+  m_processor->imgdata.params.half_size = m_halfSize ? 1 : 0;
+}
+
+void RawEngine::setHalfSize(bool half) {
+  if (m_halfSize == half) return;
+  m_halfSize = half;
+  updateProcessingParams();
+  emit halfSizeChanged();
+  if (m_isLoaded) {
+    emit imageLoaded();
+  }
 }
 
 void RawEngine::setSource(const QString& source) {

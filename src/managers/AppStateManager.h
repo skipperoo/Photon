@@ -23,6 +23,8 @@ class AppStateManager : public QObject {
                  currentViewChanged)
   Q_PROPERTY(QString currentFolder READ currentFolder WRITE setCurrentFolder
                  NOTIFY currentFolderChanged)
+  Q_PROPERTY(QString currentImage READ currentImage WRITE setCurrentImage NOTIFY
+                 currentImageChanged)
   Q_PROPERTY(QString lastOpenedFolder READ lastOpenedFolder NOTIFY
                  lastOpenedFolderChanged)
   Q_PROPERTY(
@@ -49,6 +51,7 @@ class AppStateManager : public QObject {
   // Getters
   ViewState currentView() const { return m_currentView; }
   QString currentFolder() const { return m_currentFolder; }
+  QString currentImage() const { return m_currentImage; }
   QString lastOpenedFolder() const { return m_lastOpenedFolder; }
   bool hasLastSession() const { return !m_lastOpenedFolder.isEmpty(); }
   QString preferredGpu() const { return m_preferredGpu; }
@@ -62,12 +65,14 @@ class AppStateManager : public QObject {
  public slots:
   void setCurrentView(ViewState view);
   void setCurrentFolder(const QString& folder);
+  void setCurrentImage(const QString& image);
   void setPreferredGpu(const QString& gpu);
   void setCacheSizeGB(int size);
 
  signals:
   void currentViewChanged();
   void currentFolderChanged();
+  void currentImageChanged();
   void lastOpenedFolderChanged();
   void hasLastSessionChanged();
   void preferredGpuChanged();
@@ -78,6 +83,7 @@ class AppStateManager : public QObject {
 
   ViewState m_currentView = ViewState::Welcome;
   QString m_currentFolder;
+  QString m_currentImage;
   QString m_lastOpenedFolder;
   QString m_preferredGpu = "Auto";
   int m_cacheSizeGB = 10;

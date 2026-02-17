@@ -148,8 +148,11 @@ Control {
                     MouseArea {
                         anchors.fill: parent
                         onClicked: {
-                            // TODO: Open the selected file in Develop view
-                            console.log("Selected file:", model.path);
+                            AppState.setCurrentImage(model.path);
+                        }
+                        onDoubleClicked: {
+                            AppState.setCurrentImage(model.path);
+                            AppState.setCurrentView(AppState.ViewState.Develop);
                         }
                     }
                 }

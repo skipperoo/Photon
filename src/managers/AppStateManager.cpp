@@ -90,6 +90,13 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
   }
 }
 
+void AppStateManager::setCurrentImage(const QString& image) {
+  if (m_currentImage != image) {
+    m_currentImage = image;
+    emit currentImageChanged();
+  }
+}
+
 void AppStateManager::setPreferredGpu(const QString& gpu) {
   if (m_preferredGpu != gpu) {
     m_preferredGpu = gpu;

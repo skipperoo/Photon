@@ -83,7 +83,7 @@ Control {
         Item {
             id: contentContainer
             Layout.fillWidth: true
-            Layout.preferredHeight: root.expanded ? contentLoader.implicitHeight : 0
+            Layout.preferredHeight: root.expanded ? (contentLoader.implicitHeight + contentLoader.anchors.topMargin + contentLoader.anchors.bottomMargin) : 0
             clip: true
             
             // Add a subtle animation
@@ -98,9 +98,10 @@ Control {
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.margins: 16
                 anchors.topMargin: 12
-                anchors.bottomMargin: 20 // Added more space at the bottom
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
+                anchors.bottomMargin: 24 // Explicit space at the bottom
             }
         }
     }

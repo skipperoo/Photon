@@ -51,6 +51,7 @@ Control {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 180
                     Layout.margins: 12
+                    Layout.bottomMargin: 20
                     color: "#121214"
                     radius: Theme.radius
                     border.color: Theme.border

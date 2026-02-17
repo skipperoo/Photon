@@ -11,7 +11,7 @@ ColumnLayout {
     property real to: 100
     signal moved(real val)
 
-    spacing: 8
+    spacing: 4 // More compact
     Layout.fillWidth: true
 
     RowLayout {
@@ -27,6 +27,7 @@ ColumnLayout {
             text: root.value.toFixed(root.title === "Exposure" || root.title === "Contrast" ? 2 : 0)
             font: Theme.fontSmall
             color: Theme.foreground 
+            opacity: 0.8
         }
     }
 

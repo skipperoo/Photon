@@ -6,6 +6,9 @@ import Main
 Control {
     id: root
     Layout.fillWidth: true
+    Layout.leftMargin: 12
+    Layout.rightMargin: 12
+    Layout.bottomMargin: 12
     
     property string title: "Section"
     property bool expanded: true
@@ -14,17 +17,10 @@ Control {
     padding: 0
 
     background: Rectangle {
-        color: "transparent"
+        color: "#121214" // Lighter than background
         border.color: Theme.border
-        border.width: 0
-        // Bottom border only
-        Rectangle {
-            anchors.bottom: parent.bottom
-            width: parent.width
-            height: 1
-            color: Theme.border
-            visible: true
-        }
+        border.width: 1
+        radius: Theme.radius
     }
 
     contentItem: ColumnLayout {
@@ -40,7 +36,17 @@ Control {
 
             Rectangle {
                 anchors.fill: parent
-                color: parent.containsMouse ? "#121214" : "transparent"
+                color: parent.containsMouse ? "#1a1a1c" : "transparent"
+                radius: Theme.radius
+                
+                // Only round top corners if expanded, all if collapsed
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: parent.radius
+                    color: parent.color
+                    visible: root.expanded
+                }
             }
 
             RowLayout {
@@ -61,6 +67,15 @@ Control {
                     color: Theme.foreground
                     Layout.fillWidth: true
                 }
+            }
+            
+            // Separator line when expanded
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.border
+                visible: root.expanded
             }
         }
 
@@ -84,8 +99,8 @@ Control {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.margins: 16
-                anchors.topMargin: 4
-                anchors.bottomMargin: 16
+                anchors.topMargin: 12
+                anchors.bottomMargin: 20 // Added more space at the bottom
             }
         }
     }

@@ -11,21 +11,21 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::imageLoaded, this,
           &RawViewport::onImageLoaded);
   connect(&m_engine, &RawEngine::exposureChanged, this,
-          &RawViewport::exposureChanged);
+          &RawViewport::update);
   connect(&m_engine, &RawEngine::contrastChanged, this,
-          &RawViewport::contrastChanged);
+          &RawViewport::update);
   connect(&m_engine, &RawEngine::highlightsChanged, this,
-          &RawViewport::highlightsChanged);
+          &RawViewport::update);
   connect(&m_engine, &RawEngine::shadowsChanged, this,
-          &RawViewport::shadowsChanged);
+          &RawViewport::update);
   connect(&m_engine, &RawEngine::whitesChanged, this,
-          &RawViewport::whitesChanged);
+          &RawViewport::update);
   connect(&m_engine, &RawEngine::blacksChanged, this,
-          &RawViewport::blacksChanged);
+          &RawViewport::update);
   connect(&m_engine, &RawEngine::vibranceChanged, this,
-          &RawViewport::vibranceChanged);
+          &RawViewport::update);
   connect(&m_engine, &RawEngine::saturationChanged, this,
-          &RawViewport::saturationChanged);
+          &RawViewport::update);
 }
 
 void RawViewport::setSource(const QString& source) {
@@ -38,56 +38,48 @@ void RawViewport::setExposure(float ev) {
   if (qFuzzyCompare(m_engine.exposure(), ev)) return;
   m_engine.setExposure(ev);
   emit exposureChanged();
-  update();
 }
 
 void RawViewport::setContrast(float val) {
   if (qFuzzyCompare(m_engine.contrast(), val)) return;
   m_engine.setContrast(val);
   emit contrastChanged();
-  update();
 }
 
 void RawViewport::setHighlights(float val) {
   if (qFuzzyCompare(m_engine.highlights(), val)) return;
   m_engine.setHighlights(val);
   emit highlightsChanged();
-  update();
 }
 
 void RawViewport::setShadows(float val) {
   if (qFuzzyCompare(m_engine.shadows(), val)) return;
   m_engine.setShadows(val);
   emit shadowsChanged();
-  update();
 }
 
 void RawViewport::setWhites(float val) {
   if (qFuzzyCompare(m_engine.whites(), val)) return;
   m_engine.setWhites(val);
   emit whitesChanged();
-  update();
 }
 
 void RawViewport::setBlacks(float val) {
   if (qFuzzyCompare(m_engine.blacks(), val)) return;
   m_engine.setBlacks(val);
   emit blacksChanged();
-  update();
 }
 
 void RawViewport::setVibrance(float val) {
   if (qFuzzyCompare(m_engine.vibrance(), val)) return;
   m_engine.setVibrance(val);
   emit vibranceChanged();
-  update();
 }
 
 void RawViewport::setSaturation(float val) {
   if (qFuzzyCompare(m_engine.saturation(), val)) return;
   m_engine.setSaturation(val);
   emit saturationChanged();
-  update();
 }
 
 void RawViewport::setZoom(float zoom) {

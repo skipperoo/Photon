@@ -155,6 +155,7 @@ Window {
 
                     // The Viewport
                     Rectangle {
+                        id: viewportContainer
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         color: "#000000"
@@ -165,6 +166,26 @@ Window {
                             anchors.fill: parent
                             anchors.margins: 2
                             source: AppState.currentImage
+                            visible: false // Processed by ShaderEffect
+                        }
+
+                        ShaderEffect {
+                            anchors.fill: rawViewport
+                            property variant source: ShaderEffectSource { 
+                                sourceItem: rawViewport
+                                hideSource: true
+                                live: true
+                            }
+                            property real exposure: rawViewport.exposure
+                            property real contrast: rawViewport.contrast
+                            property real highlights: rawViewport.highlights
+                            property real shadows: rawViewport.shadows
+                            property real whites: rawViewport.whites
+                            property real blacks: rawViewport.blacks
+                            property real vibrance: rawViewport.vibrance
+                            property real saturation: rawViewport.saturation
+                            
+                            fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                         }
 
                         // Bottom Toolbar (Tiny, as wide as the viewport)

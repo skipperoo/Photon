@@ -11,7 +11,7 @@ ColumnLayout {
     property real to: 100
     signal moved(real val)
 
-    spacing: 4 // More compact
+    spacing: 4
     Layout.fillWidth: true
 
     RowLayout {
@@ -20,7 +20,7 @@ ColumnLayout {
             id: titleText
             text: root.title
             font: Theme.fontRegular
-            color: Theme.mutedFg 
+            color: Theme.foreground // Brighter for better visibility
         }
         Item { Layout.fillWidth: true }
         Text { 

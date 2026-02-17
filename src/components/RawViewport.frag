@@ -3,7 +3,7 @@
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 
-layout(binding = 1) uniform sampler2D qt_Texture0;
+layout(binding = 1) uniform sampler2D source;
 
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
@@ -20,7 +20,7 @@ layout(std140, binding = 0) uniform buf {
 
 void main()
 {
-    vec4 color = texture(qt_Texture0, qt_TexCoord0);
+    vec4 color = texture(source, qt_TexCoord0);
     
     // 1. Exposure (EV scale: 2^exposure)
     color.rgb *= pow(2.0, ubuf.exposure);
@@ -28,16 +28,22 @@ void main()
     // 2. Contrast
     color.rgb = (color.rgb - 0.5) * ubuf.contrast + 0.5;
     
-    // 3. Highlights / Shadows (Simplified linear approach for now)
+    // 3. Highlights / Shadows / Whites / Blacks
     float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-    if (ubuf.highlights != 0.0) {
-        float hWeight = smoothstep(0.5, 1.0, luma);
-        color.rgb += hWeight * (ubuf.highlights / 100.0) * color.rgb;
-    }
-    if (ubuf.shadows != 0.0) {
-        float sWeight = 1.0 - smoothstep(0.0, 0.5, luma);
-        color.rgb += sWeight * (ubuf.shadows / 100.0) * color.rgb;
-    }
+    
+    // Highlights
+    float hWeight = smoothstep(0.5, 1.0, luma);
+    color.rgb += hWeight * (ubuf.highlights / 100.0) * color.rgb;
+    
+    // Shadows
+    float sWeight = 1.0 - smoothstep(0.0, 0.5, luma);
+    color.rgb += sWeight * (ubuf.shadows / 100.0) * color.rgb;
+    
+    // Whites
+    color.rgb += (ubuf.whites / 100.0) * smoothstep(0.8, 1.0, luma);
+    
+    // Blacks
+    color.rgb += (ubuf.blacks / 100.0) * (1.0 - smoothstep(0.0, 0.2, luma));
 
     // 4. Saturation
     float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));

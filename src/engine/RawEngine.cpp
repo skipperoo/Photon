@@ -53,59 +53,48 @@ void RawEngine::setExposure(float ev) {
 
   m_exposure = ev;
   emit exposureChanged();
-
-  if (m_isLoaded) {
-    emit imageLoaded();
-  }
 }
 
 void RawEngine::setContrast(float val) {
   if (qFuzzyCompare(m_contrast, val)) return;
   m_contrast = val;
   emit contrastChanged();
-  if (m_isLoaded) emit imageLoaded();
 }
 
 void RawEngine::setHighlights(float val) {
   if (qFuzzyCompare(m_highlights, val)) return;
   m_highlights = val;
   emit highlightsChanged();
-  if (m_isLoaded) emit imageLoaded();
 }
 
 void RawEngine::setShadows(float val) {
   if (qFuzzyCompare(m_shadows, val)) return;
   m_shadows = val;
   emit shadowsChanged();
-  if (m_isLoaded) emit imageLoaded();
 }
 
 void RawEngine::setWhites(float val) {
   if (qFuzzyCompare(m_whites, val)) return;
   m_whites = val;
   emit whitesChanged();
-  if (m_isLoaded) emit imageLoaded();
 }
 
 void RawEngine::setBlacks(float val) {
   if (qFuzzyCompare(m_blacks, val)) return;
   m_blacks = val;
   emit blacksChanged();
-  if (m_isLoaded) emit imageLoaded();
 }
 
 void RawEngine::setVibrance(float val) {
   if (qFuzzyCompare(m_vibrance, val)) return;
   m_vibrance = val;
   emit vibranceChanged();
-  if (m_isLoaded) emit imageLoaded();
 }
 
 void RawEngine::setSaturation(float val) {
   if (qFuzzyCompare(m_saturation, val)) return;
   m_saturation = val;
   emit saturationChanged();
-  if (m_isLoaded) emit imageLoaded();
 }
 
 void RawEngine::clearProcessedImage() {

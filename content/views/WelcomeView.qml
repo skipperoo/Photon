@@ -46,14 +46,6 @@ Item {
                     color: "#ffffff"
                     opacity: 0.1
                 }
-
-                Image {
-                    id: aestheticImage
-                    anchors.fill: parent
-                    fillMode: Image.PreserveAspectCrop
-                    source: "qrc:/images/welcome-bg.jpg"
-                    visible: status === Image.Ready
-                }
             }
 
             // Right Pane: Action Zone
@@ -99,7 +91,7 @@ Item {
                         Layout.fillWidth: true
                         text: "Open Folder"
                         variantOutline: true
-                        onClicked: root.openFolderRequested()
+                        onClicked: folderDialog.open()
                     }
 
                     Item { height: Theme.spacingXl }
@@ -121,7 +113,9 @@ Item {
         id: folderDialog
         title: "Select a folder containing RAW images"
         onAccepted: {
-            root.openFolderRequested()
+            // Set the current folder and switch to Library view
+            AppState.setCurrentFolder(selectedFolder.toString().replace("file://", ""))
+            AppState.setCurrentView(AppState.ViewState.Library)
         }
     }
 }

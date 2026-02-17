@@ -22,29 +22,21 @@ Window {
         }
     }
 
-    // Folder dialog for opening folders (from Welcome view)
-    FolderDialog {
-        id: folderDialog
-        title: "Select a folder containing RAW images"
-        onAccepted: {
-            AppState.setCurrentFolder(selectedFolder.toString().replace("file://", ""))
-            AppState.setCurrentView(AppStateManager.ViewState.Library)
-        }
-    }
+
 
     RowLayout {
         anchors.fill: parent
         spacing: 0
 
         // --- Sidebar Navigation (hidden on Welcome screen) ---
-        Rectangle {
-            Layout.preferredWidth: AppState.currentView === AppStateManager.ViewState.Welcome ? 0 : 64
-            Layout.fillHeight: true
-            color: Theme.background
-            border.color: Theme.border
-            border.width: 0
-            visible: AppState.currentView !== AppStateManager.ViewState.Welcome
-            clip: true
+    Rectangle {
+        Layout.preferredWidth: AppState.currentView === AppState.ViewState.Welcome ? 0 : 64
+        Layout.fillHeight: true
+        color: Theme.background
+        border.color: Theme.border
+        border.width: 0
+        visible: AppState.currentView !== AppState.ViewState.Welcome
+        clip: true
             
             Rectangle { 
                 anchors.right: parent.right; 
@@ -102,16 +94,15 @@ Window {
             Layout.fillHeight: true
             currentIndex: {
                 switch (AppState.currentView) {
-                    case AppStateManager.ViewState.Welcome: return 0
-                    case AppStateManager.ViewState.Library: return 1
-                    case AppStateManager.ViewState.Develop: return 2
+                    case AppState.ViewState.Welcome: return 0
+                    case AppState.ViewState.Library: return 1
+                    case AppState.ViewState.Develop: return 2
                     default: return 0
                 }
             }
 
             // 0: Welcome View
             WelcomeView {
-                onOpenFolderRequested: folderDialog.open()
                 onContinueSessionRequested: {
                     AppState.setCurrentView(AppStateManager.ViewState.Library)
                 }

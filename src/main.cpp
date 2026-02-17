@@ -6,6 +6,7 @@
 
 #include "components/RawViewport.h"
 #include "managers/AppStateManager.h"
+#include "managers/ThumbnailProvider.h"
 
 int main(int argc, char* argv[]) {
   QGuiApplication app(argc, argv);
@@ -20,6 +21,9 @@ int main(int argc, char* argv[]) {
 
   // Register RawViewport component
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");
+
+  // Register ThumbnailProvider component
+  qmlRegisterType<ThumbnailProvider>("Main", 1, 0, "ThumbnailProvider");
 
   const QUrl url(QStringLiteral("qrc:/Main/content/views/App.qml"));
 

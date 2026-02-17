@@ -1,9 +1,11 @@
 #pragma once
 
+#include <QDir>
 #include <QJSEngine>
 #include <QObject>
 #include <QQmlEngine>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QString>
 
 /**

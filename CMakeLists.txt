@@ -19,6 +19,8 @@ qt_add_executable(appPhoton
     src/components/RawViewport.h
     src/managers/AppStateManager.cpp
     src/managers/AppStateManager.h
+    src/managers/ThumbnailProvider.cpp
+    src/managers/ThumbnailProvider.h
 )
 
 # Mark Theme.qml as a singleton (must be before qt_add_qml_module)
@@ -37,6 +39,8 @@ qt_add_qml_module(appPhoton
         src/engine/RawEngine.h
         src/managers/AppStateManager.cpp
         src/managers/AppStateManager.h
+        src/managers/ThumbnailProvider.cpp
+        src/managers/ThumbnailProvider.h
     QML_FILES
         content/views/App.qml
         content/views/WelcomeView.qml

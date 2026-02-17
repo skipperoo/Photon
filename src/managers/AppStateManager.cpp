@@ -1,5 +1,8 @@
 #include "AppStateManager.h"
 
+#include <QDebug>
+#include <QDir>
+
 AppStateManager* AppStateManager::s_instance = nullptr;
 
 AppStateManager::AppStateManager(QObject* parent)
@@ -61,6 +64,23 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
   if (m_currentFolder != folder) {
     m_currentFolder = folder;
     m_lastOpenedFolder = folder;
+
+    // Create .PhotonData folder structure if it doesn't exist
+    QDir folderDir(folder);
+    if (folderDir.exists()) {
+      QString photonDataPath = folder + "/.PhotonData";
+
+      // Create .PhotonData directory
+      QDir photonDir(photonDataPath);
+      if (!photonDir.exists()) {
+        folderDir.mkpath(".PhotonData");
+      }
+
+      // Create subdirectories
+      photonDir.mkpath("edits");
+      photonDir.mkpath("cache/thumbnails");
+      photonDir.mkpath("cache/previews");
+    }
 
     emit currentFolderChanged();
     emit lastOpenedFolderChanged();

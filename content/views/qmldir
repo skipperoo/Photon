@@ -1,0 +1,11 @@
+module content.views
+App 1.0 App.qml
+LibraryView 1.0 LibraryView.qml
+DevelopView 1.0 DevelopView.qml
+SettingView 1.0 SettingView.qml
+depends QtQuick
+depends QtQuick.Controls
+depends QtQuick.Layouts
+depends QtQuick.Dialogs
+depends content.components
+depends content.theme

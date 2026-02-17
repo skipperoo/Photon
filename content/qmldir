@@ -1,0 +1,4 @@
+module content
+depends content.theme
+depends content.components
+depends content.views

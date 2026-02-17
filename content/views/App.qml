@@ -69,7 +69,7 @@ Window {
             id: topbarHoverArea
             anchors.top: parent.top
             width: parent.width
-            height: 60
+            height: 100
             hoverEnabled: true
             enabled: AppState.currentView === AppState.ViewState.Develop
             onEntered: if (AppState.currentView === AppState.ViewState.Develop) window.showTopbar = true

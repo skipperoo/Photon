@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQmlIntegration/qqmlintegration.h>
+
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSGNode>

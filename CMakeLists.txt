@@ -30,6 +30,13 @@ qt_add_qml_module(appPhoton
     URI "Main"
     VERSION 1.0
     RESOURCE_PREFIX "/"
+    SOURCES
+        src/components/RawViewport.cpp
+        src/components/RawViewport.h
+        src/engine/RawEngine.cpp
+        src/engine/RawEngine.h
+        src/managers/AppStateManager.cpp
+        src/managers/AppStateManager.h
     QML_FILES
         content/views/App.qml
         content/views/WelcomeView.qml
@@ -55,9 +62,16 @@ target_link_libraries(appPhoton
     PRIVATE ${LIBRAW_LIBRARIES}
 )
 target_include_directories(appPhoton PRIVATE
+    src
     src/engine
     src/components
+    src/managers
     ${LIBRAW_INCLUDE_DIRS}
+)
+
+# Ensure QML types are registered before main
+set_target_properties(appPhoton PROPERTIES
+    QT_QML_IMPORT_PATH "${CMAKE_BINARY_DIR}/Main"
 )
 
 include(GNUInstallDirs)

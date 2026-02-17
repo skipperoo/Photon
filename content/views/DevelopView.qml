@@ -6,135 +6,127 @@ import Main
 Control {
     id: root
 
-    // Define signals so App.qml can talk to C++
-    signal exposureChanged(real value)
-    signal contrastChanged(real value)
-    signal exportClicked()
+    // Reference to the viewport being controlled (optional, but useful)
+    property var viewport: null
 
     background: Rectangle {
         color: Theme.background
         border.color: Theme.border
         border.width: 0
-        // Draw a border only on the left side
         Rectangle { width: 1; height: parent.height; color: Theme.border }
     }
 
-    ScrollView {
+    ColumnLayout {
         anchors.fill: parent
-        clip: true // Don't let sliders draw outside the panel
+        spacing: 0
 
-        ColumnLayout {
-            width: parent.width
-            spacing: 24
-
-            // Padding around the whole column
-            anchors.margins: 20
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-
-            // --- Header ---
+        // --- Header ---
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 60
+            color: "transparent"
+            
             Text {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 20
                 text: "Develop"
                 font: Theme.fontLarge
                 color: Theme.foreground
-                Layout.topMargin: 20
-                Layout.leftMargin: 20
             }
+        }
 
-            // --- Light Panel ---
-            Card {
-                Layout.fillWidth: true
-                Layout.margins: 20
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            contentWidth: availableWidth
 
-                ColumnLayout {
-                    spacing: 16
-                    width: parent.width
+            ColumnLayout {
+                width: parent.width
+                spacing: 0
 
-                    Text { text: "Light"; font: Theme.fontMedium; color: Theme.foreground }
-
-                    // Exposure Control
-                    ColumnLayout {
-                        spacing: 8
-                        Layout.fillWidth: true
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Text { text: "Exposure"; font: Theme.fontRegular; color: Theme.mutedFg }
-                            Item { Layout.fillWidth: true } // Spacer
-                            Text { text: exposureSlider.value.toFixed(2); font: Theme.fontRegular; color: Theme.foreground }
-                        }
-
-                        Slider {
-                            id: exposureSlider
-                            Layout.fillWidth: true
-                            from: -5.0; to: 5.0; value: 0.0
-                            onMoved: root.exposureChanged(value)
-                        }
-                    }
-
-                    // Contrast Control
-                    ColumnLayout {
-                        spacing: 8
-                        Layout.fillWidth: true
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Text { text: "Contrast"; font: Theme.fontRegular; color: Theme.mutedFg }
-                            Item { Layout.fillWidth: true }
-                            Text { text: contrastSlider.value.toFixed(2); font: Theme.fontRegular; color: Theme.foreground }
-                        }
-
-                        Slider {
-                            id: contrastSlider
-                            Layout.fillWidth: true
-                            from: 0.0; to: 2.0; value: 1.0
-                            onMoved: root.contrastChanged(value)
-                        }
+                // --- Histogram Placeholder ---
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 180
+                    Layout.margins: 12
+                    color: "#121214"
+                    radius: Theme.radius
+                    border.color: Theme.border
+                    
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Histogram"
+                        color: Theme.mutedFg
+                        font: Theme.fontSmall
                     }
                 }
-            }
 
-            // --- Color Panel ---
-            Card {
-                Layout.fillWidth: true
-                Layout.margins: 20
+                // --- Light Section ---
+                Collapsible {
+                    title: "Light"
+                    expanded: true
 
-                ColumnLayout {
-                    spacing: 16
-                    width: parent.width
-
-                    Text { text: "Color"; font: Theme.fontMedium; color: Theme.foreground }
-
-                    // Temp
                     ColumnLayout {
-                        spacing: 8
                         Layout.fillWidth: true
-                        Text { text: "Temperature"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        Slider { Layout.fillWidth: true; from: 2000; to: 10000; value: 5600 }
-                    }
+                        spacing: 16
 
-                    // Tint
-                    ColumnLayout {
-                        spacing: 8
-                        Layout.fillWidth: true
-                        Text { text: "Tint"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        Slider { Layout.fillWidth: true; from: -50; to: 50; value: 0 }
+                        ControlGroup { title: "Exposure"; value: root.viewport ? root.viewport.exposure : 0.0; from: -5; to: 5; onMoved: (v) => { if(root.viewport) root.viewport.exposure = v } }
+                        ControlGroup { title: "Contrast"; value: root.viewport ? root.viewport.contrast : 1.0; from: 0; to: 2; onMoved: (v) => { if(root.viewport) root.viewport.contrast = v } }
+                        
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        ControlGroup { title: "Highlights"; value: root.viewport ? root.viewport.highlights : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.highlights = v } }
+                        ControlGroup { title: "Shadows"; value: root.viewport ? root.viewport.shadows : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.shadows = v } }
+                        ControlGroup { title: "Whites"; value: root.viewport ? root.viewport.whites : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.whites = v } }
+                        ControlGroup { title: "Blacks"; value: root.viewport ? root.viewport.blacks : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.blacks = v } }
                     }
                 }
+
+                // --- Presence Section ---
+                Collapsible {
+                    title: "Presence"
+                    expanded: true
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        ControlGroup { title: "Vibrance"; value: root.viewport ? root.viewport.vibrance : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.vibrance = v } }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.saturation : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.saturation = v } }
+                    }
+                }
+
+                // --- Effects Section ---
+                Collapsible {
+                    title: "Effects"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+                        ControlGroup { title: "Clarity"; value: 0; from: -100; to: 100 }
+                        ControlGroup { title: "Dehaze"; value: 0; from: -100; to: 100 }
+                        ControlGroup { title: "Structure"; value: 0; from: -100; to: 100 }
+                    }
+                }
+
+                // --- Detail Section ---
+                Collapsible {
+                    title: "Detail"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+                        ControlGroup { title: "Sharpening"; value: 0; from: 0; to: 100 }
+                        ControlGroup { title: "Noise Reduction"; value: 0; from: 0; to: 100 }
+                    }
+                }
+
+                Item { Layout.preferredHeight: 40 }
             }
-
-            // --- Footer / Export ---
-            Item { Layout.fillHeight: true; Layout.minimumHeight: 20 } // Spacer
-
-            Button {
-                Layout.fillWidth: true
-                Layout.margins: 20
-                text: "Export Image"
-                onClicked: root.exportClicked()
-            }
-
-            Item { height: 20 } // Bottom padding
         }
     }
 }

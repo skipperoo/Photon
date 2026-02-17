@@ -2,6 +2,7 @@
 
 #include <QImage>
 #include <QSGTexture>
+#include <QtMath>
 
 RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   setFlag(ItemHasContents, true);
@@ -11,6 +12,20 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
           &RawViewport::onImageLoaded);
   connect(&m_engine, &RawEngine::exposureChanged, this,
           &RawViewport::exposureChanged);
+  connect(&m_engine, &RawEngine::contrastChanged, this,
+          &RawViewport::contrastChanged);
+  connect(&m_engine, &RawEngine::highlightsChanged, this,
+          &RawViewport::highlightsChanged);
+  connect(&m_engine, &RawEngine::shadowsChanged, this,
+          &RawViewport::shadowsChanged);
+  connect(&m_engine, &RawEngine::whitesChanged, this,
+          &RawViewport::whitesChanged);
+  connect(&m_engine, &RawEngine::blacksChanged, this,
+          &RawViewport::blacksChanged);
+  connect(&m_engine, &RawEngine::vibranceChanged, this,
+          &RawViewport::vibranceChanged);
+  connect(&m_engine, &RawEngine::saturationChanged, this,
+          &RawViewport::saturationChanged);
 }
 
 void RawViewport::setSource(const QString& source) {
@@ -23,6 +38,56 @@ void RawViewport::setExposure(float ev) {
   if (qFuzzyCompare(m_engine.exposure(), ev)) return;
   m_engine.setExposure(ev);
   emit exposureChanged();
+  update();
+}
+
+void RawViewport::setContrast(float val) {
+  if (qFuzzyCompare(m_engine.contrast(), val)) return;
+  m_engine.setContrast(val);
+  emit contrastChanged();
+  update();
+}
+
+void RawViewport::setHighlights(float val) {
+  if (qFuzzyCompare(m_engine.highlights(), val)) return;
+  m_engine.setHighlights(val);
+  emit highlightsChanged();
+  update();
+}
+
+void RawViewport::setShadows(float val) {
+  if (qFuzzyCompare(m_engine.shadows(), val)) return;
+  m_engine.setShadows(val);
+  emit shadowsChanged();
+  update();
+}
+
+void RawViewport::setWhites(float val) {
+  if (qFuzzyCompare(m_engine.whites(), val)) return;
+  m_engine.setWhites(val);
+  emit whitesChanged();
+  update();
+}
+
+void RawViewport::setBlacks(float val) {
+  if (qFuzzyCompare(m_engine.blacks(), val)) return;
+  m_engine.setBlacks(val);
+  emit blacksChanged();
+  update();
+}
+
+void RawViewport::setVibrance(float val) {
+  if (qFuzzyCompare(m_engine.vibrance(), val)) return;
+  m_engine.setVibrance(val);
+  emit vibranceChanged();
+  update();
+}
+
+void RawViewport::setSaturation(float val) {
+  if (qFuzzyCompare(m_engine.saturation(), val)) return;
+  m_engine.setSaturation(val);
+  emit saturationChanged();
+  update();
 }
 
 void RawViewport::setZoom(float zoom) {
@@ -73,6 +138,7 @@ void RawViewport::wheelEvent(QWheelEvent* event) {
 
 void RawViewport::onImageLoaded() {
   m_imageDirty = true;
+  m_textureDirty = true;
   update();  // Trigger updatePaintNode
 }
 
@@ -116,7 +182,7 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     node = new QSGSimpleTextureNode();
   }
 
-  if (m_imageDirty) {
+  if (m_textureDirty) {
     int width, height, colors;
     const uchar* data = m_engine.getProcessedData(width, height, colors);
 
@@ -126,21 +192,13 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
 
       QImage img;
       if (colors == 3) {
-        // Phase 3: Convert 16-bit RGB to 16-bit RGBX (for
-        // QImage::Format_RGBX64)
         img = QImage(width, height, QImage::Format_RGBX64);
         const ushort* src = reinterpret_cast<const ushort*>(data);
         QRgba64* dst = reinterpret_cast<QRgba64*>(img.bits());
-
-        for (int y = 0; y < height; ++y) {
-          for (int x = 0; x < width; ++x) {
-            int idx = (y * width + x);
-            dst[idx] = QRgba64::fromRgba64(src[idx * 3], src[idx * 3 + 1],
-                                           src[idx * 3 + 2], 65535);
-          }
+        for (int i = 0; i < width * height; ++i) {
+          dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1], src[i * 3 + 2], 65535);
         }
       } else if (colors == 4) {
-        // If it's already 4 colors (e.g. RGBA), assume 16-bit
         img = QImage(data, width, height, QImage::Format_RGBA64).copy();
       }
 
@@ -150,6 +208,7 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
         node->setOwnsTexture(true);
       }
     }
+    m_textureDirty = false;
     m_imageDirty = false;
   }
 

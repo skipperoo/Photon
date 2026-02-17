@@ -32,6 +32,14 @@ set_source_files_properties(content/theme/Theme.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
+qt6_add_shaders(appPhoton "raw_shaders"
+    PREFIX "/Main/shaders"
+    BASE "src/components"
+    FILES
+        src/components/RawViewport.vert
+        src/components/RawViewport.frag
+)
+
 qt_add_qml_module(appPhoton
     URI "Main"
     VERSION 1.0
@@ -59,6 +67,8 @@ qt_add_qml_module(appPhoton
         content/components/Input.qml
         content/components/Slider.qml
         content/components/Card.qml
+        content/components/Collapsible.qml
+        content/components/ControlGroup.qml
         content/theme/Theme.qml
     RESOURCES
         assets/icons/search.svg

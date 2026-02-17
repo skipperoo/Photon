@@ -59,6 +59,55 @@ void RawEngine::setExposure(float ev) {
   }
 }
 
+void RawEngine::setContrast(float val) {
+  if (qFuzzyCompare(m_contrast, val)) return;
+  m_contrast = val;
+  emit contrastChanged();
+  if (m_isLoaded) emit imageLoaded();
+}
+
+void RawEngine::setHighlights(float val) {
+  if (qFuzzyCompare(m_highlights, val)) return;
+  m_highlights = val;
+  emit highlightsChanged();
+  if (m_isLoaded) emit imageLoaded();
+}
+
+void RawEngine::setShadows(float val) {
+  if (qFuzzyCompare(m_shadows, val)) return;
+  m_shadows = val;
+  emit shadowsChanged();
+  if (m_isLoaded) emit imageLoaded();
+}
+
+void RawEngine::setWhites(float val) {
+  if (qFuzzyCompare(m_whites, val)) return;
+  m_whites = val;
+  emit whitesChanged();
+  if (m_isLoaded) emit imageLoaded();
+}
+
+void RawEngine::setBlacks(float val) {
+  if (qFuzzyCompare(m_blacks, val)) return;
+  m_blacks = val;
+  emit blacksChanged();
+  if (m_isLoaded) emit imageLoaded();
+}
+
+void RawEngine::setVibrance(float val) {
+  if (qFuzzyCompare(m_vibrance, val)) return;
+  m_vibrance = val;
+  emit vibranceChanged();
+  if (m_isLoaded) emit imageLoaded();
+}
+
+void RawEngine::setSaturation(float val) {
+  if (qFuzzyCompare(m_saturation, val)) return;
+  m_saturation = val;
+  emit saturationChanged();
+  if (m_isLoaded) emit imageLoaded();
+}
+
 void RawEngine::clearProcessedImage() {
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);
@@ -161,18 +210,6 @@ const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
   width = m_processedImage->width;
   height = m_processedImage->height;
   colors = m_processedImage->colors;
-
-  if (m_exposure != 0.0f) {
-    float scale = std::pow(2.0f, m_exposure);
-    ushort* pixels = reinterpret_cast<ushort*>(m_processedImage->data);
-    int totalSamples = width * height * colors;
-
-    for (int i = 0; i < totalSamples; ++i) {
-      float val = static_cast<float>(pixels[i]) * scale;
-      if (val > 65535.0f) val = 65535.0f;
-      pixels[i] = static_cast<ushort>(val);
-    }
-  }
 
   return m_processedImage->data;
 }

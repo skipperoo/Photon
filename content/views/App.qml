@@ -234,7 +234,7 @@ Window {
                         id: sidebar
                         Layout.preferredWidth: 320
                         Layout.fillHeight: true
-                        onExposureChanged: (val) => rawViewport.exposure = val
+                        viewport: rawViewport
                     }
                 }
 

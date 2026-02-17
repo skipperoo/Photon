@@ -12,6 +12,8 @@ Window {
     title: "Photon"
     color: Theme.background
 
+    property bool showTopbar: true
+
     // File scanner for finding RAW files in the current folder
     FileScanner {
         id: fileScanner
@@ -50,81 +52,20 @@ Window {
         }
     }
 
-
-
-    RowLayout {
+    // --- Main Layout ---
+    Item {
         anchors.fill: parent
-        spacing: 0
 
-        // --- Sidebar Navigation (hidden on Welcome screen) ---
-    Rectangle {
-        Layout.preferredWidth: AppState.currentView === AppState.ViewState.Welcome ? 0 : 64
-        Layout.fillHeight: true
-        color: Theme.background
-        border.color: Theme.border
-        border.width: 0
-        visible: AppState.currentView !== AppState.ViewState.Welcome
-        clip: true
-            
-            Rectangle { 
-                anchors.right: parent.right; 
-                width: 1; 
-                height: parent.height; 
-                color: Theme.border 
-                visible: parent.visible
-            }
-
-            ColumnLayout {
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.topMargin: 20
-                spacing: 20
-                visible: AppState.currentView !== AppState.ViewState.Welcome
-
-                Button {
-                    text: "L"
-                    Layout.alignment: Qt.AlignHCenter
-                    variantOutline: AppState.currentView !== AppState.ViewState.Library
-                    onClicked: AppState.setCurrentView(AppState.ViewState.Library)
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Library"
-                }
-
-                Button {
-                    text: "D"
-                    Layout.alignment: Qt.AlignHCenter
-                    variantOutline: AppState.currentView !== AppState.ViewState.Develop
-                    onClicked: AppState.setCurrentView(AppState.ViewState.Develop)
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Develop"
-                }
-
-                Item { Layout.fillHeight: true }
-
-                Button {
-                    text: "S"
-                    Layout.alignment: Qt.AlignHCenter
-                    variantOutline: AppState.currentView !== AppState.ViewState.Welcome
-                    onClicked: AppState.setCurrentView(AppState.ViewState.Welcome)
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Welcome"
-                }
-                
-                Item { height: 20 }
-            }
-        }
-
-        // --- Main Content Area with Transitions ---
+        // --- Content Area ---
         StackLayout {
             id: mainStack
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            anchors.fill: parent
             currentIndex: {
                 switch (AppState.currentView) {
                     case AppState.ViewState.Welcome: return 0
                     case AppState.ViewState.Library: return 1
                     case AppState.ViewState.Develop: return 2
+                    case AppState.ViewState.Settings: return 3
                     default: return 0
                 }
             }
@@ -135,16 +76,17 @@ Window {
                     AppState.setCurrentView(AppState.ViewState.Library)
                 }
                 onSettingsRequested: {
-                    // TODO: Show settings modal
-                    console.log("Settings requested")
+                    AppState.setCurrentView(AppState.ViewState.Settings)
                 }
                 hasLastSession: AppState.hasLastSession
             }
 
             // 1: Library View
-            LibraryView {}
+            LibraryView {
+                viewTopPadding: window.showTopbar ? 80 : 20
+            }
 
-            // 2: Develop View Layout (Holy Grail)
+            // 2: Develop View Layout
             ColumnLayout {
                 spacing: 0
                 
@@ -166,7 +108,7 @@ Window {
                             anchors.fill: parent
                             anchors.margins: 2
                             source: AppState.currentImage
-                            visible: false // Processed by ShaderEffect
+                            visible: false
                         }
 
                         ShaderEffect {
@@ -188,7 +130,7 @@ Window {
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                         }
 
-                        // Bottom Toolbar (Tiny, as wide as the viewport)
+                        // Bottom Toolbar
                         Rectangle {
                             anchors.bottom: parent.bottom
                             width: parent.width
@@ -211,12 +153,6 @@ Window {
                                     opacity: 0.6
                                 }
 
-                                Image {
-                                    source: "qrc:/Main/assets/icons/zoom-out.svg"
-                                    sourceSize: Qt.size(16, 16)
-                                    opacity: 0.6
-                                }
-
                                 Slider {
                                     id: zoomSlider
                                     Layout.preferredWidth: 200
@@ -226,21 +162,8 @@ Window {
                                     onMoved: rawViewport.zoom = value
                                 }
 
-                                Image {
-                                    source: "qrc:/Main/assets/icons/zoom-in.svg"
-                                    sourceSize: Qt.size(16, 16)
-                                    opacity: 0.6
-                                }
-
-                                Image {
-                                    source: "qrc:/Main/assets/icons/hand.svg"
-                                    sourceSize: Qt.size(16, 16)
-                                    opacity: 0.6
-                                }
-
                                 Item { Layout.fillWidth: true }
 
-                                // Info Overlay (Moved into toolbar for cleaner look)
                                 Text {
                                     text: AppState.currentImage !== "" ? AppState.currentImage.split('/').pop() : "No file loaded"
                                     color: Theme.mutedFg
@@ -256,6 +179,7 @@ Window {
                         Layout.preferredWidth: 320
                         Layout.fillHeight: true
                         viewport: rawViewport
+                        viewTopPadding: window.showTopbar ? 70 : 10
                     }
                 }
 
@@ -282,7 +206,6 @@ Window {
                             border.color: Theme.primary
                             border.width: AppState.currentImage === model.path ? 2 : 0
                             
-                            // Thumbnail image
                             Image {
                                 id: filmstripThumbnail
                                 anchors.fill: parent
@@ -292,7 +215,6 @@ Window {
                                 asynchronous: true
                                 visible: status === Image.Ready
                                 
-                                // Fallback text when no thumbnail is available
                                 Text {
                                     anchors.centerIn: parent
                                     text: "RAW"
@@ -311,6 +233,136 @@ Window {
                         rightMargin: 20
                     }
                 }
+            }
+
+            // 3: Settings View
+            SettingView {
+                viewTopPadding: window.showTopbar ? 80 : 20
+            }
+        }
+
+        // --- Floating Top Bar ---
+        Rectangle {
+            id: topbar
+            width: parent.width - 32
+            height: 56
+            anchors.top: parent.top
+            anchors.topMargin: window.showTopbar ? 16 : -height - 20
+            anchors.horizontalCenter: parent.horizontalCenter
+            color: "#E609090B" // Semi-transparent background
+            radius: Theme.radiusLg
+            border.color: Theme.border
+            border.width: 1
+            visible: AppState.currentView !== AppState.ViewState.Welcome
+
+            // Add a subtle drop shadow
+            layer.enabled: true
+            
+            Behavior on anchors.topMargin {
+                NumberAnimation { duration: 300; easing.type: Easing.OutQuint }
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 20
+                anchors.rightMargin: 12
+                spacing: 20
+
+                // Logo and Name
+                RowLayout {
+                    spacing: 12
+                    Rectangle {
+                        width: 28; height: 28; radius: 6
+                        color: Theme.foreground
+                        Text { anchors.centerIn: parent; text: "P"; color: Theme.background; font.bold: true }
+                    }
+                    Text {
+                        text: "PHOTON"
+                        font.pixelSize: 18
+                        font.bold: true
+                        font.letterSpacing: 1
+                        color: Theme.foreground
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                // Navigation Controls
+                RowLayout {
+                    spacing: 4
+                    
+                    Button {
+                        text: "Library"
+                        flat: true
+                        font: Theme.fontMedium
+                        palette.buttonText: AppState.currentView === AppState.ViewState.Library ? Theme.foreground : Theme.mutedFg
+                        onClicked: AppState.setCurrentView(AppState.ViewState.Library)
+                        
+                        Rectangle {
+                            anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.width * 0.4; height: 2; color: Theme.foreground
+                            visible: AppState.currentView === AppState.ViewState.Library
+                        }
+                    }
+
+                    Button {
+                        text: "Develop"
+                        flat: true
+                        font: Theme.fontMedium
+                        palette.buttonText: AppState.currentView === AppState.ViewState.Develop ? Theme.foreground : Theme.mutedFg
+                        onClicked: AppState.setCurrentView(AppState.ViewState.Develop)
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.width * 0.4; height: 2; color: Theme.foreground
+                            visible: AppState.currentView === AppState.ViewState.Develop
+                        }
+                    }
+
+                    Button {
+                        text: "Settings"
+                        flat: true
+                        font: Theme.fontMedium
+                        palette.buttonText: AppState.currentView === AppState.ViewState.Settings ? Theme.foreground : Theme.mutedFg
+                        onClicked: AppState.setCurrentView(AppState.ViewState.Settings)
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.width * 0.4; height: 2; color: Theme.foreground
+                            visible: AppState.currentView === AppState.ViewState.Settings
+                        }
+                    }
+                }
+                
+                // Show/Hide Toggle
+                Button {
+                    text: window.showTopbar ? "↑" : "↓"
+                    flat: true
+                    Layout.preferredWidth: 32
+                    onClicked: window.showTopbar = !window.showTopbar
+                }
+            }
+        }
+
+        // --- Minimal Toggle when Hidden ---
+        Rectangle {
+            width: 40; height: 24
+            anchors.top: parent.top
+            anchors.horizontalCenter: parent.horizontalCenter
+            color: Theme.background
+            border.color: Theme.border
+            radius: Theme.radiusSm
+            visible: !window.showTopbar && AppState.currentView !== AppState.ViewState.Welcome
+            opacity: 0.5
+            
+            Text { anchors.centerIn: parent; text: "↓"; color: Theme.foreground }
+            
+            MouseArea {
+                anchors.fill: parent
+                onClicked: window.showTopbar = true
+                hoverEnabled: true
+                onEntered: parent.opacity = 1.0
+                onExited: parent.opacity = 0.5
             }
         }
     }

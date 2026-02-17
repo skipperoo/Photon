@@ -5,6 +5,7 @@ import Main
 
 Control {
     id: root
+    property real viewTopPadding: 0
 
     background: Rectangle {
         color: Theme.background
@@ -12,6 +13,7 @@ Control {
 
     ScrollView {
         anchors.fill: parent
+        anchors.topMargin: root.viewTopPadding
         contentWidth: availableWidth
 
         ColumnLayout {
@@ -51,7 +53,10 @@ Control {
                         spacing: 8
                         Layout.fillWidth: true
                         Text { text: "Maximum Cache Size (GB)"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        Slider { Layout.fillWidth: true; from: 1; to: 100; value: 10 }
+                        Slider { 
+                            Layout.fillWidth: true; from: 1; to: 100; value: AppState.cacheSizeGB
+                            onMoved: AppState.setCacheSizeGB(value)
+                        }
                     }
                 }
             }
@@ -67,8 +72,13 @@ Control {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { text: "Use GPU Acceleration"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
-                        Switch { checked: true }
+                        Text { text: "Preferred GPU"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
+                        ComboBox {
+                            id: gpuCombo
+                            model: ["Auto", "NVIDIA GeForce RTX 3080", "Integrated Graphics"]
+                            currentIndex: model.indexOf(AppState.preferredGpu)
+                            onActivated: AppState.setPreferredGpu(currentText)
+                        }
                     }
 
                     ColumnLayout {

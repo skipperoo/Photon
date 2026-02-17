@@ -8,6 +8,7 @@ Control {
 
     // Reference to the viewport being controlled (optional, but useful)
     property var viewport: null
+    property real viewTopPadding: 0
 
     background: Rectangle {
         color: Theme.background
@@ -18,6 +19,7 @@ Control {
 
     ColumnLayout {
         anchors.fill: parent
+        anchors.topMargin: root.viewTopPadding
         spacing: 0
 
         // --- Header ---

@@ -5,6 +5,7 @@ import Main
 
 Control {
     id: root
+    property real viewTopPadding: 0
 
     background: Rectangle {
         color: Theme.background
@@ -57,7 +58,10 @@ Control {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 20
+        anchors.topMargin: root.viewTopPadding + 20
+        anchors.leftMargin: 20
+        anchors.rightMargin: 20
+        anchors.bottomMargin: 20
         spacing: 20
 
         // --- Top Bar ---
@@ -98,61 +102,69 @@ Control {
 
                 Card {
                     anchors.fill: parent
-                    anchors.margins: 4
                     
                     ColumnLayout {
                         anchors.fill: parent
-                        spacing: 8
-                        
-                        // Thumbnail area
+                        anchors.margins: 0
+                        spacing: 0
+
+                        // Thumbnail placeholder
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             color: Theme.secondary
-                            radius: Theme.radiusSm
+                            radius: Theme.radius
                             
-                            // Thumbnail image
                             Image {
-                                id: thumbnailImage
+                                id: thumbImage
                                 anchors.fill: parent
                                 anchors.margins: 4
                                 fillMode: Image.PreserveAspectFit
-                                asynchronous: true
-                                
-                                // Generate thumbnail asynchronously
                                 source: "image://thumbnail/" + model.path
+                                asynchronous: true
+                                visible: status === Image.Ready
                                 
-                                // Fallback text when no thumbnail is available
+                                // Fallback icon when no thumbnail is available
                                 Text {
                                     anchors.centerIn: parent
                                     text: "RAW"
                                     color: Theme.mutedFg
                                     font: Theme.fontSmall
-                                    visible: thumbnailImage.status !== Image.Ready
+                                    visible: thumbImage.status !== Image.Ready
                                 }
                             }
                         }
 
-                        // Filename
-                        Text {
+                        // Info
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            text: model.name
-                            font: Theme.fontSmall
-                            color: Theme.foreground
-                            elide: Text.ElideRight
-                            horizontalAlignment: Text.AlignHCenter
+                            Layout.preferredHeight: 50
+                            Layout.margins: 8
+                            spacing: 2
+
+                            Text {
+                                text: model.name
+                                font: Theme.fontSmall
+                                color: Theme.foreground
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Text {
+                                text: (model.size / (1024 * 1024)).toFixed(1) + " MB"
+                                font: Theme.fontSmall
+                                color: Theme.mutedFg
+                            }
                         }
                     }
-                    
-                    // Handle click to open in Develop view
+
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: {
-                            AppState.setCurrentImage(model.path);
-                        }
                         onDoubleClicked: {
-                            AppState.setCurrentImage(model.path);
-                            AppState.setCurrentView(AppState.ViewState.Develop);
+                            AppState.setCurrentImage(model.path)
+                            AppState.setCurrentView(AppState.ViewState.Develop)
+                        }
+                        onClicked: {
+                            grid.currentIndex = index
                         }
                     }
                 }

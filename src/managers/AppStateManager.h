@@ -35,7 +35,7 @@ class AppStateManager : public QObject {
                  cacheSizeGBChanged)
 
  public:
-  enum class ViewState { Welcome, Library, Develop };
+  enum class ViewState { Welcome, Library, Develop, Settings };
   Q_ENUM(ViewState)
 
   explicit AppStateManager(QObject* parent = nullptr);

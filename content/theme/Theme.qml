@@ -24,4 +24,12 @@ QtObject {
     readonly property font fontMedium: Qt.font({ family: "sans-serif", pixelSize: 14, weight: Font.Medium })
     readonly property font fontLarge: Qt.font({ family: "sans-serif", pixelSize: 18, weight: Font.Bold })
     readonly property font fontSmall: Qt.font({ family: "sans-serif", pixelSize: 12 })
+
+    // Spacing
+    readonly property int spacingXs: 4
+    readonly property int spacingSm: 8
+    readonly property int spacingMd: 12
+    readonly property int spacingLg: 16
+    readonly property int spacingXl: 24
+    readonly property int spacing2xl: 32
 }

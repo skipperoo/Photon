@@ -50,11 +50,31 @@ Window {
         function onCurrentFolderChanged() {
             refreshFiles();
         }
+        function onCurrentViewChanged() {
+            // Auto-hide topbar when entering Develop view
+            if (AppState.currentView === AppState.ViewState.Develop) {
+                window.showTopbar = false
+            } else {
+                window.showTopbar = true
+            }
+        }
     }
 
     // --- Main Layout ---
     Item {
         anchors.fill: parent
+
+        // Hover area to show topbar in Develop view
+        MouseArea {
+            id: topbarHoverArea
+            anchors.top: parent.top
+            width: parent.width
+            height: 60
+            hoverEnabled: true
+            enabled: AppState.currentView === AppState.ViewState.Develop
+            onEntered: if (AppState.currentView === AppState.ViewState.Develop) window.showTopbar = true
+            z: 1000 // Ensure it's above content but below topbar if needed
+        }
 
         // --- Content Area ---
         StackLayout {
@@ -254,6 +274,23 @@ Window {
             border.color: Theme.border
             border.width: 1
             visible: AppState.currentView !== AppState.ViewState.Welcome
+            z: 1001
+
+            // Hide topbar when mouse leaves it in Develop view
+            MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                onExited: {
+                    if (AppState.currentView === AppState.ViewState.Develop) {
+                        window.showTopbar = false
+                    }
+                }
+                // Allow events to pass through to buttons
+                propagateComposedEvents: true
+                onPressed: (mouse) => mouse.accepted = false
+                onReleased: (mouse) => mouse.accepted = false
+                onClicked: (mouse) => mouse.accepted = false
+            }
 
             // Add a subtle drop shadow
             layer.enabled: true
@@ -344,26 +381,5 @@ Window {
             }
         }
 
-        // --- Minimal Toggle when Hidden ---
-        Rectangle {
-            width: 40; height: 24
-            anchors.top: parent.top
-            anchors.horizontalCenter: parent.horizontalCenter
-            color: Theme.background
-            border.color: Theme.border
-            radius: Theme.radiusSm
-            visible: !window.showTopbar && AppState.currentView !== AppState.ViewState.Welcome
-            opacity: 0.5
-            
-            Text { anchors.centerIn: parent; text: "↓"; color: Theme.foreground }
-            
-            MouseArea {
-                anchors.fill: parent
-                onClicked: window.showTopbar = true
-                hoverEnabled: true
-                onEntered: parent.opacity = 1.0
-                onExited: parent.opacity = 0.5
-            }
-        }
     }
 }

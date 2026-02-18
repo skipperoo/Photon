@@ -158,6 +158,32 @@ Window {
                             property real vignetteFeather: rawViewport.vignetteFeather
                             property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
                             property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
+
+                            // HSL Panel
+                            property real hslRedHue: rawViewport.hslRedHue
+                            property real hslRedSaturation: rawViewport.hslRedSaturation
+                            property real hslRedLuminance: rawViewport.hslRedLuminance
+                            property real hslOrangeHue: rawViewport.hslOrangeHue
+                            property real hslOrangeSaturation: rawViewport.hslOrangeSaturation
+                            property real hslOrangeLuminance: rawViewport.hslOrangeLuminance
+                            property real hslYellowHue: rawViewport.hslYellowHue
+                            property real hslYellowSaturation: rawViewport.hslYellowSaturation
+                            property real hslYellowLuminance: rawViewport.hslYellowLuminance
+                            property real hslGreenHue: rawViewport.hslGreenHue
+                            property real hslGreenSaturation: rawViewport.hslGreenSaturation
+                            property real hslGreenLuminance: rawViewport.hslGreenLuminance
+                            property real hslAquaHue: rawViewport.hslAquaHue
+                            property real hslAquaSaturation: rawViewport.hslAquaSaturation
+                            property real hslAquaLuminance: rawViewport.hslAquaLuminance
+                            property real hslBlueHue: rawViewport.hslBlueHue
+                            property real hslBlueSaturation: rawViewport.hslBlueSaturation
+                            property real hslBlueLuminance: rawViewport.hslBlueLuminance
+                            property real hslPurpleHue: rawViewport.hslPurpleHue
+                            property real hslPurpleSaturation: rawViewport.hslPurpleSaturation
+                            property real hslPurpleLuminance: rawViewport.hslPurpleLuminance
+                            property real hslMagentaHue: rawViewport.hslMagentaHue
+                            property real hslMagentaSaturation: rawViewport.hslMagentaSaturation
+                            property real hslMagentaLuminance: rawViewport.hslMagentaLuminance
                             
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                         }

@@ -5,6 +5,12 @@ layout(location = 0) out vec4 fragColor;
 
 layout(binding = 1) uniform sampler2D source;
 
+struct HslColor {
+    float hue;
+    float saturation;
+    float luminance;
+};
+
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
@@ -26,8 +32,18 @@ layout(std140, binding = 0) uniform buf {
     float vignetteMidpoint;
     float vignetteRoundness;
     float vignetteFeather;
-    vec4 imageRect; // x, y, width, height
+    vec4 imageRect; 
     vec2 viewportSize;
+    
+    // HSL Panel (8 bands * 3 floats = 24 floats)
+    float hslRedHue; float hslRedSaturation; float hslRedLuminance;
+    float hslOrangeHue; float hslOrangeSaturation; float hslOrangeLuminance;
+    float hslYellowHue; float hslYellowSaturation; float hslYellowLuminance;
+    float hslGreenHue; float hslGreenSaturation; float hslGreenLuminance;
+    float hslAquaHue; float hslAquaSaturation; float hslAquaLuminance;
+    float hslBlueHue; float hslBlueSaturation; float hslBlueLuminance;
+    float hslPurpleHue; float hslPurpleSaturation; float hslPurpleLuminance;
+    float hslMagentaHue; float hslMagentaSaturation; float hslMagentaLuminance;
 } ubuf;
 
 const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
@@ -49,6 +65,28 @@ vec3 apply_white_balance(vec3 color, float temp, float tnt) {
     vec3 temp_mult = vec3(1.0 + temp * 0.2, 1.0 + temp * 0.05, 1.0 - temp * 0.2);
     vec3 tint_mult = vec3(1.0 + tnt * 0.25, 1.0 - tnt * 0.25, 1.0 + tnt * 0.25);
     return color * temp_mult * tint_mult;
+}
+
+// --- HSL Core Math ---
+vec3 rgb_to_hsv(vec3 c) {
+    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 hsv_to_rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+float get_hsl_influence(float hue, float center, float width) {
+    float dist = min(abs(hue - center), 1.0 - abs(hue - center));
+    float falloff = dist / (width * 0.5);
+    return exp(-1.5 * falloff * falloff);
 }
 
 // --- AgX Tone Mapping ---
@@ -100,17 +138,12 @@ float gradient_noise(vec2 p) {
 
 void main()
 {
-    // Pixel coordinates in viewport pixels
     vec2 pixelPos = qt_TexCoord0 * ubuf.viewportSize;
-    
-    // Check if we are inside the image area
     if (pixelPos.x < ubuf.imageRect.x || pixelPos.x > ubuf.imageRect.x + ubuf.imageRect.z ||
         pixelPos.y < ubuf.imageRect.y || pixelPos.y > ubuf.imageRect.y + ubuf.imageRect.w) {
         fragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
-
-    // Normalized coordinates relative to the image (0.0 to 1.0)
     vec2 imgCoord = (pixelPos - ubuf.imageRect.xy) / ubuf.imageRect.zw;
 
     vec4 tex = texture(source, qt_TexCoord0);
@@ -122,32 +155,27 @@ void main()
     // 2. Exposure
     color *= pow(2.0, ubuf.exposure);
     
-    // 3. Contrast (Linear contrast)
+    // 3. Contrast
     color = max(vec3(0.0), color);
     color = pow(color, vec3(ubuf.contrast));
     
-    // 4. Whites & Blacks (Broad range)
+    // 4. Whites & Blacks
     if (ubuf.whites != 0.0) {
         float white_level = 1.0 - (ubuf.whites / 100.0) * 0.5;
         color = color / max(white_level, 0.01);
     }
-    
     if (ubuf.blacks != 0.0) {
         float luma_bl = get_luma(max(color, 0.0));
         float black_mask = 1.0 - smoothstep(0.0, 0.3, luma_bl);
         color = mix(color, color * pow(2.0, (ubuf.blacks / 100.0) * 1.5), black_mask);
     }
 
-    // 5. Highlights & Shadows (Broad range)
+    // 5. Highlights & Shadows
     float luma = get_luma(max(color, 0.0));
-    
-    // Shadows
     if (ubuf.shadows != 0.0) {
         float shadow_mask = pow(1.0 - smoothstep(0.0, 0.5, luma), 2.0);
         color = mix(color, color * pow(2.0, (ubuf.shadows / 100.0) * 1.5), shadow_mask);
     }
-
-    // Highlights
     if (ubuf.highlights != 0.0) {
         float highlight_mask = smoothstep(0.4, 1.0, tanh(luma * 1.5));
         float h_adj = ubuf.highlights / 100.0;
@@ -160,7 +188,38 @@ void main()
         }
     }
 
-    // 6. Saturation & Vibrance
+    // --- HSL PANEL --- (Applied in Linear space before tonemapping)
+    vec3 hsv = rgb_to_hsv(color);
+    float hue = hsv.x;
+    float sat = hsv.y;
+    float lum = hsv.z;
+
+    float hue_shift = 0.0;
+    float sat_mult = 0.0;
+    float lum_adj = 0.0;
+
+    // Ranges (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta)
+    // Normalized to 0.0-1.0
+    float centers[8] = { 358.0/360.0, 25.0/360.0, 60.0/360.0, 115.0/360.0, 180.0/360.0, 225.0/360.0, 280.0/360.0, 330.0/360.0 };
+    float widths[8] = { 35.0/360.0, 45.0/360.0, 40.0/360.0, 90.0/360.0, 60.0/360.0, 60.0/360.0, 55.0/360.0, 50.0/360.0 };
+    
+    float h_adjs[8] = { ubuf.hslRedHue, ubuf.hslOrangeHue, ubuf.hslYellowHue, ubuf.hslGreenHue, ubuf.hslAquaHue, ubuf.hslBlueHue, ubuf.hslPurpleHue, ubuf.hslMagentaHue };
+    float s_adjs[8] = { ubuf.hslRedSaturation, ubuf.hslOrangeSaturation, ubuf.hslYellowSaturation, ubuf.hslGreenSaturation, ubuf.hslAquaSaturation, ubuf.hslBlueSaturation, ubuf.hslPurpleSaturation, ubuf.hslMagentaSaturation };
+    float l_adjs[8] = { ubuf.hslRedLuminance, ubuf.hslOrangeLuminance, ubuf.hslYellowLuminance, ubuf.hslGreenLuminance, ubuf.hslAquaLuminance, ubuf.hslBlueLuminance, ubuf.hslPurpleLuminance, ubuf.hslMagentaLuminance };
+
+    for (int i = 0; i < 8; i++) {
+        float influence = get_hsl_influence(hue, centers[i], widths[i]);
+        hue_shift += (h_adjs[i] / 100.0) * 0.1 * influence; // Subtle hue shift
+        sat_mult += (s_adjs[i] / 100.0) * influence;
+        lum_adj += (l_adjs[i] / 100.0) * influence;
+    }
+
+    hsv.x = fract(hsv.x + hue_shift);
+    hsv.y = clamp(hsv.y * (1.0 + sat_mult), 0.0, 1.0);
+    color = hsv_to_rgb(hsv);
+    color *= (1.0 + lum_adj);
+
+    // 6. Saturation & Vibrance (Global)
     float gray = get_luma(max(color, 0.0));
     color = mix(vec3(gray), color, 1.0 + (ubuf.saturation / 100.0));
     float max_color = max(color.r, max(color.g, color.b));
@@ -175,20 +234,18 @@ void main()
 
     vec3 final_rgb = linear_to_srgb(color);
 
-    // 8. Creative: Film Grain (Only on image area)
+    // 8. Creative: Film Grain
     if (ubuf.grainAmount > 0.0) {
         vec2 grainCoord = imgCoord * ubuf.imageRect.zw; 
         float grain_frequency = (1.0 / max(ubuf.grainSize, 0.1));
-        
         float noise_base = gradient_noise(grainCoord * grain_frequency);
         float noise_rough = gradient_noise(grainCoord * grain_frequency * 2.0 + vec2(5.2, 1.3));
         float noise = mix(noise_base, noise_rough, ubuf.grainRoughness);
-        
         float luma_mask = smoothstep(0.05, 0.25, get_luma(final_rgb)) * (1.0 - smoothstep(0.5, 0.9, get_luma(final_rgb)));
         final_rgb += noise * (ubuf.grainAmount / 100.0) * 0.15 * luma_mask;
     }
 
-    // 9. Creative: Vignette (Only on image area)
+    // 9. Creative: Vignette
     if (ubuf.vignetteAmount != 0.0) {
         vec2 uv_centered = (imgCoord - 0.5) * 2.0;
         float v_round = 1.0 - (ubuf.vignetteRoundness / 100.0);
@@ -197,7 +254,6 @@ void main()
         float v_mid = ubuf.vignetteMidpoint / 100.0;
         float v_feather = max(ubuf.vignetteFeather / 100.0, 0.01);
         float vignette_mask = smoothstep(v_mid - v_feather, v_mid + v_feather, d);
-        
         if (ubuf.vignetteAmount < 0.0) {
             final_rgb *= (1.0 + (ubuf.vignetteAmount / 100.0) * vignette_mask);
         } else {

@@ -38,9 +38,43 @@ class RawEngine : public QObject {
                  setVignetteMidpoint NOTIFY vignetteMidpointChanged)
   Q_PROPERTY(float vignetteRoundness READ vignetteRoundness WRITE
                  setVignetteRoundness NOTIFY vignetteRoundnessChanged)
-  Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE
-                 setVignetteFeather NOTIFY vignetteFeatherChanged)
-  Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+    Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE setVignetteFeather
+                   NOTIFY vignetteFeatherChanged)
+  
+    // HSL Panel Properties
+    Q_PROPERTY(float hslRedHue READ hslRedHue WRITE setHslRedHue NOTIFY hslRedHueChanged)
+    Q_PROPERTY(float hslRedSaturation READ hslRedSaturation WRITE setHslRedSaturation NOTIFY hslRedSaturationChanged)
+    Q_PROPERTY(float hslRedLuminance READ hslRedLuminance WRITE setHslRedLuminance NOTIFY hslRedLuminanceChanged)
+    
+    Q_PROPERTY(float hslOrangeHue READ hslOrangeHue WRITE setHslOrangeHue NOTIFY hslOrangeHueChanged)
+    Q_PROPERTY(float hslOrangeSaturation READ hslOrangeSaturation WRITE setHslOrangeSaturation NOTIFY hslOrangeSaturationChanged)
+    Q_PROPERTY(float hslOrangeLuminance READ hslOrangeLuminance WRITE setHslOrangeLuminance NOTIFY hslOrangeLuminanceChanged)
+    
+    Q_PROPERTY(float hslYellowHue READ hslYellowHue WRITE setHslYellowHue NOTIFY hslYellowHueChanged)
+    Q_PROPERTY(float hslYellowSaturation READ hslYellowSaturation WRITE setHslYellowSaturation NOTIFY hslYellowSaturationChanged)
+    Q_PROPERTY(float hslYellowLuminance READ hslYellowLuminance WRITE setHslYellowLuminance NOTIFY hslYellowLuminanceChanged)
+    
+    Q_PROPERTY(float hslGreenHue READ hslGreenHue WRITE setHslGreenHue NOTIFY hslGreenHueChanged)
+    Q_PROPERTY(float hslGreenSaturation READ hslGreenSaturation WRITE setHslGreenSaturation NOTIFY hslGreenSaturationChanged)
+    Q_PROPERTY(float hslGreenLuminance READ hslGreenLuminance WRITE setHslGreenLuminance NOTIFY hslGreenLuminanceChanged)
+    
+    Q_PROPERTY(float hslAquaHue READ hslAquaHue WRITE setHslAquaHue NOTIFY hslAquaHueChanged)
+    Q_PROPERTY(float hslAquaSaturation READ hslAquaSaturation WRITE setHslAquaSaturation NOTIFY hslAquaSaturationChanged)
+    Q_PROPERTY(float hslAquaLuminance READ hslAquaLuminance WRITE setHslAquaLuminance NOTIFY hslAquaLuminanceChanged)
+    
+    Q_PROPERTY(float hslBlueHue READ hslBlueHue WRITE setHslBlueHue NOTIFY hslBlueHueChanged)
+    Q_PROPERTY(float hslBlueSaturation READ hslBlueSaturation WRITE setHslBlueSaturation NOTIFY hslBlueSaturationChanged)
+    Q_PROPERTY(float hslBlueLuminance READ hslBlueLuminance WRITE setHslBlueLuminance NOTIFY hslBlueLuminanceChanged)
+    
+    Q_PROPERTY(float hslPurpleHue READ hslPurpleHue WRITE setHslPurpleHue NOTIFY hslPurpleHueChanged)
+    Q_PROPERTY(float hslPurpleSaturation READ hslPurpleSaturation WRITE setHslPurpleSaturation NOTIFY hslPurpleSaturationChanged)
+    Q_PROPERTY(float hslPurpleLuminance READ hslPurpleLuminance WRITE setHslPurpleLuminance NOTIFY hslPurpleLuminanceChanged)
+    
+    Q_PROPERTY(float hslMagentaHue READ hslMagentaHue WRITE setHslMagentaHue NOTIFY hslMagentaHueChanged)
+    Q_PROPERTY(float hslMagentaSaturation READ hslMagentaSaturation WRITE setHslMagentaSaturation NOTIFY hslMagentaSaturationChanged)
+    Q_PROPERTY(float hslMagentaLuminance READ hslMagentaLuminance WRITE setHslMagentaLuminance NOTIFY hslMagentaLuminanceChanged)
+  
+    Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
 
  public:
@@ -104,6 +138,63 @@ class RawEngine : public QObject {
   float vignetteFeather() const { return m_vignetteFeather; }
   void setVignetteFeather(float val);
 
+  // HSL Getters & Setters
+  float hslRedHue() const { return m_hslRedHue; }
+  void setHslRedHue(float val);
+  float hslRedSaturation() const { return m_hslRedSaturation; }
+  void setHslRedSaturation(float val);
+  float hslRedLuminance() const { return m_hslRedLuminance; }
+  void setHslRedLuminance(float val);
+
+  float hslOrangeHue() const { return m_hslOrangeHue; }
+  void setHslOrangeHue(float val);
+  float hslOrangeSaturation() const { return m_hslOrangeSaturation; }
+  void setHslOrangeSaturation(float val);
+  float hslOrangeLuminance() const { return m_hslOrangeLuminance; }
+  void setHslOrangeLuminance(float val);
+
+  float hslYellowHue() const { return m_hslYellowHue; }
+  void setHslYellowHue(float val);
+  float hslYellowSaturation() const { return m_hslYellowSaturation; }
+  void setHslYellowSaturation(float val);
+  float hslYellowLuminance() const { return m_hslYellowLuminance; }
+  void setHslYellowLuminance(float val);
+
+  float hslGreenHue() const { return m_hslGreenHue; }
+  void setHslGreenHue(float val);
+  float hslGreenSaturation() const { return m_hslGreenSaturation; }
+  void setHslGreenSaturation(float val);
+  float hslGreenLuminance() const { return m_hslGreenLuminance; }
+  void setHslGreenLuminance(float val);
+
+  float hslAquaHue() const { return m_hslAquaHue; }
+  void setHslAquaHue(float val);
+  float hslAquaSaturation() const { return m_hslAquaSaturation; }
+  void setHslAquaSaturation(float val);
+  float hslAquaLuminance() const { return m_hslAquaLuminance; }
+  void setHslAquaLuminance(float val);
+
+  float hslBlueHue() const { return m_hslBlueHue; }
+  void setHslBlueHue(float val);
+  float hslBlueSaturation() const { return m_hslBlueSaturation; }
+  void setHslBlueSaturation(float val);
+  float hslBlueLuminance() const { return m_hslBlueLuminance; }
+  void setHslBlueLuminance(float val);
+
+  float hslPurpleHue() const { return m_hslPurpleHue; }
+  void setHslPurpleHue(float val);
+  float hslPurpleSaturation() const { return m_hslPurpleSaturation; }
+  void setHslPurpleSaturation(float val);
+  float hslPurpleLuminance() const { return m_hslPurpleLuminance; }
+  void setHslPurpleLuminance(float val);
+
+  float hslMagentaHue() const { return m_hslMagentaHue; }
+  void setHslMagentaHue(float val);
+  float hslMagentaSaturation() const { return m_hslMagentaSaturation; }
+  void setHslMagentaSaturation(float val);
+  float hslMagentaLuminance() const { return m_hslMagentaLuminance; }
+  void setHslMagentaLuminance(float val);
+
   bool isLoading() const { return m_isLoading; }
 
   bool halfSize() const { return m_halfSize; }
@@ -142,6 +233,33 @@ class RawEngine : public QObject {
   void vignetteMidpointChanged();
   void vignetteRoundnessChanged();
   void vignetteFeatherChanged();
+
+  // HSL Signals
+  void hslRedHueChanged();
+  void hslRedSaturationChanged();
+  void hslRedLuminanceChanged();
+  void hslOrangeHueChanged();
+  void hslOrangeSaturationChanged();
+  void hslOrangeLuminanceChanged();
+  void hslYellowHueChanged();
+  void hslYellowSaturationChanged();
+  void hslYellowLuminanceChanged();
+  void hslGreenHueChanged();
+  void hslGreenSaturationChanged();
+  void hslGreenLuminanceChanged();
+  void hslAquaHueChanged();
+  void hslAquaSaturationChanged();
+  void hslAquaLuminanceChanged();
+  void hslBlueHueChanged();
+  void hslBlueSaturationChanged();
+  void hslBlueLuminanceChanged();
+  void hslPurpleHueChanged();
+  void hslPurpleSaturationChanged();
+  void hslPurpleLuminanceChanged();
+  void hslMagentaHueChanged();
+  void hslMagentaSaturationChanged();
+  void hslMagentaLuminanceChanged();
+
   void imageLoaded();
   void isLoadingChanged();
   void halfSizeChanged();
@@ -167,6 +285,33 @@ class RawEngine : public QObject {
   float m_vignetteMidpoint = 0.5f;
   float m_vignetteRoundness = 0.0f;
   float m_vignetteFeather = 0.5f;
+
+  // HSL Member Variables
+  float m_hslRedHue = 0.0f;
+  float m_hslRedSaturation = 0.0f;
+  float m_hslRedLuminance = 0.0f;
+  float m_hslOrangeHue = 0.0f;
+  float m_hslOrangeSaturation = 0.0f;
+  float m_hslOrangeLuminance = 0.0f;
+  float m_hslYellowHue = 0.0f;
+  float m_hslYellowSaturation = 0.0f;
+  float m_hslYellowLuminance = 0.0f;
+  float m_hslGreenHue = 0.0f;
+  float m_hslGreenSaturation = 0.0f;
+  float m_hslGreenLuminance = 0.0f;
+  float m_hslAquaHue = 0.0f;
+  float m_hslAquaSaturation = 0.0f;
+  float m_hslAquaLuminance = 0.0f;
+  float m_hslBlueHue = 0.0f;
+  float m_hslBlueSaturation = 0.0f;
+  float m_hslBlueLuminance = 0.0f;
+  float m_hslPurpleHue = 0.0f;
+  float m_hslPurpleSaturation = 0.0f;
+  float m_hslPurpleLuminance = 0.0f;
+  float m_hslMagentaHue = 0.0f;
+  float m_hslMagentaSaturation = 0.0f;
+  float m_hslMagentaLuminance = 0.0f;
+
   bool m_isLoading = false;
   bool m_halfSize = false;
   std::unique_ptr<LibRaw> m_processor;

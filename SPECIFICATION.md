@@ -112,7 +112,8 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 3.  **Tonemapping:** **AgX Sigmoid transform** is implemented to provide a filmic highlight roll-off and natural color compression, preventing "digital" clipping of bright highlights.
 4.  **Grain:** High-quality **Film Grain** is implemented using a gradient noise algorithm, with controls for amount, size, and roughness. It is applied in linear-to-srgb space with a luma-based mask to protect shadows and highlights.
 5.  **Vignette:** An **Advanced Vignette** system is implemented with midpoint, roundness, and feathering controls, allowing for precise artistic framing.
-6.  **Dithering:** (Planned) Final output is dithered to prevent banding on 8-bit displays.
+6.  **HSL Panel:** An **8-band HSL system** (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta) is implemented in the fragment shader. It uses weighted influence curves to allow targeted Hue, Saturation, and Luminance adjustments without causing artifacts.
+7.  **Dithering:** (Planned) Final output is dithered to prevent banding on 8-bit displays.
 
 **Accordion Sections:**
 

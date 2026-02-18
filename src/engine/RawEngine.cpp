@@ -179,6 +179,39 @@ void RawEngine::setVignetteFeather(float val) {
   saveEdits();
 }
 
+// HSL Setters
+void RawEngine::setHslRedHue(float val) { if (!qFuzzyCompare(m_hslRedHue, val)) { m_hslRedHue = val; emit hslRedHueChanged(); saveEdits(); } }
+void RawEngine::setHslRedSaturation(float val) { if (!qFuzzyCompare(m_hslRedSaturation, val)) { m_hslRedSaturation = val; emit hslRedSaturationChanged(); saveEdits(); } }
+void RawEngine::setHslRedLuminance(float val) { if (!qFuzzyCompare(m_hslRedLuminance, val)) { m_hslRedLuminance = val; emit hslRedLuminanceChanged(); saveEdits(); } }
+
+void RawEngine::setHslOrangeHue(float val) { if (!qFuzzyCompare(m_hslOrangeHue, val)) { m_hslOrangeHue = val; emit hslOrangeHueChanged(); saveEdits(); } }
+void RawEngine::setHslOrangeSaturation(float val) { if (!qFuzzyCompare(m_hslOrangeSaturation, val)) { m_hslOrangeSaturation = val; emit hslOrangeSaturationChanged(); saveEdits(); } }
+void RawEngine::setHslOrangeLuminance(float val) { if (!qFuzzyCompare(m_hslOrangeLuminance, val)) { m_hslOrangeLuminance = val; emit hslOrangeLuminanceChanged(); saveEdits(); } }
+
+void RawEngine::setHslYellowHue(float val) { if (!qFuzzyCompare(m_hslYellowHue, val)) { m_hslYellowHue = val; emit hslYellowHueChanged(); saveEdits(); } }
+void RawEngine::setHslYellowSaturation(float val) { if (!qFuzzyCompare(m_hslYellowSaturation, val)) { m_hslYellowSaturation = val; emit hslYellowSaturationChanged(); saveEdits(); } }
+void RawEngine::setHslYellowLuminance(float val) { if (!qFuzzyCompare(m_hslYellowLuminance, val)) { m_hslYellowLuminance = val; emit hslYellowLuminanceChanged(); saveEdits(); } }
+
+void RawEngine::setHslGreenHue(float val) { if (!qFuzzyCompare(m_hslGreenHue, val)) { m_hslGreenHue = val; emit hslGreenHueChanged(); saveEdits(); } }
+void RawEngine::setHslGreenSaturation(float val) { if (!qFuzzyCompare(m_hslGreenSaturation, val)) { m_hslGreenSaturation = val; emit hslGreenSaturationChanged(); saveEdits(); } }
+void RawEngine::setHslGreenLuminance(float val) { if (!qFuzzyCompare(m_hslGreenLuminance, val)) { m_hslGreenLuminance = val; emit hslGreenLuminanceChanged(); saveEdits(); } }
+
+void RawEngine::setHslAquaHue(float val) { if (!qFuzzyCompare(m_hslAquaHue, val)) { m_hslAquaHue = val; emit hslAquaHueChanged(); saveEdits(); } }
+void RawEngine::setHslAquaSaturation(float val) { if (!qFuzzyCompare(m_hslAquaSaturation, val)) { m_hslAquaSaturation = val; emit hslAquaSaturationChanged(); saveEdits(); } }
+void RawEngine::setHslAquaLuminance(float val) { if (!qFuzzyCompare(m_hslAquaLuminance, val)) { m_hslAquaLuminance = val; emit hslAquaLuminanceChanged(); saveEdits(); } }
+
+void RawEngine::setHslBlueHue(float val) { if (!qFuzzyCompare(m_hslBlueHue, val)) { m_hslBlueHue = val; emit hslBlueHueChanged(); saveEdits(); } }
+void RawEngine::setHslBlueSaturation(float val) { if (!qFuzzyCompare(m_hslBlueSaturation, val)) { m_hslBlueSaturation = val; emit hslBlueSaturationChanged(); saveEdits(); } }
+void RawEngine::setHslBlueLuminance(float val) { if (!qFuzzyCompare(m_hslBlueLuminance, val)) { m_hslBlueLuminance = val; emit hslBlueLuminanceChanged(); saveEdits(); } }
+
+void RawEngine::setHslPurpleHue(float val) { if (!qFuzzyCompare(m_hslPurpleHue, val)) { m_hslPurpleHue = val; emit hslPurpleHueChanged(); saveEdits(); } }
+void RawEngine::setHslPurpleSaturation(float val) { if (!qFuzzyCompare(m_hslPurpleSaturation, val)) { m_hslPurpleSaturation = val; emit hslPurpleSaturationChanged(); saveEdits(); } }
+void RawEngine::setHslPurpleLuminance(float val) { if (!qFuzzyCompare(m_hslPurpleLuminance, val)) { m_hslPurpleLuminance = val; emit hslPurpleLuminanceChanged(); saveEdits(); } }
+
+void RawEngine::setHslMagentaHue(float val) { if (!qFuzzyCompare(m_hslMagentaHue, val)) { m_hslMagentaHue = val; emit hslMagentaHueChanged(); saveEdits(); } }
+void RawEngine::setHslMagentaSaturation(float val) { if (!qFuzzyCompare(m_hslMagentaSaturation, val)) { m_hslMagentaSaturation = val; emit hslMagentaSaturationChanged(); saveEdits(); } }
+void RawEngine::setHslMagentaLuminance(float val) { if (!qFuzzyCompare(m_hslMagentaLuminance, val)) { m_hslMagentaLuminance = val; emit hslMagentaLuminanceChanged(); saveEdits(); } }
+
 void RawEngine::clearProcessedImage() {
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);
@@ -310,6 +343,15 @@ void RawEngine::loadEdits() {
     setVignetteMidpoint(50.0f);
     setVignetteRoundness(0.0f);
     setVignetteFeather(50.0f);
+    
+    setHslRedHue(0.0f); setHslRedSaturation(0.0f); setHslRedLuminance(0.0f);
+    setHslOrangeHue(0.0f); setHslOrangeSaturation(0.0f); setHslOrangeLuminance(0.0f);
+    setHslYellowHue(0.0f); setHslYellowSaturation(0.0f); setHslYellowLuminance(0.0f);
+    setHslGreenHue(0.0f); setHslGreenSaturation(0.0f); setHslGreenLuminance(0.0f);
+    setHslAquaHue(0.0f); setHslAquaSaturation(0.0f); setHslAquaLuminance(0.0f);
+    setHslBlueHue(0.0f); setHslBlueSaturation(0.0f); setHslBlueLuminance(0.0f);
+    setHslPurpleHue(0.0f); setHslPurpleSaturation(0.0f); setHslPurpleLuminance(0.0f);
+    setHslMagentaHue(0.0f); setHslMagentaSaturation(0.0f); setHslMagentaLuminance(0.0f);
     return;
   }
 
@@ -339,6 +381,31 @@ void RawEngine::loadEdits() {
   if (obj.contains("vignetteMidpoint")) m_vignetteMidpoint = obj["vignetteMidpoint"].toDouble();
   if (obj.contains("vignetteRoundness")) m_vignetteRoundness = obj["vignetteRoundness"].toDouble();
   if (obj.contains("vignetteFeather")) m_vignetteFeather = obj["vignetteFeather"].toDouble();
+
+  if (obj.contains("hslRedHue")) m_hslRedHue = obj["hslRedHue"].toDouble();
+  if (obj.contains("hslRedSaturation")) m_hslRedSaturation = obj["hslRedSaturation"].toDouble();
+  if (obj.contains("hslRedLuminance")) m_hslRedLuminance = obj["hslRedLuminance"].toDouble();
+  if (obj.contains("hslOrangeHue")) m_hslOrangeHue = obj["hslOrangeHue"].toDouble();
+  if (obj.contains("hslOrangeSaturation")) m_hslOrangeSaturation = obj["hslOrangeSaturation"].toDouble();
+  if (obj.contains("hslOrangeLuminance")) m_hslOrangeLuminance = obj["hslOrangeLuminance"].toDouble();
+  if (obj.contains("hslYellowHue")) m_hslYellowHue = obj["hslYellowHue"].toDouble();
+  if (obj.contains("hslYellowSaturation")) m_hslYellowSaturation = obj["hslYellowSaturation"].toDouble();
+  if (obj.contains("hslYellowLuminance")) m_hslYellowLuminance = obj["hslYellowLuminance"].toDouble();
+  if (obj.contains("hslGreenHue")) m_hslGreenHue = obj["hslGreenHue"].toDouble();
+  if (obj.contains("hslGreenSaturation")) m_hslGreenSaturation = obj["hslGreenSaturation"].toDouble();
+  if (obj.contains("hslGreenLuminance")) m_hslGreenLuminance = obj["hslGreenLuminance"].toDouble();
+  if (obj.contains("hslAquaHue")) m_hslAquaHue = obj["hslAquaHue"].toDouble();
+  if (obj.contains("hslAquaSaturation")) m_hslAquaSaturation = obj["hslAquaSaturation"].toDouble();
+  if (obj.contains("hslAquaLuminance")) m_hslAquaLuminance = obj["hslAquaLuminance"].toDouble();
+  if (obj.contains("hslBlueHue")) m_hslBlueHue = obj["hslBlueHue"].toDouble();
+  if (obj.contains("hslBlueSaturation")) m_hslBlueSaturation = obj["hslBlueSaturation"].toDouble();
+  if (obj.contains("hslBlueLuminance")) m_hslBlueLuminance = obj["hslBlueLuminance"].toDouble();
+  if (obj.contains("hslPurpleHue")) m_hslPurpleHue = obj["hslPurpleHue"].toDouble();
+  if (obj.contains("hslPurpleSaturation")) m_hslPurpleSaturation = obj["hslPurpleSaturation"].toDouble();
+  if (obj.contains("hslPurpleLuminance")) m_hslPurpleLuminance = obj["hslPurpleLuminance"].toDouble();
+  if (obj.contains("hslMagentaHue")) m_hslMagentaHue = obj["hslMagentaHue"].toDouble();
+  if (obj.contains("hslMagentaSaturation")) m_hslMagentaSaturation = obj["hslMagentaSaturation"].toDouble();
+  if (obj.contains("hslMagentaLuminance")) m_hslMagentaLuminance = obj["hslMagentaLuminance"].toDouble();
   blockSignals(false);
 
   // Emit all signals once
@@ -360,6 +427,15 @@ void RawEngine::loadEdits() {
   emit vignetteMidpointChanged();
   emit vignetteRoundnessChanged();
   emit vignetteFeatherChanged();
+
+  emit hslRedHueChanged(); emit hslRedSaturationChanged(); emit hslRedLuminanceChanged();
+  emit hslOrangeHueChanged(); emit hslOrangeSaturationChanged(); emit hslOrangeLuminanceChanged();
+  emit hslYellowHueChanged(); emit hslYellowSaturationChanged(); emit hslYellowLuminanceChanged();
+  emit hslGreenHueChanged(); emit hslGreenSaturationChanged(); emit hslGreenLuminanceChanged();
+  emit hslAquaHueChanged(); emit hslAquaSaturationChanged(); emit hslAquaLuminanceChanged();
+  emit hslBlueHueChanged(); emit hslBlueSaturationChanged(); emit hslBlueLuminanceChanged();
+  emit hslPurpleHueChanged(); emit hslPurpleSaturationChanged(); emit hslPurpleLuminanceChanged();
+  emit hslMagentaHueChanged(); emit hslMagentaSaturationChanged(); emit hslMagentaLuminanceChanged();
 }
 
 void RawEngine::saveEdits() {
@@ -389,6 +465,15 @@ void RawEngine::saveEdits() {
   obj["vignetteMidpoint"] = m_vignetteMidpoint;
   obj["vignetteRoundness"] = m_vignetteRoundness;
   obj["vignetteFeather"] = m_vignetteFeather;
+
+  obj["hslRedHue"] = m_hslRedHue; obj["hslRedSaturation"] = m_hslRedSaturation; obj["hslRedLuminance"] = m_hslRedLuminance;
+  obj["hslOrangeHue"] = m_hslOrangeHue; obj["hslOrangeSaturation"] = m_hslOrangeSaturation; obj["hslOrangeLuminance"] = m_hslOrangeLuminance;
+  obj["hslYellowHue"] = m_hslYellowHue; obj["hslYellowSaturation"] = m_hslYellowSaturation; obj["hslYellowLuminance"] = m_hslYellowLuminance;
+  obj["hslGreenHue"] = m_hslGreenHue; obj["hslGreenSaturation"] = m_hslGreenSaturation; obj["hslGreenLuminance"] = m_hslGreenLuminance;
+  obj["hslAquaHue"] = m_hslAquaHue; obj["hslAquaSaturation"] = m_hslAquaSaturation; obj["hslAquaLuminance"] = m_hslAquaLuminance;
+  obj["hslBlueHue"] = m_hslBlueHue; obj["hslBlueSaturation"] = m_hslBlueSaturation; obj["hslBlueLuminance"] = m_hslBlueLuminance;
+  obj["hslPurpleHue"] = m_hslPurpleHue; obj["hslPurpleSaturation"] = m_hslPurpleSaturation; obj["hslPurpleLuminance"] = m_hslPurpleLuminance;
+  obj["hslMagentaHue"] = m_hslMagentaHue; obj["hslMagentaSaturation"] = m_hslMagentaSaturation; obj["hslMagentaLuminance"] = m_hslMagentaLuminance;
 
   QFile file(editsPath);
   if (file.open(QIODevice::WriteOnly)) {

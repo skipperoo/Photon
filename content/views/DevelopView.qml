@@ -123,6 +123,71 @@ Control {
                     }
                 }
 
+                // --- Color Section (HSL) ---
+                Collapsible {
+                    title: "Color"
+                    expanded: true
+
+                    ColumnLayout {
+                        id: colorSection
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        property int selectedBand: 0
+                        readonly property var bandNames: ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"]
+                        readonly property var bandColors: ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#a855f7", "#d946ef"]
+
+                        Text { text: "HSL Panel"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Repeater {
+                                model: 8
+                                Rectangle {
+                                    width: 24; height: 24; radius: 12
+                                    color: colorSection.bandColors[index]
+                                    border.color: colorSection.selectedBand === index ? Theme.foreground : "transparent"
+                                    border.width: 2
+                                    opacity: colorSection.selectedBand === index ? 1.0 : 0.6
+                                    
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: colorSection.selectedBand = index
+                                    }
+                                }
+                            }
+                        }
+
+                        Text { 
+                            text: colorSection.bandNames[colorSection.selectedBand]
+                            font: Theme.fontMedium
+                            color: Theme.foreground
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+
+                        // Dynamic sliders based on selection
+                        ControlGroup { 
+                            title: "Hue"
+                            value: root.viewport ? root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Hue"] : 0
+                            from: -100; to: 100
+                            onMoved: (v) => { if(root.viewport) root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Hue"] = v }
+                        }
+                        ControlGroup { 
+                            title: "Saturation"
+                            value: root.viewport ? root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Saturation"] : 0
+                            from: -100; to: 100
+                            onMoved: (v) => { if(root.viewport) root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Saturation"] = v }
+                        }
+                        ControlGroup { 
+                            title: "Luminance"
+                            value: root.viewport ? root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Luminance"] : 0
+                            from: -100; to: 100
+                            onMoved: (v) => { if(root.viewport) root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Luminance"] = v }
+                        }
+                    }
+                }
+
                 // --- Effects Section ---
                 Collapsible {
                     title: "Effects"

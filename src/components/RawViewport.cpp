@@ -46,6 +46,32 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
           &RawViewport::update);
   connect(&m_engine, &RawEngine::vignetteFeatherChanged, this,
           &RawViewport::update);
+
+  // HSL Connections
+  connect(&m_engine, &RawEngine::hslRedHueChanged, this, [this](){ emit hslRedHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslRedSaturationChanged, this, [this](){ emit hslRedSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslRedLuminanceChanged, this, [this](){ emit hslRedLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslOrangeHueChanged, this, [this](){ emit hslOrangeHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslOrangeSaturationChanged, this, [this](){ emit hslOrangeSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslOrangeLuminanceChanged, this, [this](){ emit hslOrangeLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslYellowHueChanged, this, [this](){ emit hslYellowHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslYellowSaturationChanged, this, [this](){ emit hslYellowSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslYellowLuminanceChanged, this, [this](){ emit hslYellowLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslGreenHueChanged, this, [this](){ emit hslGreenHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslGreenSaturationChanged, this, [this](){ emit hslGreenSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslGreenLuminanceChanged, this, [this](){ emit hslGreenLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslAquaHueChanged, this, [this](){ emit hslAquaHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslAquaSaturationChanged, this, [this](){ emit hslAquaSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslAquaLuminanceChanged, this, [this](){ emit hslAquaLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslBlueHueChanged, this, [this](){ emit hslBlueHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslBlueSaturationChanged, this, [this](){ emit hslBlueSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslBlueLuminanceChanged, this, [this](){ emit hslBlueLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslPurpleHueChanged, this, [this](){ emit hslPurpleHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslPurpleSaturationChanged, this, [this](){ emit hslPurpleSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslPurpleLuminanceChanged, this, [this](){ emit hslPurpleLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslMagentaHueChanged, this, [this](){ emit hslMagentaHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslMagentaSaturationChanged, this, [this](){ emit hslMagentaSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::hslMagentaLuminanceChanged, this, [this](){ emit hslMagentaLuminanceChanged(); update(); });
 }
 
 void RawViewport::setSource(const QString& source) {
@@ -161,6 +187,32 @@ void RawViewport::setVignetteFeather(float val) {
   m_engine.setVignetteFeather(val);
   emit vignetteFeatherChanged();
 }
+
+// HSL Setters
+void RawViewport::setHslRedHue(float val) { m_engine.setHslRedHue(val); }
+void RawViewport::setHslRedSaturation(float val) { m_engine.setHslRedSaturation(val); }
+void RawViewport::setHslRedLuminance(float val) { m_engine.setHslRedLuminance(val); }
+void RawViewport::setHslOrangeHue(float val) { m_engine.setHslOrangeHue(val); }
+void RawViewport::setHslOrangeSaturation(float val) { m_engine.setHslOrangeSaturation(val); }
+void RawViewport::setHslOrangeLuminance(float val) { m_engine.setHslOrangeLuminance(val); }
+void RawViewport::setHslYellowHue(float val) { m_engine.setHslYellowHue(val); }
+void RawViewport::setHslYellowSaturation(float val) { m_engine.setHslYellowSaturation(val); }
+void RawViewport::setHslYellowLuminance(float val) { m_engine.setHslYellowLuminance(val); }
+void RawViewport::setHslGreenHue(float val) { m_engine.setHslGreenHue(val); }
+void RawViewport::setHslGreenSaturation(float val) { m_engine.setHslGreenSaturation(val); }
+void RawViewport::setHslGreenLuminance(float val) { m_engine.setHslGreenLuminance(val); }
+void RawViewport::setHslAquaHue(float val) { m_engine.setHslAquaHue(val); }
+void RawViewport::setHslAquaSaturation(float val) { m_engine.setHslAquaSaturation(val); }
+void RawViewport::setHslAquaLuminance(float val) { m_engine.setHslAquaLuminance(val); }
+void RawViewport::setHslBlueHue(float val) { m_engine.setHslBlueHue(val); }
+void RawViewport::setHslBlueSaturation(float val) { m_engine.setHslBlueSaturation(val); }
+void RawViewport::setHslBlueLuminance(float val) { m_engine.setHslBlueLuminance(val); }
+void RawViewport::setHslPurpleHue(float val) { m_engine.setHslPurpleHue(val); }
+void RawViewport::setHslPurpleSaturation(float val) { m_engine.setHslPurpleSaturation(val); }
+void RawViewport::setHslPurpleLuminance(float val) { m_engine.setHslPurpleLuminance(val); }
+void RawViewport::setHslMagentaHue(float val) { m_engine.setHslMagentaHue(val); }
+void RawViewport::setHslMagentaSaturation(float val) { m_engine.setHslMagentaSaturation(val); }
+void RawViewport::setHslMagentaLuminance(float val) { m_engine.setHslMagentaLuminance(val); }
 
 void RawViewport::setZoom(float zoom) {
   if (qFuzzyCompare(m_zoom, zoom)) return;

@@ -425,6 +425,7 @@ class RawEngine : public QObject {
   bool m_isLoaded = false;
 
   QFutureWatcher<bool> m_loadWatcher;
+  QFuture<void> m_histogramFuture;
 
   void clearProcessedImage();
   void updateProcessingParams();

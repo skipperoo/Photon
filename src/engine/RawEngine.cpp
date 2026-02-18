@@ -34,6 +34,7 @@ RawEngine::RawEngine(QObject* parent)
 
 RawEngine::~RawEngine() {
   m_loadWatcher.waitForFinished();
+  m_histogramFuture.waitForFinished();
   clearProcessedImage();
 }
 
@@ -250,7 +251,7 @@ void RawEngine::requestHistogramUpdate() {
     m_histogramUpdatePending = true;
     m_histogramNeedsUpdate = false;
 
-    QtConcurrent::run([this, src, totalPixels, exp, temp, tint]() {
+    m_histogramFuture = QtConcurrent::run([this, src, totalPixels, exp, temp, tint]() {
         std::vector<uint32_t> r_bins(256, 0);
         std::vector<uint32_t> g_bins(256, 0);
         std::vector<uint32_t> b_bins(256, 0);

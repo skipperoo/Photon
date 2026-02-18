@@ -191,6 +191,80 @@ Control {
                     }
                 }
 
+                // --- Color Grading Section ---
+                Collapsible {
+                    title: "Color Grading"
+                    expanded: true
+
+                    ColumnLayout {
+                        id: gradingSection
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        property int selectedRegion: 0 // 0: Shadows, 1: Midtones, 2: Highlights
+                        readonly property var regionNames: ["Shadows", "Midtones", "Highlights"]
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 20
+                            Layout.alignment: Qt.AlignHCenter
+                            Repeater {
+                                model: 3
+                                Text {
+                                    text: gradingSection.regionNames[index]
+                                    font: Theme.fontSmall
+                                    color: gradingSection.selectedRegion === index ? Theme.foreground : Theme.mutedFg
+                                    opacity: gradingSection.selectedRegion === index ? 1.0 : 0.6
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: gradingSection.selectedRegion = index
+                                    }
+                                }
+                            }
+                        }
+
+                        // Dynamic sliders for selected region
+                        ControlGroup { 
+                            title: "Hue"
+                            value: root.viewport ? root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Hue"] : 0
+                            from: 0; to: 360
+                            onMoved: (v) => { if(root.viewport) root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Hue"] = v }
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Saturation"
+                            value: root.viewport ? root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Saturation"] : 0
+                            from: 0; to: 100
+                            onMoved: (v) => { if(root.viewport) root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Saturation"] = v }
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Luminance"
+                            value: root.viewport ? root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Luminance"] : 0
+                            from: -100; to: 100
+                            onMoved: (v) => { if(root.viewport) root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Luminance"] = v }
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        ControlGroup { 
+                            title: "Balance"
+                            value: root.viewport ? root.viewport.cgBalance : 0.0
+                            from: -100; to: 100
+                            onMoved: (v) => { if(root.viewport) root.viewport.cgBalance = v }
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Blending"
+                            value: root.viewport ? root.viewport.cgBlending : 50.0
+                            from: 0; to: 100
+                            onMoved: (v) => { if(root.viewport) root.viewport.cgBlending = v }
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                    }
+                }
+
                 // --- Effects Section ---
                 Collapsible {
                     title: "Effects"

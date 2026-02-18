@@ -186,6 +186,19 @@ Window {
                             property real hslMagentaSaturation: rawViewport.hslMagentaSaturation
                             property real hslMagentaLuminance: rawViewport.hslMagentaLuminance
                             
+                            // Color Grading
+                            property real cgShadowsHue: rawViewport.cgShadowsHue
+                            property real cgShadowsSaturation: rawViewport.cgShadowsSaturation
+                            property real cgShadowsLuminance: rawViewport.cgShadowsLuminance
+                            property real cgMidtonesHue: rawViewport.cgMidtonesHue
+                            property real cgMidtonesSaturation: rawViewport.cgMidtonesSaturation
+                            property real cgMidtonesLuminance: rawViewport.cgMidtonesLuminance
+                            property real cgHighlightsHue: rawViewport.cgHighlightsHue
+                            property real cgHighlightsSaturation: rawViewport.cgHighlightsSaturation
+                            property real cgHighlightsLuminance: rawViewport.cgHighlightsLuminance
+                            property real cgBalance: rawViewport.cgBalance
+                            property real cgBlending: rawViewport.cgBlending
+                            
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                         }
 

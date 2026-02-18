@@ -75,6 +75,22 @@ class RawEngine : public QObject {
     Q_PROPERTY(float hslMagentaSaturation READ hslMagentaSaturation WRITE setHslMagentaSaturation NOTIFY hslMagentaSaturationChanged)
     Q_PROPERTY(float hslMagentaLuminance READ hslMagentaLuminance WRITE setHslMagentaLuminance NOTIFY hslMagentaLuminanceChanged)
   
+    // Color Grading Properties
+    Q_PROPERTY(float cgShadowsHue READ cgShadowsHue WRITE setCgShadowsHue NOTIFY cgShadowsHueChanged)
+    Q_PROPERTY(float cgShadowsSaturation READ cgShadowsSaturation WRITE setCgShadowsSaturation NOTIFY cgShadowsSaturationChanged)
+    Q_PROPERTY(float cgShadowsLuminance READ cgShadowsLuminance WRITE setCgShadowsLuminance NOTIFY cgShadowsLuminanceChanged)
+    
+    Q_PROPERTY(float cgMidtonesHue READ cgMidtonesHue WRITE setCgMidtonesHue NOTIFY cgMidtonesHueChanged)
+    Q_PROPERTY(float cgMidtonesSaturation READ cgMidtonesSaturation WRITE setCgMidtonesSaturation NOTIFY cgMidtonesSaturationChanged)
+    Q_PROPERTY(float cgMidtonesLuminance READ cgMidtonesLuminance WRITE setCgMidtonesLuminance NOTIFY cgMidtonesLuminanceChanged)
+    
+    Q_PROPERTY(float cgHighlightsHue READ cgHighlightsHue WRITE setCgHighlightsHue NOTIFY cgHighlightsHueChanged)
+    Q_PROPERTY(float cgHighlightsSaturation READ cgHighlightsSaturation WRITE setCgHighlightsSaturation NOTIFY cgHighlightsSaturationChanged)
+    Q_PROPERTY(float cgHighlightsLuminance READ cgHighlightsLuminance WRITE setCgHighlightsLuminance NOTIFY cgHighlightsLuminanceChanged)
+    
+    Q_PROPERTY(float cgBalance READ cgBalance WRITE setCgBalance NOTIFY cgBalanceChanged)
+    Q_PROPERTY(float cgBlending READ cgBlending WRITE setCgBlending NOTIFY cgBlendingChanged)
+
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
   Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
@@ -199,6 +215,33 @@ class RawEngine : public QObject {
   float hslMagentaLuminance() const { return m_hslMagentaLuminance; }
   void setHslMagentaLuminance(float val);
 
+  // Color Grading Getters & Setters
+  float cgShadowsHue() const { return m_cgShadowsHue; }
+  void setCgShadowsHue(float val);
+  float cgShadowsSaturation() const { return m_cgShadowsSaturation; }
+  void setCgShadowsSaturation(float val);
+  float cgShadowsLuminance() const { return m_cgShadowsLuminance; }
+  void setCgShadowsLuminance(float val);
+
+  float cgMidtonesHue() const { return m_cgMidtonesHue; }
+  void setCgMidtonesHue(float val);
+  float cgMidtonesSaturation() const { return m_cgMidtonesSaturation; }
+  void setCgMidtonesSaturation(float val);
+  float cgMidtonesLuminance() const { return m_cgMidtonesLuminance; }
+  void setCgMidtonesLuminance(float val);
+
+  float cgHighlightsHue() const { return m_cgHighlightsHue; }
+  void setCgHighlightsHue(float val);
+  float cgHighlightsSaturation() const { return m_cgHighlightsSaturation; }
+  void setCgHighlightsSaturation(float val);
+  float cgHighlightsLuminance() const { return m_cgHighlightsLuminance; }
+  void setCgHighlightsLuminance(float val);
+
+  float cgBalance() const { return m_cgBalance; }
+  void setCgBalance(float val);
+  float cgBlending() const { return m_cgBlending; }
+  void setCgBlending(float val);
+
   bool isLoading() const { return m_isLoading; }
 
   bool halfSize() const { return m_halfSize; }
@@ -270,6 +313,19 @@ class RawEngine : public QObject {
   void hslMagentaSaturationChanged();
   void hslMagentaLuminanceChanged();
 
+  // Color Grading Signals
+  void cgShadowsHueChanged();
+  void cgShadowsSaturationChanged();
+  void cgShadowsLuminanceChanged();
+  void cgMidtonesHueChanged();
+  void cgMidtonesSaturationChanged();
+  void cgMidtonesLuminanceChanged();
+  void cgHighlightsHueChanged();
+  void cgHighlightsSaturationChanged();
+  void cgHighlightsLuminanceChanged();
+  void cgBalanceChanged();
+  void cgBlendingChanged();
+
   void imageLoaded();
   void isLoadingChanged();
   void halfSizeChanged();
@@ -324,6 +380,19 @@ class RawEngine : public QObject {
   float m_hslMagentaHue = 0.0f;
   float m_hslMagentaSaturation = 0.0f;
   float m_hslMagentaLuminance = 0.0f;
+
+  // Color Grading Member Variables
+  float m_cgShadowsHue = 0.0f;
+  float m_cgShadowsSaturation = 0.0f;
+  float m_cgShadowsLuminance = 0.0f;
+  float m_cgMidtonesHue = 0.0f;
+  float m_cgMidtonesSaturation = 0.0f;
+  float m_cgMidtonesLuminance = 0.0f;
+  float m_cgHighlightsHue = 0.0f;
+  float m_cgHighlightsSaturation = 0.0f;
+  float m_cgHighlightsLuminance = 0.0f;
+  float m_cgBalance = 0.0f;
+  float m_cgBlending = 50.0f;
 
   bool m_isLoading = false;
   bool m_halfSize = false;

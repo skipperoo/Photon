@@ -196,6 +196,22 @@ void RawEngine::setHslMagentaHue(float val) { if (!qFuzzyCompare(m_hslMagentaHue
 void RawEngine::setHslMagentaSaturation(float val) { if (!qFuzzyCompare(m_hslMagentaSaturation, val)) { m_hslMagentaSaturation = val; emit hslMagentaSaturationChanged(); } }
 void RawEngine::setHslMagentaLuminance(float val) { if (!qFuzzyCompare(m_hslMagentaLuminance, val)) { m_hslMagentaLuminance = val; emit hslMagentaLuminanceChanged(); } }
 
+// Color Grading Setters
+void RawEngine::setCgShadowsHue(float val) { if (!qFuzzyCompare(m_cgShadowsHue, val)) { m_cgShadowsHue = val; emit cgShadowsHueChanged(); } }
+void RawEngine::setCgShadowsSaturation(float val) { if (!qFuzzyCompare(m_cgShadowsSaturation, val)) { m_cgShadowsSaturation = val; emit cgShadowsSaturationChanged(); } }
+void RawEngine::setCgShadowsLuminance(float val) { if (!qFuzzyCompare(m_cgShadowsLuminance, val)) { m_cgShadowsLuminance = val; emit cgShadowsLuminanceChanged(); } }
+
+void RawEngine::setCgMidtonesHue(float val) { if (!qFuzzyCompare(m_cgMidtonesHue, val)) { m_cgMidtonesHue = val; emit cgMidtonesHueChanged(); } }
+void RawEngine::setCgMidtonesSaturation(float val) { if (!qFuzzyCompare(m_cgMidtonesSaturation, val)) { m_cgMidtonesSaturation = val; emit cgMidtonesSaturationChanged(); } }
+void RawEngine::setCgMidtonesLuminance(float val) { if (!qFuzzyCompare(m_cgMidtonesLuminance, val)) { m_cgMidtonesLuminance = val; emit cgMidtonesLuminanceChanged(); } }
+
+void RawEngine::setCgHighlightsHue(float val) { if (!qFuzzyCompare(m_cgHighlightsHue, val)) { m_cgHighlightsHue = val; emit cgHighlightsHueChanged(); } }
+void RawEngine::setCgHighlightsSaturation(float val) { if (!qFuzzyCompare(m_cgHighlightsSaturation, val)) { m_cgHighlightsSaturation = val; emit cgHighlightsSaturationChanged(); } }
+void RawEngine::setCgHighlightsLuminance(float val) { if (!qFuzzyCompare(m_cgHighlightsLuminance, val)) { m_cgHighlightsLuminance = val; emit cgHighlightsLuminanceChanged(); } }
+
+void RawEngine::setCgBalance(float val) { if (!qFuzzyCompare(m_cgBalance, val)) { m_cgBalance = val; emit cgBalanceChanged(); } }
+void RawEngine::setCgBlending(float val) { if (!qFuzzyCompare(m_cgBlending, val)) { m_cgBlending = val; emit cgBlendingChanged(); } }
+
 void RawEngine::clearProcessedImage() {
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);
@@ -330,6 +346,11 @@ static QJsonObject stateToJson(const RawEngine* e) {
     obj["hslBlueHue"] = e->hslBlueHue(); obj["hslBlueSaturation"] = e->hslBlueSaturation(); obj["hslBlueLuminance"] = e->hslBlueLuminance();
     obj["hslPurpleHue"] = e->hslPurpleHue(); obj["hslPurpleSaturation"] = e->hslPurpleSaturation(); obj["hslPurpleLuminance"] = e->hslPurpleLuminance();
     obj["hslMagentaHue"] = e->hslMagentaHue(); obj["hslMagentaSaturation"] = e->hslMagentaSaturation(); obj["hslMagentaLuminance"] = e->hslMagentaLuminance();
+
+    obj["cgShadowsHue"] = e->cgShadowsHue(); obj["cgShadowsSaturation"] = e->cgShadowsSaturation(); obj["cgShadowsLuminance"] = e->cgShadowsLuminance();
+    obj["cgMidtonesHue"] = e->cgMidtonesHue(); obj["cgMidtonesSaturation"] = e->cgMidtonesSaturation(); obj["cgMidtonesLuminance"] = e->cgMidtonesLuminance();
+    obj["cgHighlightsHue"] = e->cgHighlightsHue(); obj["cgHighlightsSaturation"] = e->cgHighlightsSaturation(); obj["cgHighlightsLuminance"] = e->cgHighlightsLuminance();
+    obj["cgBalance"] = e->cgBalance(); obj["cgBlending"] = e->cgBlending();
     return obj;
 }
 
@@ -378,6 +399,18 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("hslMagentaHue")) e->setHslMagentaHue(obj["hslMagentaHue"].toDouble());
   if (obj.contains("hslMagentaSaturation")) e->setHslMagentaSaturation(obj["hslMagentaSaturation"].toDouble());
   if (obj.contains("hslMagentaLuminance")) e->setHslMagentaLuminance(obj["hslMagentaLuminance"].toDouble());
+
+  if (obj.contains("cgShadowsHue")) e->setCgShadowsHue(obj["cgShadowsHue"].toDouble());
+  if (obj.contains("cgShadowsSaturation")) e->setCgShadowsSaturation(obj["cgShadowsSaturation"].toDouble());
+  if (obj.contains("cgShadowsLuminance")) e->setCgShadowsLuminance(obj["cgShadowsLuminance"].toDouble());
+  if (obj.contains("cgMidtonesHue")) e->setCgMidtonesHue(obj["cgMidtonesHue"].toDouble());
+  if (obj.contains("cgMidtonesSaturation")) e->setCgMidtonesSaturation(obj["cgMidtonesSaturation"].toDouble());
+  if (obj.contains("cgMidtonesLuminance")) e->setCgMidtonesLuminance(obj["cgMidtonesLuminance"].toDouble());
+  if (obj.contains("cgHighlightsHue")) e->setCgHighlightsHue(obj["cgHighlightsHue"].toDouble());
+  if (obj.contains("cgHighlightsSaturation")) e->setCgHighlightsSaturation(obj["cgHighlightsSaturation"].toDouble());
+  if (obj.contains("cgHighlightsLuminance")) e->setCgHighlightsLuminance(obj["cgHighlightsLuminance"].toDouble());
+  if (obj.contains("cgBalance")) e->setCgBalance(obj["cgBalance"].toDouble());
+  if (obj.contains("cgBlending")) e->setCgBlending(obj["cgBlending"].toDouble());
 }
 
 static void resetToDefaults(RawEngine* e) {
@@ -395,6 +428,11 @@ static void resetToDefaults(RawEngine* e) {
     e->setHslBlueHue(0.0f); e->setHslBlueSaturation(0.0f); e->setHslBlueLuminance(0.0f);
     e->setHslPurpleHue(0.0f); e->setHslPurpleSaturation(0.0f); e->setHslPurpleLuminance(0.0f);
     e->setHslMagentaHue(0.0f); e->setHslMagentaSaturation(0.0f); e->setHslMagentaLuminance(0.0f);
+
+    e->setCgShadowsHue(0.0f); e->setCgShadowsSaturation(0.0f); e->setCgShadowsLuminance(0.0f);
+    e->setCgMidtonesHue(0.0f); e->setCgMidtonesSaturation(0.0f); e->setCgMidtonesLuminance(0.0f);
+    e->setCgHighlightsHue(0.0f); e->setCgHighlightsSaturation(0.0f); e->setCgHighlightsLuminance(0.0f);
+    e->setCgBalance(0.0f); e->setCgBlending(50.0f);
 }
 
 void RawEngine::loadEdits() {

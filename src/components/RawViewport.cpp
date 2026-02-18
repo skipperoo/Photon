@@ -59,7 +59,20 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::hslMagentaHueChanged, this, [this](){ emit hslMagentaHueChanged(); update(); });
   connect(&m_engine, &RawEngine::hslMagentaSaturationChanged, this, [this](){ emit hslMagentaSaturationChanged(); update(); });
   connect(&m_engine, &RawEngine::hslMagentaLuminanceChanged, this, [this](){ emit hslMagentaLuminanceChanged(); update(); });
-  
+
+  // Color Grading Connections
+  connect(&m_engine, &RawEngine::cgShadowsHueChanged, this, [this](){ emit cgShadowsHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgShadowsSaturationChanged, this, [this](){ emit cgShadowsSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgShadowsLuminanceChanged, this, [this](){ emit cgShadowsLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgMidtonesHueChanged, this, [this](){ emit cgMidtonesHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgMidtonesSaturationChanged, this, [this](){ emit cgMidtonesSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgMidtonesLuminanceChanged, this, [this](){ emit cgMidtonesLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgHighlightsHueChanged, this, [this](){ emit cgHighlightsHueChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgHighlightsSaturationChanged, this, [this](){ emit cgHighlightsSaturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgHighlightsLuminanceChanged, this, [this](){ emit cgHighlightsLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgBalanceChanged, this, [this](){ emit cgBalanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::cgBlendingChanged, this, [this](){ emit cgBlendingChanged(); update(); });
+
   // History Connections
   connect(&m_engine, &RawEngine::editStackChanged, this, &RawViewport::editStackChanged);
   connect(&m_engine, &RawEngine::canUndoChanged, this, [this](){ emit canUndoChanged(); });
@@ -205,6 +218,19 @@ void RawViewport::setHslPurpleLuminance(float val) { m_engine.setHslPurpleLumina
 void RawViewport::setHslMagentaHue(float val) { m_engine.setHslMagentaHue(val); }
 void RawViewport::setHslMagentaSaturation(float val) { m_engine.setHslMagentaSaturation(val); }
 void RawViewport::setHslMagentaLuminance(float val) { m_engine.setHslMagentaLuminance(val); }
+
+// Color Grading Setters
+void RawViewport::setCgShadowsHue(float val) { m_engine.setCgShadowsHue(val); }
+void RawViewport::setCgShadowsSaturation(float val) { m_engine.setCgShadowsSaturation(val); }
+void RawViewport::setCgShadowsLuminance(float val) { m_engine.setCgShadowsLuminance(val); }
+void RawViewport::setCgMidtonesHue(float val) { m_engine.setCgMidtonesHue(val); }
+void RawViewport::setCgMidtonesSaturation(float val) { m_engine.setCgMidtonesSaturation(val); }
+void RawViewport::setCgMidtonesLuminance(float val) { m_engine.setCgMidtonesLuminance(val); }
+void RawViewport::setCgHighlightsHue(float val) { m_engine.setCgHighlightsHue(val); }
+void RawViewport::setCgHighlightsSaturation(float val) { m_engine.setCgHighlightsSaturation(val); }
+void RawViewport::setCgHighlightsLuminance(float val) { m_engine.setCgHighlightsLuminance(val); }
+void RawViewport::setCgBalance(float val) { m_engine.setCgBalance(val); }
+void RawViewport::setCgBlending(float val) { m_engine.setCgBlending(val); }
 
 void RawViewport::setZoom(float zoom) {
   if (qFuzzyCompare(m_zoom, zoom)) return;

@@ -66,6 +66,22 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float hslMagentaSaturation READ hslMagentaSaturation WRITE setHslMagentaSaturation NOTIFY hslMagentaSaturationChanged)
     Q_PROPERTY(float hslMagentaLuminance READ hslMagentaLuminance WRITE setHslMagentaLuminance NOTIFY hslMagentaLuminanceChanged)
 
+    // Color Grading Properties
+    Q_PROPERTY(float cgShadowsHue READ cgShadowsHue WRITE setCgShadowsHue NOTIFY cgShadowsHueChanged)
+    Q_PROPERTY(float cgShadowsSaturation READ cgShadowsSaturation WRITE setCgShadowsSaturation NOTIFY cgShadowsSaturationChanged)
+    Q_PROPERTY(float cgShadowsLuminance READ cgShadowsLuminance WRITE setCgShadowsLuminance NOTIFY cgShadowsLuminanceChanged)
+    
+    Q_PROPERTY(float cgMidtonesHue READ cgMidtonesHue WRITE setCgMidtonesHue NOTIFY cgMidtonesHueChanged)
+    Q_PROPERTY(float cgMidtonesSaturation READ cgMidtonesSaturation WRITE setCgMidtonesSaturation NOTIFY cgMidtonesSaturationChanged)
+    Q_PROPERTY(float cgMidtonesLuminance READ cgMidtonesLuminance WRITE setCgMidtonesLuminance NOTIFY cgMidtonesLuminanceChanged)
+    
+    Q_PROPERTY(float cgHighlightsHue READ cgHighlightsHue WRITE setCgHighlightsHue NOTIFY cgHighlightsHueChanged)
+    Q_PROPERTY(float cgHighlightsSaturation READ cgHighlightsSaturation WRITE setCgHighlightsSaturation NOTIFY cgHighlightsSaturationChanged)
+    Q_PROPERTY(float cgHighlightsLuminance READ cgHighlightsLuminance WRITE setCgHighlightsLuminance NOTIFY cgHighlightsLuminanceChanged)
+    
+    Q_PROPERTY(float cgBalance READ cgBalance WRITE setCgBalance NOTIFY cgBalanceChanged)
+    Q_PROPERTY(float cgBlending READ cgBlending WRITE setCgBlending NOTIFY cgBlendingChanged)
+
     Q_PROPERTY(QRectF imageRect READ imageRect NOTIFY imageRectChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
     Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
@@ -191,6 +207,33 @@ class RawViewport : public QQuickItem {
             float hslMagentaLuminance() const { return m_engine.hslMagentaLuminance(); }
             void setHslMagentaLuminance(float val);
         
+            // Color Grading Getters & Setters
+            float cgShadowsHue() const { return m_engine.cgShadowsHue(); }
+            void setCgShadowsHue(float val);
+            float cgShadowsSaturation() const { return m_engine.cgShadowsSaturation(); }
+            void setCgShadowsSaturation(float val);
+            float cgShadowsLuminance() const { return m_engine.cgShadowsLuminance(); }
+            void setCgShadowsLuminance(float val);
+
+            float cgMidtonesHue() const { return m_engine.cgMidtonesHue(); }
+            void setCgMidtonesHue(float val);
+            float cgMidtonesSaturation() const { return m_engine.cgMidtonesSaturation(); }
+            void setCgMidtonesSaturation(float val);
+            float cgMidtonesLuminance() const { return m_engine.cgMidtonesLuminance(); }
+            void setCgMidtonesLuminance(float val);
+
+            float cgHighlightsHue() const { return m_engine.cgHighlightsHue(); }
+            void setCgHighlightsHue(float val);
+            float cgHighlightsSaturation() const { return m_engine.cgHighlightsSaturation(); }
+            void setCgHighlightsSaturation(float val);
+            float cgHighlightsLuminance() const { return m_engine.cgHighlightsLuminance(); }
+            void setCgHighlightsLuminance(float val);
+
+            float cgBalance() const { return m_engine.cgBalance(); }
+            void setCgBalance(float val);
+            float cgBlending() const { return m_engine.cgBlending(); }
+            void setCgBlending(float val);
+
             QRectF imageRect() const { return m_imageRect; }      
             float zoom() const { return m_zoom; }
             void setZoom(float zoom);
@@ -253,6 +296,19 @@ class RawViewport : public QQuickItem {
     void hslMagentaHueChanged();
     void hslMagentaSaturationChanged();
     void hslMagentaLuminanceChanged();
+
+    // Color Grading Signals
+    void cgShadowsHueChanged();
+    void cgShadowsSaturationChanged();
+    void cgShadowsLuminanceChanged();
+    void cgMidtonesHueChanged();
+    void cgMidtonesSaturationChanged();
+    void cgMidtonesLuminanceChanged();
+    void cgHighlightsHueChanged();
+    void cgHighlightsSaturationChanged();
+    void cgHighlightsLuminanceChanged();
+    void cgBalanceChanged();
+    void cgBlendingChanged();
 
     void zoomChanged();
     void editStackChanged();

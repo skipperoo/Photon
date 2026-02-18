@@ -5,12 +5,6 @@ layout(location = 0) out vec4 fragColor;
 
 layout(binding = 1) uniform sampler2D source;
 
-struct HslColor {
-    float hue;
-    float saturation;
-    float luminance;
-};
-
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
@@ -35,7 +29,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 imageRect; 
     vec2 viewportSize;
     
-    // HSL Panel (8 bands * 3 floats = 24 floats)
+    // HSL Panel (24 floats)
     float hslRedHue; float hslRedSaturation; float hslRedLuminance;
     float hslOrangeHue; float hslOrangeSaturation; float hslOrangeLuminance;
     float hslYellowHue; float hslYellowSaturation; float hslYellowLuminance;
@@ -44,6 +38,12 @@ layout(std140, binding = 0) uniform buf {
     float hslBlueHue; float hslBlueSaturation; float hslBlueLuminance;
     float hslPurpleHue; float hslPurpleSaturation; float hslPurpleLuminance;
     float hslMagentaHue; float hslMagentaSaturation; float hslMagentaLuminance;
+
+    // Color Grading (11 floats)
+    float cgShadowsHue; float cgShadowsSaturation; float cgShadowsLuminance;
+    float cgMidtonesHue; float cgMidtonesSaturation; float cgMidtonesLuminance;
+    float cgHighlightsHue; float cgHighlightsSaturation; float cgHighlightsLuminance;
+    float cgBalance; float cgBlending;
 } ubuf;
 
 const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
@@ -87,6 +87,35 @@ float get_hsl_influence(float hue, float center, float width) {
     float dist = min(abs(hue - center), 1.0 - abs(hue - center));
     float falloff = dist / (width * 0.5);
     return exp(-1.5 * falloff * falloff);
+}
+
+// --- Color Grading Math ---
+vec3 apply_region_tint(vec3 color, float hue, float sat, float lum) {
+    vec3 tint_rgb = hsv_to_rgb(vec3(hue / 360.0, sat / 100.0, 1.0));
+    color = mix(color, color * tint_rgb, sat / 100.0);
+    color *= (1.0 + (lum / 100.0));
+    return color;
+}
+
+vec3 color_grade(vec3 color, float luma) {
+    // 1. Calculate weights based on luma, balance, and blending
+    float balance = ubuf.cgBalance / 100.0; // -1 to 1
+    float blending = ubuf.cgBlending / 100.0; // 0 to 1
+    
+    // Shift thresholds based on balance
+    float s_end = 0.4 + balance * 0.3;
+    float h_start = 0.6 + balance * 0.3;
+    
+    float w_s = 1.0 - smoothstep(s_end - blending * 0.4, s_end + blending * 0.4, luma);
+    float w_h = smoothstep(h_start - blending * 0.4, h_start + blending * 0.4, luma);
+    float w_m = 1.0 - w_s - w_h;
+    
+    // 2. Apply tints
+    vec3 c_s = apply_region_tint(color, ubuf.cgShadowsHue, ubuf.cgShadowsSaturation, ubuf.cgShadowsLuminance);
+    vec3 c_m = apply_region_tint(color, ubuf.cgMidtonesHue, ubuf.cgMidtonesSaturation, ubuf.cgMidtonesLuminance);
+    vec3 c_h = apply_region_tint(color, ubuf.cgHighlightsHue, ubuf.cgHighlightsSaturation, ubuf.cgHighlightsLuminance);
+    
+    return c_s * w_s + c_m * w_m + c_h * w_h;
 }
 
 // --- AgX Tone Mapping ---
@@ -188,28 +217,23 @@ void main()
         }
     }
 
-    // --- HSL PANEL --- (Applied in Linear space before tonemapping)
+    // --- HSL PANEL ---
     vec3 hsv = rgb_to_hsv(color);
     float hue = hsv.x;
     float sat = hsv.y;
-    float lum = hsv.z;
-
     float hue_shift = 0.0;
     float sat_mult = 0.0;
     float lum_adj = 0.0;
 
-    // Ranges (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta)
-    // Normalized to 0.0-1.0
     float centers[8] = { 358.0/360.0, 25.0/360.0, 60.0/360.0, 115.0/360.0, 180.0/360.0, 225.0/360.0, 280.0/360.0, 330.0/360.0 };
     float widths[8] = { 35.0/360.0, 45.0/360.0, 40.0/360.0, 90.0/360.0, 60.0/360.0, 60.0/360.0, 55.0/360.0, 50.0/360.0 };
-    
     float h_adjs[8] = { ubuf.hslRedHue, ubuf.hslOrangeHue, ubuf.hslYellowHue, ubuf.hslGreenHue, ubuf.hslAquaHue, ubuf.hslBlueHue, ubuf.hslPurpleHue, ubuf.hslMagentaHue };
     float s_adjs[8] = { ubuf.hslRedSaturation, ubuf.hslOrangeSaturation, ubuf.hslYellowSaturation, ubuf.hslGreenSaturation, ubuf.hslAquaSaturation, ubuf.hslBlueSaturation, ubuf.hslPurpleSaturation, ubuf.hslMagentaSaturation };
     float l_adjs[8] = { ubuf.hslRedLuminance, ubuf.hslOrangeLuminance, ubuf.hslYellowLuminance, ubuf.hslGreenLuminance, ubuf.hslAquaLuminance, ubuf.hslBlueLuminance, ubuf.hslPurpleLuminance, ubuf.hslMagentaLuminance };
 
     for (int i = 0; i < 8; i++) {
         float influence = get_hsl_influence(hue, centers[i], widths[i]);
-        hue_shift += (h_adjs[i] / 100.0) * 0.1 * influence; // Subtle hue shift
+        hue_shift += (h_adjs[i] / 100.0) * 0.1 * influence;
         sat_mult += (s_adjs[i] / 100.0) * influence;
         lum_adj += (l_adjs[i] / 100.0) * influence;
     }
@@ -218,6 +242,9 @@ void main()
     hsv.y = clamp(hsv.y * (1.0 + sat_mult), 0.0, 1.0);
     color = hsv_to_rgb(hsv);
     color *= (1.0 + lum_adj);
+
+    // --- COLOR GRADING --- (Applied before global saturation/vibrance)
+    color = color_grade(color, get_luma(max(color, 0.0)));
 
     // 6. Saturation & Vibrance (Global)
     float gray = get_luma(max(color, 0.0));

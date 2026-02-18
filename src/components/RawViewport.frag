@@ -177,9 +177,13 @@ void main()
 
     // 8. Creative: Film Grain (Only on image area)
     if (ubuf.grainAmount > 0.0) {
-        vec2 grainCoord = imgCoord * ubuf.imageRect.zw; // Use image pixels for grain scale
+        vec2 grainCoord = imgCoord * ubuf.imageRect.zw; 
         float grain_frequency = (1.0 / max(ubuf.grainSize, 0.1));
-        float noise = gradient_noise(grainCoord * grain_frequency);
+        
+        float noise_base = gradient_noise(grainCoord * grain_frequency);
+        float noise_rough = gradient_noise(grainCoord * grain_frequency * 2.0 + vec2(5.2, 1.3));
+        float noise = mix(noise_base, noise_rough, ubuf.grainRoughness);
+        
         float luma_mask = smoothstep(0.05, 0.25, get_luma(final_rgb)) * (1.0 - smoothstep(0.5, 0.9, get_luma(final_rgb)));
         final_rgb += noise * (ubuf.grainAmount / 100.0) * 0.15 * luma_mask;
     }

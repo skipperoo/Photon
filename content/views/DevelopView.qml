@@ -148,7 +148,7 @@ Control {
 
                         Text { text: "Film Grain"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
                         ControlGroup { title: "Grain Amount"; value: root.viewport ? root.viewport.grainAmount : 0.0; from: 0; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.grainAmount = v } }
-                        ControlGroup { title: "Grain Size"; value: root.viewport ? root.viewport.grainSize : 1.0; from: 0.1; to: 10; onMoved: (v) => { if(root.viewport) root.viewport.grainSize = v } }
+                        ControlGroup { title: "Grain Size"; value: root.viewport ? root.viewport.grainSize : 1.0; from: 0.1; to: 5; onMoved: (v) => { if(root.viewport) root.viewport.grainSize = v } }
                         ControlGroup { title: "Grain Roughness"; value: root.viewport ? root.viewport.grainRoughness : 0.5; from: 0; to: 1; onMoved: (v) => { if(root.viewport) root.viewport.grainRoughness = v } }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }

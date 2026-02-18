@@ -118,6 +118,10 @@ class RawEngine : public QObject {
 
   const uchar* getProcessedData(int& width, int& height, int& colors);
 
+  // Persistence
+  void loadEdits();
+  void saveEdits();
+
  signals:
   void sourceChanged();
   void exposureChanged();

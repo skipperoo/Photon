@@ -72,6 +72,7 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::cgHighlightsLuminanceChanged, this, [this](){ emit cgHighlightsLuminanceChanged(); update(); });
   connect(&m_engine, &RawEngine::cgBalanceChanged, this, [this](){ emit cgBalanceChanged(); update(); });
   connect(&m_engine, &RawEngine::cgBlendingChanged, this, [this](){ emit cgBlendingChanged(); update(); });
+  connect(&m_engine, &RawEngine::histogramChanged, this, &RawViewport::histogramChanged);
 
   // History Connections
   connect(&m_engine, &RawEngine::editStackChanged, this, &RawViewport::editStackChanged);
@@ -89,66 +90,77 @@ void RawViewport::setExposure(float ev) {
   if (qFuzzyCompare(m_engine.exposure(), ev)) return;
   m_engine.setExposure(ev);
   emit exposureChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setContrast(float val) {
   if (qFuzzyCompare(m_engine.contrast(), val)) return;
   m_engine.setContrast(val);
   emit contrastChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setHighlights(float val) {
   if (qFuzzyCompare(m_engine.highlights(), val)) return;
   m_engine.setHighlights(val);
   emit highlightsChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setShadows(float val) {
   if (qFuzzyCompare(m_engine.shadows(), val)) return;
   m_engine.setShadows(val);
   emit shadowsChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setWhites(float val) {
   if (qFuzzyCompare(m_engine.whites(), val)) return;
   m_engine.setWhites(val);
   emit whitesChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setBlacks(float val) {
   if (qFuzzyCompare(m_engine.blacks(), val)) return;
   m_engine.setBlacks(val);
   emit blacksChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setVibrance(float val) {
   if (qFuzzyCompare(m_engine.vibrance(), val)) return;
   m_engine.setVibrance(val);
   emit vibranceChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setSaturation(float val) {
   if (qFuzzyCompare(m_engine.saturation(), val)) return;
   m_engine.setSaturation(val);
   emit saturationChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setTemperature(float val) {
   if (qFuzzyCompare(m_engine.temperature(), val)) return;
   m_engine.setTemperature(val);
   emit temperatureChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setTint(float val) {
   if (qFuzzyCompare(m_engine.tint(), val)) return;
   m_engine.setTint(val);
   emit tintChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setTonemappingEnabled(bool enabled) {
   if (m_engine.tonemappingEnabled() == enabled) return;
   m_engine.setTonemappingEnabled(enabled);
   emit tonemappingEnabledChanged();
+  m_engine.requestHistogramUpdate();
 }
 
 void RawViewport::setGrainAmount(float val) {
@@ -194,43 +206,43 @@ void RawViewport::setVignetteFeather(float val) {
 }
 
 // HSL Setters
-void RawViewport::setHslRedHue(float val) { m_engine.setHslRedHue(val); }
-void RawViewport::setHslRedSaturation(float val) { m_engine.setHslRedSaturation(val); }
-void RawViewport::setHslRedLuminance(float val) { m_engine.setHslRedLuminance(val); }
-void RawViewport::setHslOrangeHue(float val) { m_engine.setHslOrangeHue(val); }
-void RawViewport::setHslOrangeSaturation(float val) { m_engine.setHslOrangeSaturation(val); }
-void RawViewport::setHslOrangeLuminance(float val) { m_engine.setHslOrangeLuminance(val); }
-void RawViewport::setHslYellowHue(float val) { m_engine.setHslYellowHue(val); }
-void RawViewport::setHslYellowSaturation(float val) { m_engine.setHslYellowSaturation(val); }
-void RawViewport::setHslYellowLuminance(float val) { m_engine.setHslYellowLuminance(val); }
-void RawViewport::setHslGreenHue(float val) { m_engine.setHslGreenHue(val); }
-void RawViewport::setHslGreenSaturation(float val) { m_engine.setHslGreenSaturation(val); }
-void RawViewport::setHslGreenLuminance(float val) { m_engine.setHslGreenLuminance(val); }
-void RawViewport::setHslAquaHue(float val) { m_engine.setHslAquaHue(val); }
-void RawViewport::setHslAquaSaturation(float val) { m_engine.setHslAquaSaturation(val); }
-void RawViewport::setHslAquaLuminance(float val) { m_engine.setHslAquaLuminance(val); }
-void RawViewport::setHslBlueHue(float val) { m_engine.setHslBlueHue(val); }
-void RawViewport::setHslBlueSaturation(float val) { m_engine.setHslBlueSaturation(val); }
-void RawViewport::setHslBlueLuminance(float val) { m_engine.setHslBlueLuminance(val); }
-void RawViewport::setHslPurpleHue(float val) { m_engine.setHslPurpleHue(val); }
-void RawViewport::setHslPurpleSaturation(float val) { m_engine.setHslPurpleSaturation(val); }
-void RawViewport::setHslPurpleLuminance(float val) { m_engine.setHslPurpleLuminance(val); }
-void RawViewport::setHslMagentaHue(float val) { m_engine.setHslMagentaHue(val); }
-void RawViewport::setHslMagentaSaturation(float val) { m_engine.setHslMagentaSaturation(val); }
-void RawViewport::setHslMagentaLuminance(float val) { m_engine.setHslMagentaLuminance(val); }
+void RawViewport::setHslRedHue(float val) { m_engine.setHslRedHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslRedSaturation(float val) { m_engine.setHslRedSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslRedLuminance(float val) { m_engine.setHslRedLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslOrangeHue(float val) { m_engine.setHslOrangeHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslOrangeSaturation(float val) { m_engine.setHslOrangeSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslOrangeLuminance(float val) { m_engine.setHslOrangeLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslYellowHue(float val) { m_engine.setHslYellowHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslYellowSaturation(float val) { m_engine.setHslYellowSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslYellowLuminance(float val) { m_engine.setHslYellowLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslGreenHue(float val) { m_engine.setHslGreenHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslGreenSaturation(float val) { m_engine.setHslGreenSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslGreenLuminance(float val) { m_engine.setHslGreenLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslAquaHue(float val) { m_engine.setHslAquaHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslAquaSaturation(float val) { m_engine.setHslAquaSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslAquaLuminance(float val) { m_engine.setHslAquaLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslBlueHue(float val) { m_engine.setHslBlueHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslBlueSaturation(float val) { m_engine.setHslBlueSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslBlueLuminance(float val) { m_engine.setHslBlueLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslPurpleHue(float val) { m_engine.setHslPurpleHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslPurpleSaturation(float val) { m_engine.setHslPurpleSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslPurpleLuminance(float val) { m_engine.setHslPurpleLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslMagentaHue(float val) { m_engine.setHslMagentaHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslMagentaSaturation(float val) { m_engine.setHslMagentaSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setHslMagentaLuminance(float val) { m_engine.setHslMagentaLuminance(val); m_engine.requestHistogramUpdate(); }
 
 // Color Grading Setters
-void RawViewport::setCgShadowsHue(float val) { m_engine.setCgShadowsHue(val); }
-void RawViewport::setCgShadowsSaturation(float val) { m_engine.setCgShadowsSaturation(val); }
-void RawViewport::setCgShadowsLuminance(float val) { m_engine.setCgShadowsLuminance(val); }
-void RawViewport::setCgMidtonesHue(float val) { m_engine.setCgMidtonesHue(val); }
-void RawViewport::setCgMidtonesSaturation(float val) { m_engine.setCgMidtonesSaturation(val); }
-void RawViewport::setCgMidtonesLuminance(float val) { m_engine.setCgMidtonesLuminance(val); }
-void RawViewport::setCgHighlightsHue(float val) { m_engine.setCgHighlightsHue(val); }
-void RawViewport::setCgHighlightsSaturation(float val) { m_engine.setCgHighlightsSaturation(val); }
-void RawViewport::setCgHighlightsLuminance(float val) { m_engine.setCgHighlightsLuminance(val); }
-void RawViewport::setCgBalance(float val) { m_engine.setCgBalance(val); }
-void RawViewport::setCgBlending(float val) { m_engine.setCgBlending(val); }
+void RawViewport::setCgShadowsHue(float val) { m_engine.setCgShadowsHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgShadowsSaturation(float val) { m_engine.setCgShadowsSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgShadowsLuminance(float val) { m_engine.setCgShadowsLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgMidtonesHue(float val) { m_engine.setCgMidtonesHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgMidtonesSaturation(float val) { m_engine.setCgMidtonesSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgMidtonesLuminance(float val) { m_engine.setCgMidtonesLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgHighlightsHue(float val) { m_engine.setCgHighlightsHue(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgHighlightsSaturation(float val) { m_engine.setCgHighlightsSaturation(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgHighlightsLuminance(float val) { m_engine.setCgHighlightsLuminance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgBalance(float val) { m_engine.setCgBalance(val); m_engine.requestHistogramUpdate(); }
+void RawViewport::setCgBlending(float val) { m_engine.setCgBlending(val); m_engine.requestHistogramUpdate(); }
 
 void RawViewport::setZoom(float zoom) {
   if (qFuzzyCompare(m_zoom, zoom)) return;

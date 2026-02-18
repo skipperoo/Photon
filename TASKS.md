@@ -33,38 +33,30 @@
   - [x] Implement `Collapsible.qml` component for accordions.
   - [x] **Light Section:** Highlights, Shadows, Whites, Blacks sliders.
   - [x] **Presence Section:** Vibrance, Saturation sliders.
-  - [x] **Effects Section:** Clarity, Dehaze, Structure (Placeholders connected).
-  - [x] **Detail Section:** Sharpening, Noise Reduction (Placeholders connected).
+  - [x] **Color (HSL) Section:** 8-band targeted adjustments.
+  - [x] **Color Grading Section:** Shadows/Midtones/Highlights tinting.
+  - [x] **Creative Section:** Film Grain and Advanced Vignette.
+- [x] **Non-Destructive Edit Stack**
+  - [x] Store edits in JSON sidecar files.
+  - [x] Implement persistent Undo/Redo history.
+
+## Phase 5: Advanced Features & Refinement [IN PROGRESS]
+
 - [ ] **Histogram Component**
   - [ ] Compute RGB/Luma distribution in C++ (Async).
   - [ ] Render histogram overlay in QML/C++.
-- [ ] **Non-Destructive Edit Stack**
-  - [ ] Store edits in `AppState`.
-  - [ ] Save/Load edits to `.PhotonData/edits/*.json`.
-
-## Phase 5: Advanced Shader Enhancements (RapidRAW Port)
-
-- [ ] **Core Color Science**
-  - [ ] Port sRGB <-> Linear transformations.
-  - [ ] Implement AgX Tone Mapping (Full transform).
-- [ ] **Advanced Color Tools**
-  - [ ] Implement White Balance (Temperature & Tint).
-  - [ ] Port HSL Panel (8-range Hue/Sat/Lum adjustments).
-  - [ ] Port Color Grading (Shadows/Midtones/Highlights).
-- [ ] **Creative & Technical Filters**
-  - [ ] Implement Film Grain (Gradient Noise based).
-  - [ ] Implement Advanced Vignette (Midpoint/Roundness/Feather).
-  - [ ] Add Dithering for high-precision output.
+- [ ] **Technical Polish**
+  - [ ] Implement Dithering for high-precision output.
+  - [ ] Optimize GPU pipeline performance.
 
 ## Phase 6: UX Enhancements
 
 - [ ] **EXIF Metadata**
-  - [ ] Show EXIF metadata
-  - [ ] Pose the foundation to enable automatic lens correction
-- [ ] **Implement Lens Correction**
-  - [ ] Clone lensfun_db and integrate it
-  - [ ] Add contextual menu to select lens correction (and correction amount)
-  - [ ] Add button to detect lens from EXIF metadata and match it with lensfun_db
+  - [ ] Show EXIF metadata.
+  - [ ] Orient thumbnails using EXIF orientation.
+- [ ] **Lens Correction**
+  - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
+  - [ ] Add lens detection and selection UI.
 
 ## Backlog / Future
 

@@ -13,11 +13,20 @@ RawEngine::RawEngine(QObject* parent)
     : QObject(parent), m_processor(std::make_unique<LibRaw>()) {
   updateProcessingParams();
 
+  // Initialize histogram bins
+  for (int i = 0; i < 256; ++i) {
+      m_histRed.append(0.0f);
+      m_histGreen.append(0.0f);
+      m_histBlue.append(0.0f);
+      m_histLuma.append(0.0f);
+  }
+
   connect(&m_loadWatcher, &QFutureWatcher<bool>::finished, this, [this]() {
     m_isLoading = false;
     emit isLoadingChanged();
     if (m_loadWatcher.result()) {
       m_isLoaded = true;
+      requestHistogramUpdate();
       emit imageLoaded();
     }
   });
@@ -51,6 +60,7 @@ void RawEngine::setSource(const QString& source) {
   m_source = source;
   emit sourceChanged();
 
+  m_histogramUpdatePending = false;
   loadRawFileAsync(m_source);
   loadEdits();
 }
@@ -211,6 +221,97 @@ void RawEngine::setCgHighlightsLuminance(float val) { if (!qFuzzyCompare(m_cgHig
 
 void RawEngine::setCgBalance(float val) { if (!qFuzzyCompare(m_cgBalance, val)) { m_cgBalance = val; emit cgBalanceChanged(); } }
 void RawEngine::setCgBlending(float val) { if (!qFuzzyCompare(m_cgBlending, val)) { m_cgBlending = val; emit cgBlendingChanged(); } }
+
+void RawEngine::requestHistogramUpdate() {
+    if (!m_isLoaded) return;
+
+    if (m_histogramUpdatePending) {
+        m_histogramNeedsUpdate = true;
+        return;
+    }
+
+    if (!m_processedImage) {
+        // If the image isn't processed yet, we can't compute the histogram.
+        // We'll try again when the image is processed.
+        return;
+    }
+
+    // Capture current edit parameters for the computation
+    float exp = m_exposure;
+    float temp = m_temperature / 100.0f;
+    float tint = m_tint / 100.0f;
+
+    // Capture image data pointer and dimensions
+    const ushort* src = reinterpret_cast<const ushort*>(m_processedImage->data);
+    int totalPixels = m_processedImage->width * m_processedImage->height;
+
+    if (!src || totalPixels <= 0) return;
+
+    m_histogramUpdatePending = true;
+    m_histogramNeedsUpdate = false;
+
+    QtConcurrent::run([this, src, totalPixels, exp, temp, tint]() {
+        std::vector<uint32_t> r_bins(256, 0);
+        std::vector<uint32_t> g_bins(256, 0);
+        std::vector<uint32_t> b_bins(256, 0);
+        std::vector<uint32_t> l_bins(256, 0);
+
+        float r_wb = (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f);
+        float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
+        float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
+        float exp_mult = std::pow(2.0f, exp);
+
+        int step = std::max(1, totalPixels / 131072);
+
+        for (int i = 0; i < totalPixels; i += step) {
+            float r = src[i * 3] / 65535.0f;
+            float g = src[i * 3 + 1] / 65535.0f;
+            float b = src[i * 3 + 2] / 65535.0f;
+            
+            r *= r_wb; g *= g_wb; b *= b_wb;
+            r *= exp_mult; g *= exp_mult; b *= exp_mult;
+
+            uint8_t r8 = static_cast<uint8_t>(std::clamp(r * 255.0f, 0.0f, 255.0f));
+            uint8_t g8 = static_cast<uint8_t>(std::clamp(g * 255.0f, 0.0f, 255.0f));
+            uint8_t b8 = static_cast<uint8_t>(std::clamp(b * 255.0f, 0.0f, 255.0f));
+            uint8_t l8 = static_cast<uint8_t>(0.2126f * r8 + 0.7152f * g8 + 0.0722f * b8);
+
+            r_bins[r8]++; g_bins[g8]++; b_bins[b8]++; l_bins[l8]++;
+        }
+
+        uint32_t max_val = 0;
+        for (int i = 0; i < 256; ++i) {
+            max_val = std::max({max_val, r_bins[i], g_bins[i], b_bins[i], l_bins[i]});
+        }
+
+        QMetaObject::invokeMethod(this, [this, r_bins, g_bins, b_bins, l_bins, max_val]() {
+            float inv_max = max_val > 0 ? 1.0f / max_val : 1.0f;
+            
+            QVariantList newRed, newGreen, newBlue, newLuma;
+            newRed.reserve(256); newGreen.reserve(256); newBlue.reserve(256); newLuma.reserve(256);
+
+            for (int i = 0; i < 256; ++i) {
+                newRed.append(r_bins[i] * inv_max);
+                newGreen.append(g_bins[i] * inv_max);
+                newBlue.append(b_bins[i] * inv_max);
+                newLuma.append(l_bins[i] * inv_max);
+            }
+
+            m_histRed = newRed;
+            m_histGreen = newGreen;
+            m_histBlue = newBlue;
+            m_histLuma = newLuma;
+
+            m_histogramUpdatePending = false;
+            emit histogramChanged();
+
+            // If a new request came in during processing, run it now
+            if (m_histogramNeedsUpdate) {
+                requestHistogramUpdate();
+            }
+        }, Qt::QueuedConnection);
+    });
+}
 
 void RawEngine::clearProcessedImage() {
   if (m_processedImage) {
@@ -473,6 +574,7 @@ void RawEngine::loadEdits() {
   emit editStackChanged();
   emit canUndoChanged();
   emit canRedoChanged();
+  requestHistogramUpdate();
 }
 
 void RawEngine::commitEdit() {
@@ -515,6 +617,7 @@ void RawEngine::commitEdit() {
   if (file.open(QIODevice::WriteOnly)) {
     file.write(QJsonDocument(arr).toJson());
   }
+  requestHistogramUpdate();
 }
 
 void RawEngine::undo() {
@@ -523,6 +626,7 @@ void RawEngine::undo() {
     applyJsonToState(this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
     emit canUndoChanged();
     emit canRedoChanged();
+    requestHistogramUpdate();
 }
 
 void RawEngine::redo() {
@@ -531,4 +635,5 @@ void RawEngine::redo() {
     applyJsonToState(this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
     emit canUndoChanged();
     emit canRedoChanged();
+    requestHistogramUpdate();
 }

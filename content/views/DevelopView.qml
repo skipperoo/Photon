@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import Main
+import "../components"
 
 Control {
     id: root
@@ -48,22 +49,17 @@ Control {
                 width: parent.width
                 spacing: 0
 
-                // --- Histogram Placeholder ---
-                Rectangle {
+                // --- Histogram ---
+                Histogram {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 180
                     Layout.margins: 12
                     Layout.bottomMargin: 20
-                    color: "#121214"
-                    radius: Theme.radius
-                    border.color: Theme.border
                     
-                    Text {
-                        anchors.centerIn: parent
-                        text: "Histogram"
-                        color: Theme.mutedFg
-                        font: Theme.fontSmall
-                    }
+                    histogramRed: root.viewport ? root.viewport.histogramRed : []
+                    histogramGreen: root.viewport ? root.viewport.histogramGreen : []
+                    histogramBlue: root.viewport ? root.viewport.histogramBlue : []
+                    histogramLuma: root.viewport ? root.viewport.histogramLuma : []
                 }
 
                 // --- Light Section ---

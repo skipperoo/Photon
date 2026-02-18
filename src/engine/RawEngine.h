@@ -91,6 +91,11 @@ class RawEngine : public QObject {
     Q_PROPERTY(float cgBalance READ cgBalance WRITE setCgBalance NOTIFY cgBalanceChanged)
     Q_PROPERTY(float cgBlending READ cgBlending WRITE setCgBlending NOTIFY cgBlendingChanged)
 
+    Q_PROPERTY(QVariantList histogramRed READ histogramRed NOTIFY histogramChanged)
+    Q_PROPERTY(QVariantList histogramGreen READ histogramGreen NOTIFY histogramChanged)
+    Q_PROPERTY(QVariantList histogramBlue READ histogramBlue NOTIFY histogramChanged)
+    Q_PROPERTY(QVariantList histogramLuma READ histogramLuma NOTIFY histogramChanged)
+
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
   Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
@@ -242,6 +247,13 @@ class RawEngine : public QObject {
   float cgBlending() const { return m_cgBlending; }
   void setCgBlending(float val);
 
+  // Histogram
+  QVariantList histogramRed() const { return m_histRed; }
+  QVariantList histogramGreen() const { return m_histGreen; }
+  QVariantList histogramBlue() const { return m_histBlue; }
+  QVariantList histogramLuma() const { return m_histLuma; }
+  void requestHistogramUpdate();
+
   bool isLoading() const { return m_isLoading; }
 
   bool halfSize() const { return m_halfSize; }
@@ -325,6 +337,7 @@ class RawEngine : public QObject {
   void cgHighlightsLuminanceChanged();
   void cgBalanceChanged();
   void cgBlendingChanged();
+  void histogramChanged();
 
   void imageLoaded();
   void isLoadingChanged();
@@ -393,6 +406,15 @@ class RawEngine : public QObject {
   float m_cgHighlightsLuminance = 0.0f;
   float m_cgBalance = 0.0f;
   float m_cgBlending = 50.0f;
+
+  // Histogram data
+  QVariantList m_histRed;
+  QVariantList m_histGreen;
+  QVariantList m_histBlue;
+  QVariantList m_histLuma;
+  QImage m_downsampledImage; // Used for fast histogram computation
+  bool m_histogramUpdatePending = false;
+  bool m_histogramNeedsUpdate = false;
 
   bool m_isLoading = false;
   bool m_halfSize = false;

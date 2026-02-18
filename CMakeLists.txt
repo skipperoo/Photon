@@ -69,6 +69,7 @@ qt_add_qml_module(appPhoton
         content/components/Card.qml
         content/components/Collapsible.qml
         content/components/ControlGroup.qml
+        content/components/Histogram.qml
         content/theme/Theme.qml
     RESOURCES
         assets/icons/search.svg

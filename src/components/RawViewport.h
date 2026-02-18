@@ -82,6 +82,11 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float cgBalance READ cgBalance WRITE setCgBalance NOTIFY cgBalanceChanged)
     Q_PROPERTY(float cgBlending READ cgBlending WRITE setCgBlending NOTIFY cgBlendingChanged)
 
+    Q_PROPERTY(QVariantList histogramRed READ histogramRed NOTIFY histogramChanged)
+    Q_PROPERTY(QVariantList histogramGreen READ histogramGreen NOTIFY histogramChanged)
+    Q_PROPERTY(QVariantList histogramBlue READ histogramBlue NOTIFY histogramChanged)
+    Q_PROPERTY(QVariantList histogramLuma READ histogramLuma NOTIFY histogramChanged)
+
     Q_PROPERTY(QRectF imageRect READ imageRect NOTIFY imageRectChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
     Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
@@ -234,6 +239,12 @@ class RawViewport : public QQuickItem {
             float cgBlending() const { return m_engine.cgBlending(); }
             void setCgBlending(float val);
 
+            // Histogram Getters
+            QVariantList histogramRed() const { return m_engine.histogramRed(); }
+            QVariantList histogramGreen() const { return m_engine.histogramGreen(); }
+            QVariantList histogramBlue() const { return m_engine.histogramBlue(); }
+            QVariantList histogramLuma() const { return m_engine.histogramLuma(); }
+
             QRectF imageRect() const { return m_imageRect; }      
             float zoom() const { return m_zoom; }
             void setZoom(float zoom);
@@ -309,6 +320,7 @@ class RawViewport : public QQuickItem {
     void cgHighlightsLuminanceChanged();
     void cgBalanceChanged();
     void cgBlendingChanged();
+    void histogramChanged();
 
     void zoomChanged();
     void editStackChanged();

@@ -100,7 +100,11 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 
 - **Behavior:** Scrollable vertical stack of Accordions (Shadcn `Collapsible`).
 - **Width:** Fixed (e.g., 320px). Can be toggled hidden (Shortcut: Tab).
-- **Histogram:** (Top, pinned). RGB + Luma graphs.
+- **Histogram:** (Top, pinned). 
+  - **Function:** Real-time visualization of RGB and Luma distribution.
+  - **Technical:** Computed in C++ using a 256-bin array per channel.
+  - **Rendering:** Anti-aliased line graphs or filled paths with semi-transparent overlaps.
+  - **Performance:** Throttled computation to ensure UI remains at 60fps even during slider movement.
 
 ### GPU Processing Pipeline (Phase 5)
 
@@ -112,30 +116,36 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 4.  **Grain:** High-quality **Film Grain** is implemented using a gradient noise algorithm, with controls for amount, size, and roughness. It is applied in linear-to-srgb space with a luma-based mask to protect shadows and highlights.
 5.  **Vignette:** An **Advanced Vignette** system is implemented with midpoint, roundness, and feathering controls, allowing for precise artistic framing.
 6.  **HSL Panel:** An **8-band HSL system** (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta) is implemented in the fragment shader. It uses weighted influence curves to allow targeted Hue, Saturation, and Luminance adjustments without causing artifacts.
-7.  **Dithering:** (Planned) Final output is dithered to prevent banding on 8-bit displays.
+7.  **Color Grading:** A professional **3-Way Color Grading** system is implemented, allowing independent tinting of **Shadows, Midtones, and Highlights**. It features global **Balance** and **Blending** controls to precisely manage tonal transitions.
+8.  **Dithering:** (Planned) Final output is dithered to prevent banding on 8-bit displays.
 
 **Accordion Sections:**
 
 1. **Light:**
-
 - _Sliders:_ Exposure, Contrast.
 - _Tone:_ Highlights, Shadows, Whites, Blacks.
 - _Divider Line_
 - _Presence:_ Vibrance, Saturation.
 
-1. **Tone Curve:**
+2. **Color (HSL):**
+- 8-band selector (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta).
+- Targeted Hue, Saturation, and Luminance sliders.
 
+3. **Color Grading:**
+- 3-way region selector (Shadows, Midtones, Highlights).
+- Cinematic tinting (Hue, Saturation, Luminance) per region.
+- Global Balance and Blending sliders.
+
+4. **Tone Curve:**
 - Editable Parametric Curve (Highlights, Lights, Darks, Shadows) + Point Curve UI.
 
-1. **Effects:**
-
+5. **Effects:**
 - Clarity (Mid-tone contrast).
 - Dehaze (Atmospheric removal).
 - Structure (Local detail).
-- Centrè (Vignette/Post-crop darkening).
+- Vignette (Midpoint, Roundness, Feather).
 
-1. **Detail:**
-
+6. **Detail:**
 - Sharpening (Amount, Radius, Masking).
 - Noise Reduction (Luminance, Color).
 

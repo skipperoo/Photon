@@ -22,6 +22,8 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float blacks READ blacks WRITE setBlacks NOTIFY blacksChanged)
     Q_PROPERTY(float vibrance READ vibrance WRITE setVibrance NOTIFY vibranceChanged)
     Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY saturationChanged)
+    Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY temperatureChanged)
+    Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
     Q_PROPERTY(QPointF pan READ pan WRITE setPan NOTIFY panChanged)
     QML_ELEMENT
@@ -56,6 +58,12 @@ class RawViewport : public QQuickItem {
     float saturation() const { return m_engine.saturation(); }
     void setSaturation(float val);
   
+    float temperature() const { return m_engine.temperature(); }
+    void setTemperature(float val);
+  
+    float tint() const { return m_engine.tint(); }
+    void setTint(float val);
+  
     float zoom() const { return m_zoom; }
     void setZoom(float zoom);
   
@@ -72,6 +80,8 @@ class RawViewport : public QQuickItem {
     void blacksChanged();
     void vibranceChanged();
     void saturationChanged();
+    void temperatureChanged();
+    void tintChanged();
     void zoomChanged();
     void panChanged();
 

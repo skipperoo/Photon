@@ -9,6 +9,7 @@ class TestRawEngine : public QObject {
  private slots:
   void testLoadInvalidFile();
   void testLoadValidFile();
+  void testProperties();
 };
 
 void TestRawEngine::testLoadInvalidFile() {
@@ -23,6 +24,25 @@ void TestRawEngine::testLoadInvalidFile() {
 void TestRawEngine::testLoadValidFile() {
   // Skip for now if we don't have a valid RAW file for testing
   // QSKIP("No valid RAW file available for testing");
+}
+
+void TestRawEngine::testProperties() {
+  RawEngine engine;
+  
+  QSignalSpy exposureSpy(&engine, &RawEngine::exposureChanged);
+  engine.setExposure(1.5f);
+  QCOMPARE(engine.exposure(), 1.5f);
+  QCOMPARE(exposureSpy.count(), 1);
+
+  QSignalSpy tempSpy(&engine, &RawEngine::temperatureChanged);
+  engine.setTemperature(50.0f);
+  QCOMPARE(engine.temperature(), 50.0f);
+  QCOMPARE(tempSpy.count(), 1);
+
+  QSignalSpy tintSpy(&engine, &RawEngine::tintChanged);
+  engine.setTint(-10.0f);
+  QCOMPARE(engine.tint(), -10.0f);
+  QCOMPARE(tintSpy.count(), 1);
 }
 
 QTEST_MAIN(TestRawEngine)

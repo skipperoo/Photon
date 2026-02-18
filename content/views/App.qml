@@ -146,6 +146,8 @@ Window {
                             property real blacks: rawViewport.blacks
                             property real vibrance: rawViewport.vibrance
                             property real saturation: rawViewport.saturation
+                            property real temperature: rawViewport.temperature
+                            property real tint: rawViewport.tint
                             
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                         }

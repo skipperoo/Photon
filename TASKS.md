@@ -37,6 +37,19 @@
   - [ ] Store edits in `AppState`.
   - [ ] Save/Load edits to `.PhotonData/edits/*.json`.
 
+## Phase 5: Advanced Shader Enhancements (RapidRAW Port)
+- [ ] **Core Color Science**
+  - [ ] Port sRGB <-> Linear transformations.
+  - [ ] Implement AgX Tone Mapping (Full transform).
+- [ ] **Advanced Color Tools**
+  - [ ] Implement White Balance (Temperature & Tint).
+  - [ ] Port HSL Panel (8-range Hue/Sat/Lum adjustments).
+  - [ ] Port Color Grading (Shadows/Midtones/Highlights).
+- [ ] **Creative & Technical Filters**
+  - [ ] Implement Film Grain (Gradient Noise based).
+  - [ ] Implement Advanced Vignette (Midpoint/Roundness/Feather).
+  - [ ] Add Dithering for high-precision output.
+
 ## Backlog / Future
 - [ ] Tone Curve (Spline UI).
 - [ ] Export functionality (Save to JPEG/TIFF).

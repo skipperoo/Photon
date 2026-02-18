@@ -26,6 +26,10 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
           &RawViewport::update);
   connect(&m_engine, &RawEngine::saturationChanged, this,
           &RawViewport::update);
+  connect(&m_engine, &RawEngine::temperatureChanged, this,
+          &RawViewport::update);
+  connect(&m_engine, &RawEngine::tintChanged, this,
+          &RawViewport::update);
 }
 
 void RawViewport::setSource(const QString& source) {
@@ -80,6 +84,18 @@ void RawViewport::setSaturation(float val) {
   if (qFuzzyCompare(m_engine.saturation(), val)) return;
   m_engine.setSaturation(val);
   emit saturationChanged();
+}
+
+void RawViewport::setTemperature(float val) {
+  if (qFuzzyCompare(m_engine.temperature(), val)) return;
+  m_engine.setTemperature(val);
+  emit temperatureChanged();
+}
+
+void RawViewport::setTint(float val) {
+  if (qFuzzyCompare(m_engine.tint(), val)) return;
+  m_engine.setTint(val);
+  emit tintChanged();
 }
 
 void RawViewport::setZoom(float zoom) {

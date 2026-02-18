@@ -103,6 +103,15 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 - **Width:** Fixed (e.g., 320px). Can be toggled hidden (Shortcut: Tab).
 - **Histogram:** (Top, pinned). RGB + Luma graphs.
 
+### GPU Processing Pipeline (Phase 5)
+
+To achieve professional-grade results, Photon employs a high-fidelity GPU pipeline:
+
+1.  **Linear Workflow:** Input textures are converted from sRGB to **Linear Space** for all mathematical operations. This ensures correct light addition and blending.
+2.  **White Balance:** Handled in linear space using a kelvin-based temperature shift and a magenta/green tint adjustment.
+3.  **Tonemapping:** (Planned) AgX Sigmoid transform to provide a filmic highlight roll-off.
+4.  **Dithering:** (Planned) Final output is dithered to prevent banding on 8-bit displays.
+
 **Accordion Sections:**
 
 1. **Light:**

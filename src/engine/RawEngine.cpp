@@ -97,6 +97,18 @@ void RawEngine::setSaturation(float val) {
   emit saturationChanged();
 }
 
+void RawEngine::setTemperature(float val) {
+  if (qFuzzyCompare(m_temperature, val)) return;
+  m_temperature = val;
+  emit temperatureChanged();
+}
+
+void RawEngine::setTint(float val) {
+  if (qFuzzyCompare(m_tint, val)) return;
+  m_tint = val;
+  emit tintChanged();
+}
+
 void RawEngine::clearProcessedImage() {
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);

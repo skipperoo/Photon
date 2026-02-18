@@ -75,6 +75,12 @@ Control {
                         Layout.fillWidth: true
                         spacing: 16
 
+                        Text { text: "White Balance"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Temperature"; value: root.viewport ? root.viewport.temperature : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.temperature = v } }
+                        ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.tint : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.tint = v } }
+                        
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
                         ControlGroup { title: "Exposure"; value: root.viewport ? root.viewport.exposure : 0.0; from: -5; to: 5; onMoved: (v) => { if(root.viewport) root.viewport.exposure = v } }
                         ControlGroup { title: "Contrast"; value: root.viewport ? root.viewport.contrast : 1.0; from: 0; to: 2; onMoved: (v) => { if(root.viewport) root.viewport.contrast = v } }
                         

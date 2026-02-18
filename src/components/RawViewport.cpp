@@ -30,6 +30,8 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
           &RawViewport::update);
   connect(&m_engine, &RawEngine::tintChanged, this,
           &RawViewport::update);
+  connect(&m_engine, &RawEngine::tonemappingEnabledChanged, this,
+          &RawViewport::update);
 }
 
 void RawViewport::setSource(const QString& source) {
@@ -96,6 +98,12 @@ void RawViewport::setTint(float val) {
   if (qFuzzyCompare(m_engine.tint(), val)) return;
   m_engine.setTint(val);
   emit tintChanged();
+}
+
+void RawViewport::setTonemappingEnabled(bool enabled) {
+  if (m_engine.tonemappingEnabled() == enabled) return;
+  m_engine.setTonemappingEnabled(enabled);
+  emit tonemappingEnabledChanged();
 }
 
 void RawViewport::setZoom(float zoom) {

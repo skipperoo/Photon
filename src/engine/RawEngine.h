@@ -24,6 +24,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY saturationChanged)
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
+  Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
   Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
 
@@ -64,6 +65,9 @@ class RawEngine : public QObject {
   float tint() const { return m_tint; }
   void setTint(float val);
 
+  bool tonemappingEnabled() const { return m_tonemappingEnabled; }
+  void setTonemappingEnabled(bool enabled);
+
   bool isLoading() const { return m_isLoading; }
 
   bool halfSize() const { return m_halfSize; }
@@ -90,6 +94,7 @@ class RawEngine : public QObject {
   void saturationChanged();
   void temperatureChanged();
   void tintChanged();
+  void tonemappingEnabledChanged();
   void imageLoaded();
   void isLoadingChanged();
   void halfSizeChanged();
@@ -107,6 +112,7 @@ class RawEngine : public QObject {
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;
   float m_tint = 0.0f;
+  bool m_tonemappingEnabled = true;
   bool m_isLoading = false;
   bool m_halfSize = false;
   std::unique_ptr<LibRaw> m_processor;

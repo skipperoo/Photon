@@ -24,6 +24,7 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY saturationChanged)
     Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY temperatureChanged)
     Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
+    Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
     Q_PROPERTY(QPointF pan READ pan WRITE setPan NOTIFY panChanged)
     QML_ELEMENT
@@ -64,6 +65,9 @@ class RawViewport : public QQuickItem {
     float tint() const { return m_engine.tint(); }
     void setTint(float val);
   
+    bool tonemappingEnabled() const { return m_engine.tonemappingEnabled(); }
+    void setTonemappingEnabled(bool enabled);
+  
     float zoom() const { return m_zoom; }
     void setZoom(float zoom);
   
@@ -82,6 +86,7 @@ class RawViewport : public QQuickItem {
     void saturationChanged();
     void temperatureChanged();
     void tintChanged();
+    void tonemappingEnabledChanged();
     void zoomChanged();
     void panChanged();
 

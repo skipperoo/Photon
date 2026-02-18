@@ -148,6 +148,7 @@ Window {
                             property real saturation: rawViewport.saturation
                             property real temperature: rawViewport.temperature
                             property real tint: rawViewport.tint
+                            property real tonemappingEnabled: rawViewport.tonemappingEnabled ? 1.0 : 0.0
                             
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                         }

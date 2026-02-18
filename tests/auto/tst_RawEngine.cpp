@@ -43,6 +43,11 @@ void TestRawEngine::testProperties() {
   engine.setTint(-10.0f);
   QCOMPARE(engine.tint(), -10.0f);
   QCOMPARE(tintSpy.count(), 1);
+
+  QSignalSpy toneSpy(&engine, &RawEngine::tonemappingEnabledChanged);
+  engine.setTonemappingEnabled(false);
+  QCOMPARE(engine.tonemappingEnabled(), false);
+  QCOMPARE(toneSpy.count(), 1);
 }
 
 QTEST_MAIN(TestRawEngine)

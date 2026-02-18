@@ -109,6 +109,12 @@ void RawEngine::setTint(float val) {
   emit tintChanged();
 }
 
+void RawEngine::setTonemappingEnabled(bool enabled) {
+  if (m_tonemappingEnabled == enabled) return;
+  m_tonemappingEnabled = enabled;
+  emit tonemappingEnabledChanged();
+}
+
 void RawEngine::clearProcessedImage() {
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);

@@ -24,7 +24,22 @@ class RawEngine : public QObject {
   Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY saturationChanged)
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
-  Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
+  Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE
+                 setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
+  Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY
+                 grainAmountChanged)
+  Q_PROPERTY(float grainSize READ grainSize WRITE setGrainSize NOTIFY
+                 grainSizeChanged)
+  Q_PROPERTY(float grainRoughness READ grainRoughness WRITE setGrainRoughness
+                 NOTIFY grainRoughnessChanged)
+  Q_PROPERTY(float vignetteAmount READ vignetteAmount WRITE setVignetteAmount
+                 NOTIFY vignetteAmountChanged)
+  Q_PROPERTY(float vignetteMidpoint READ vignetteMidpoint WRITE
+                 setVignetteMidpoint NOTIFY vignetteMidpointChanged)
+  Q_PROPERTY(float vignetteRoundness READ vignetteRoundness WRITE
+                 setVignetteRoundness NOTIFY vignetteRoundnessChanged)
+  Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE
+                 setVignetteFeather NOTIFY vignetteFeatherChanged)
   Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
 
@@ -68,6 +83,27 @@ class RawEngine : public QObject {
   bool tonemappingEnabled() const { return m_tonemappingEnabled; }
   void setTonemappingEnabled(bool enabled);
 
+  float grainAmount() const { return m_grainAmount; }
+  void setGrainAmount(float val);
+
+  float grainSize() const { return m_grainSize; }
+  void setGrainSize(float val);
+
+  float grainRoughness() const { return m_grainRoughness; }
+  void setGrainRoughness(float val);
+
+  float vignetteAmount() const { return m_vignetteAmount; }
+  void setVignetteAmount(float val);
+
+  float vignetteMidpoint() const { return m_vignetteMidpoint; }
+  void setVignetteMidpoint(float val);
+
+  float vignetteRoundness() const { return m_vignetteRoundness; }
+  void setVignetteRoundness(float val);
+
+  float vignetteFeather() const { return m_vignetteFeather; }
+  void setVignetteFeather(float val);
+
   bool isLoading() const { return m_isLoading; }
 
   bool halfSize() const { return m_halfSize; }
@@ -95,6 +131,13 @@ class RawEngine : public QObject {
   void temperatureChanged();
   void tintChanged();
   void tonemappingEnabledChanged();
+  void grainAmountChanged();
+  void grainSizeChanged();
+  void grainRoughnessChanged();
+  void vignetteAmountChanged();
+  void vignetteMidpointChanged();
+  void vignetteRoundnessChanged();
+  void vignetteFeatherChanged();
   void imageLoaded();
   void isLoadingChanged();
   void halfSizeChanged();
@@ -112,7 +155,14 @@ class RawEngine : public QObject {
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;
   float m_tint = 0.0f;
-  bool m_tonemappingEnabled = true;
+  bool m_tonemappingEnabled = false;
+  float m_grainAmount = 0.0f;
+  float m_grainSize = 1.0f;
+  float m_grainRoughness = 0.5f;
+  float m_vignetteAmount = 0.0f;
+  float m_vignetteMidpoint = 0.5f;
+  float m_vignetteRoundness = 0.0f;
+  float m_vignetteFeather = 0.5f;
   bool m_isLoading = false;
   bool m_halfSize = false;
   std::unique_ptr<LibRaw> m_processor;

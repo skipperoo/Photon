@@ -48,6 +48,16 @@ void TestRawEngine::testProperties() {
   engine.setTonemappingEnabled(false);
   QCOMPARE(engine.tonemappingEnabled(), false);
   QCOMPARE(toneSpy.count(), 1);
+
+  QSignalSpy grainSpy(&engine, &RawEngine::grainAmountChanged);
+  engine.setGrainAmount(25.0f);
+  QCOMPARE(engine.grainAmount(), 25.0f);
+  QCOMPARE(grainSpy.count(), 1);
+
+  QSignalSpy vignetteSpy(&engine, &RawEngine::vignetteAmountChanged);
+  engine.setVignetteAmount(-50.0f);
+  QCOMPARE(engine.vignetteAmount(), -50.0f);
+  QCOMPARE(vignetteSpy.count(), 1);
 }
 
 QTEST_MAIN(TestRawEngine)

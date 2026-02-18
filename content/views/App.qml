@@ -149,6 +149,15 @@ Window {
                             property real temperature: rawViewport.temperature
                             property real tint: rawViewport.tint
                             property real tonemappingEnabled: rawViewport.tonemappingEnabled ? 1.0 : 0.0
+                            property real grainAmount: rawViewport.grainAmount
+                            property real grainSize: rawViewport.grainSize
+                            property real grainRoughness: rawViewport.grainRoughness
+                            property real vignetteAmount: rawViewport.vignetteAmount
+                            property real vignetteMidpoint: rawViewport.vignetteMidpoint
+                            property real vignetteRoundness: rawViewport.vignetteRoundness
+                            property real vignetteFeather: rawViewport.vignetteFeather
+                            property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
+                            property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
                             
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                         }

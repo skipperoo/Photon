@@ -82,7 +82,7 @@ Control {
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
                         ControlGroup { title: "Exposure"; value: root.viewport ? root.viewport.exposure : 0.0; from: -5; to: 5; onMoved: (v) => { if(root.viewport) root.viewport.exposure = v } }
-                        ControlGroup { title: "Contrast"; value: root.viewport ? root.viewport.contrast : 1.0; from: 0; to: 2; onMoved: (v) => { if(root.viewport) root.viewport.contrast = v } }
+                        ControlGroup { title: "Contrast"; value: root.viewport ? root.viewport.contrast : 1.0; from: 0.5; to: 1.5; onMoved: (v) => { if(root.viewport) root.viewport.contrast = v } }
                         
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
@@ -102,7 +102,7 @@ Control {
                                 Layout.fillWidth: true
                             }
                             Switch { 
-                                checked: root.viewport ? root.viewport.tonemappingEnabled : true
+                                checked: root.viewport ? root.viewport.tonemappingEnabled : false
                                 onToggled: if(root.viewport) root.viewport.tonemappingEnabled = checked
                             }
                         }
@@ -134,6 +134,30 @@ Control {
                         ControlGroup { title: "Clarity"; value: 0; from: -100; to: 100 }
                         ControlGroup { title: "Dehaze"; value: 0; from: -100; to: 100 }
                         ControlGroup { title: "Structure"; value: 0; from: -100; to: 100 }
+                    }
+                }
+
+                // --- Creative Section ---
+                Collapsible {
+                    title: "Creative"
+                    expanded: true
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        Text { text: "Film Grain"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Grain Amount"; value: root.viewport ? root.viewport.grainAmount : 0.0; from: 0; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.grainAmount = v } }
+                        ControlGroup { title: "Grain Size"; value: root.viewport ? root.viewport.grainSize : 1.0; from: 0.1; to: 10; onMoved: (v) => { if(root.viewport) root.viewport.grainSize = v } }
+                        ControlGroup { title: "Grain Roughness"; value: root.viewport ? root.viewport.grainRoughness : 0.5; from: 0; to: 1; onMoved: (v) => { if(root.viewport) root.viewport.grainRoughness = v } }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        Text { text: "Vignette"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Vignette Amount"; value: root.viewport ? root.viewport.vignetteAmount : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.vignetteAmount = v } }
+                        ControlGroup { title: "Vignette Midpoint"; value: root.viewport ? root.viewport.vignetteMidpoint : 50.0; from: 0; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.vignetteMidpoint = v } }
+                        ControlGroup { title: "Vignette Roundness"; value: root.viewport ? root.viewport.vignetteRoundness : 0.0; from: -100; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.vignetteRoundness = v } }
+                        ControlGroup { title: "Vignette Feather"; value: root.viewport ? root.viewport.vignetteFeather : 50.0; from: 1; to: 100; onMoved: (v) => { if(root.viewport) root.viewport.vignetteFeather = v } }
                     }
                 }
 

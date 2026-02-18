@@ -115,6 +115,48 @@ void RawEngine::setTonemappingEnabled(bool enabled) {
   emit tonemappingEnabledChanged();
 }
 
+void RawEngine::setGrainAmount(float val) {
+  if (qFuzzyCompare(m_grainAmount, val)) return;
+  m_grainAmount = val;
+  emit grainAmountChanged();
+}
+
+void RawEngine::setGrainSize(float val) {
+  if (qFuzzyCompare(m_grainSize, val)) return;
+  m_grainSize = val;
+  emit grainSizeChanged();
+}
+
+void RawEngine::setGrainRoughness(float val) {
+  if (qFuzzyCompare(m_grainRoughness, val)) return;
+  m_grainRoughness = val;
+  emit grainRoughnessChanged();
+}
+
+void RawEngine::setVignetteAmount(float val) {
+  if (qFuzzyCompare(m_vignetteAmount, val)) return;
+  m_vignetteAmount = val;
+  emit vignetteAmountChanged();
+}
+
+void RawEngine::setVignetteMidpoint(float val) {
+  if (qFuzzyCompare(m_vignetteMidpoint, val)) return;
+  m_vignetteMidpoint = val;
+  emit vignetteMidpointChanged();
+}
+
+void RawEngine::setVignetteRoundness(float val) {
+  if (qFuzzyCompare(m_vignetteRoundness, val)) return;
+  m_vignetteRoundness = val;
+  emit vignetteRoundnessChanged();
+}
+
+void RawEngine::setVignetteFeather(float val) {
+  if (qFuzzyCompare(m_vignetteFeather, val)) return;
+  m_vignetteFeather = val;
+  emit vignetteFeatherChanged();
+}
+
 void RawEngine::clearProcessedImage() {
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);

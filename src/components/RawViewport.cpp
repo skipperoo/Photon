@@ -32,6 +32,20 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
           &RawViewport::update);
   connect(&m_engine, &RawEngine::tonemappingEnabledChanged, this,
           &RawViewport::update);
+  connect(&m_engine, &RawEngine::grainAmountChanged, this,
+          &RawViewport::update);
+  connect(&m_engine, &RawEngine::grainSizeChanged, this,
+          &RawViewport::update);
+  connect(&m_engine, &RawEngine::grainRoughnessChanged, this,
+          &RawViewport::update);
+  connect(&m_engine, &RawEngine::vignetteAmountChanged, this,
+          &RawViewport::update);
+  connect(&m_engine, &RawEngine::vignetteMidpointChanged, this,
+          &RawViewport::update);
+  connect(&m_engine, &RawEngine::vignetteRoundnessChanged, this,
+          &RawViewport::update);
+  connect(&m_engine, &RawEngine::vignetteFeatherChanged, this,
+          &RawViewport::update);
 }
 
 void RawViewport::setSource(const QString& source) {
@@ -104,6 +118,48 @@ void RawViewport::setTonemappingEnabled(bool enabled) {
   if (m_engine.tonemappingEnabled() == enabled) return;
   m_engine.setTonemappingEnabled(enabled);
   emit tonemappingEnabledChanged();
+}
+
+void RawViewport::setGrainAmount(float val) {
+  if (qFuzzyCompare(m_engine.grainAmount(), val)) return;
+  m_engine.setGrainAmount(val);
+  emit grainAmountChanged();
+}
+
+void RawViewport::setGrainSize(float val) {
+  if (qFuzzyCompare(m_engine.grainSize(), val)) return;
+  m_engine.setGrainSize(val);
+  emit grainSizeChanged();
+}
+
+void RawViewport::setGrainRoughness(float val) {
+  if (qFuzzyCompare(m_engine.grainRoughness(), val)) return;
+  m_engine.setGrainRoughness(val);
+  emit grainRoughnessChanged();
+}
+
+void RawViewport::setVignetteAmount(float val) {
+  if (qFuzzyCompare(m_engine.vignetteAmount(), val)) return;
+  m_engine.setVignetteAmount(val);
+  emit vignetteAmountChanged();
+}
+
+void RawViewport::setVignetteMidpoint(float val) {
+  if (qFuzzyCompare(m_engine.vignetteMidpoint(), val)) return;
+  m_engine.setVignetteMidpoint(val);
+  emit vignetteMidpointChanged();
+}
+
+void RawViewport::setVignetteRoundness(float val) {
+  if (qFuzzyCompare(m_engine.vignetteRoundness(), val)) return;
+  m_engine.setVignetteRoundness(val);
+  emit vignetteRoundnessChanged();
+}
+
+void RawViewport::setVignetteFeather(float val) {
+  if (qFuzzyCompare(m_engine.vignetteFeather(), val)) return;
+  m_engine.setVignetteFeather(val);
+  emit vignetteFeatherChanged();
 }
 
 void RawViewport::setZoom(float zoom) {
@@ -228,6 +284,11 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     m_imageDirty = false;
   }
 
-  node->setRect(calculateTargetRect());
+  QRectF rect = calculateTargetRect();
+  if (m_imageRect != rect) {
+    m_imageRect = rect;
+    emit imageRectChanged();
+  }
+  node->setRect(rect);
   return node;
 }

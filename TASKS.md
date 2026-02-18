@@ -1,19 +1,23 @@
 # 📋 Project Photon Task List
 
 ## Phase 0: Infrastructure & Setup [DONE]
+
 - [x] **Test Environment Setup**
 - [x] **CI/Lint Configuration**
 
 ## Phase 1: The "Real" Image (Core Engine) [DONE]
+
 - [x] **RawEngine Implementation (C++)**
 - [x] **RawViewport Integration**
 
 ## Phase 2: User Interface (Shadcn/Zinc Theme) [DONE]
+
 - [x] **Theme System**
 - [x] **Core Components**
 - [x] **Layout Implementation**
 
 ## Phase 3: Processing Pipeline & Library [DONE]
+
 - [x] **Basic Image Processing** (Exposure on CPU - to be optimized)
 - [x] **Asynchronous Loading**
 - [x] **Real Thumbnails** (LibRaw extraction + .PhotonData cache)
@@ -21,6 +25,7 @@
 - [x] **Interactive Viewport** (Pan & Zoom)
 
 ## Phase 4: Advanced Tool Panel & GPU Pipeline [DONE]
+
 - [x] **GPU-Accelerated Edits**
   - [x] Move Exposure/Contrast calculation to Fragment Shader.
   - [x] Implement Vibrance/Saturation in shader.
@@ -38,6 +43,7 @@
   - [ ] Save/Load edits to `.PhotonData/edits/*.json`.
 
 ## Phase 5: Advanced Shader Enhancements (RapidRAW Port)
+
 - [ ] **Core Color Science**
   - [ ] Port sRGB <-> Linear transformations.
   - [ ] Implement AgX Tone Mapping (Full transform).
@@ -50,7 +56,18 @@
   - [ ] Implement Advanced Vignette (Midpoint/Roundness/Feather).
   - [ ] Add Dithering for high-precision output.
 
+## Phase 6: UX Enhancements
+
+- [ ] **EXIF Metadata**
+  - [ ] Show EXIF metadata
+  - [ ] Pose the foundation to enable automatic lens correction
+- [ ] **Implement Lens Correction**
+  - [ ] Clone lensfun_db and integrate it
+  - [ ] Add contextual menu to select lens correction (and correction amount)
+  - [ ] Add button to detect lens from EXIF metadata and match it with lensfun_db
+
 ## Backlog / Future
+
 - [ ] Tone Curve (Spline UI).
 - [ ] Export functionality (Save to JPEG/TIFF).
 - [ ] Multi-image batch processing.

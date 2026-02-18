@@ -25,6 +25,14 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY temperatureChanged)
     Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
     Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
+    Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY grainAmountChanged)
+    Q_PROPERTY(float grainSize READ grainSize WRITE setGrainSize NOTIFY grainSizeChanged)
+    Q_PROPERTY(float grainRoughness READ grainRoughness WRITE setGrainRoughness NOTIFY grainRoughnessChanged)
+    Q_PROPERTY(float vignetteAmount READ vignetteAmount WRITE setVignetteAmount NOTIFY vignetteAmountChanged)
+    Q_PROPERTY(float vignetteMidpoint READ vignetteMidpoint WRITE setVignetteMidpoint NOTIFY vignetteMidpointChanged)
+    Q_PROPERTY(float vignetteRoundness READ vignetteRoundness WRITE setVignetteRoundness NOTIFY vignetteRoundnessChanged)
+    Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE setVignetteFeather NOTIFY vignetteFeatherChanged)
+    Q_PROPERTY(QRectF imageRect READ imageRect NOTIFY imageRectChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
     Q_PROPERTY(QPointF pan READ pan WRITE setPan NOTIFY panChanged)
     QML_ELEMENT
@@ -68,8 +76,30 @@ class RawViewport : public QQuickItem {
     bool tonemappingEnabled() const { return m_engine.tonemappingEnabled(); }
     void setTonemappingEnabled(bool enabled);
   
-    float zoom() const { return m_zoom; }
-    void setZoom(float zoom);
+    float grainAmount() const { return m_engine.grainAmount(); }
+    void setGrainAmount(float val);
+
+    float grainSize() const { return m_engine.grainSize(); }
+    void setGrainSize(float val);
+
+    float grainRoughness() const { return m_engine.grainRoughness(); }
+    void setGrainRoughness(float val);
+
+    float vignetteAmount() const { return m_engine.vignetteAmount(); }
+    void setVignetteAmount(float val);
+
+    float vignetteMidpoint() const { return m_engine.vignetteMidpoint(); }
+    void setVignetteMidpoint(float val);
+
+    float vignetteRoundness() const { return m_engine.vignetteRoundness(); }
+    void setVignetteRoundness(float val);
+
+        float vignetteFeather() const { return m_engine.vignetteFeather(); }
+        void setVignetteFeather(float val);
+    
+        QRectF imageRect() const { return m_imageRect; }
+      
+        float zoom() const { return m_zoom; }    void setZoom(float zoom);
   
     QPointF pan() const { return m_panOffset; }
     void setPan(const QPointF& offset);
@@ -87,6 +117,14 @@ class RawViewport : public QQuickItem {
     void temperatureChanged();
     void tintChanged();
     void tonemappingEnabledChanged();
+    void grainAmountChanged();
+    void grainSizeChanged();
+    void grainRoughnessChanged();
+    void vignetteAmountChanged();
+    void vignetteMidpointChanged();
+    void vignetteRoundnessChanged();
+    void vignetteFeatherChanged();
+    void imageRectChanged();
     void zoomChanged();
     void panChanged();
 
@@ -106,6 +144,7 @@ class RawViewport : public QQuickItem {
   QPointF m_panOffset = QPointF(0, 0);
   QPointF m_lastMousePos;
   bool m_isPanning = false;
+  QRectF m_imageRect;
   bool m_imageDirty = false;
   bool m_textureDirty = false;
   int m_imageWidth = 0;

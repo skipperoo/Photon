@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Controls.Basic as T
 import QtQuick.Dialogs
 import Main 1.0
 
@@ -222,8 +223,14 @@ Window {
 
                                 Rectangle { width: 1; height: 20; color: Theme.border; Layout.leftMargin: 8; Layout.rightMargin: 8 }
 
-                                Button {
+                                T.Button {
+                                    id: undoBtn
                                     icon.source: "qrc:/Main/assets/icons/undo.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: "white"
+                                    implicitWidth: 24
+                                    implicitHeight: 24
                                     onClicked: rawViewport.undo()
                                     flat: true
                                     enabled: rawViewport.canUndo
@@ -231,11 +238,18 @@ Window {
                                     ToolTip.visible: hovered
                                     ToolTip.text: "Undo"
                                     display: AbstractButton.IconOnly
-                                    padding: 4
+                                    padding: 0
+                                    background: null
                                 }
 
-                                Button {
+                                T.Button {
+                                    id: redoBtn
                                     icon.source: "qrc:/Main/assets/icons/redo.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: "white"
+                                    implicitWidth: 24
+                                    implicitHeight: 24
                                     onClicked: rawViewport.redo()
                                     flat: true
                                     enabled: rawViewport.canRedo
@@ -243,7 +257,8 @@ Window {
                                     ToolTip.visible: hovered
                                     ToolTip.text: "Redo"
                                     display: AbstractButton.IconOnly
-                                    padding: 4
+                                    padding: 0
+                                    background: null
                                 }
 
                                 Item { Layout.fillWidth: true }

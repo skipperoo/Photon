@@ -334,6 +334,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
 }
 
 static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
+  // Use setters to trigger signals
   if (obj.contains("exposure")) e->setExposure(obj["exposure"].toDouble());
   if (obj.contains("contrast")) e->setContrast(obj["contrast"].toDouble());
   if (obj.contains("highlights")) e->setHighlights(obj["highlights"].toDouble());
@@ -407,9 +408,7 @@ void RawEngine::loadEdits() {
   if (!QFile::exists(editsPath)) {
     resetToDefaults(this);
     m_editIndex = -1;
-    commitEdit(); // This will set m_editIndex to 0
-    emit canUndoChanged();
-    emit canRedoChanged();
+    commitEdit(); // This will create the initial state and set index to 0
     return;
   }
 
@@ -430,7 +429,7 @@ void RawEngine::loadEdits() {
   }
   m_editIndex = m_editStack.size() - 1;
   
-  // Apply last state
+  // Apply last state - this will trigger signals and update UI
   applyJsonToState(this, arr.last().toObject());
 
   emit editStackChanged();

@@ -3,49 +3,36 @@
 #include <QImage>
 #include <QSGTexture>
 #include <QtMath>
+#include <QRgba64>
 
 RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   setFlag(ItemHasContents, true);
   setAcceptedMouseButtons(Qt::LeftButton);
 
-  connect(&m_engine, &RawEngine::imageLoaded, this,
-          &RawViewport::onImageLoaded);
-  connect(&m_engine, &RawEngine::exposureChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::contrastChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::highlightsChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::shadowsChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::whitesChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::blacksChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::vibranceChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::saturationChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::temperatureChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::tintChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::tonemappingEnabledChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::grainAmountChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::grainSizeChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::grainRoughnessChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::vignetteAmountChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::vignetteMidpointChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::vignetteRoundnessChanged, this,
-          &RawViewport::update);
-  connect(&m_engine, &RawEngine::vignetteFeatherChanged, this,
-          &RawViewport::update);
+  connect(&m_engine, &RawEngine::imageLoaded, this, &RawViewport::onImageLoaded);
+  connect(&m_engine, &RawEngine::sourceChanged, this, [this](){ emit sourceChanged(); update(); });
+  
+  // Basic Adjustment Connections
+  connect(&m_engine, &RawEngine::exposureChanged, this, [this](){ emit exposureChanged(); update(); });
+  connect(&m_engine, &RawEngine::contrastChanged, this, [this](){ emit contrastChanged(); update(); });
+  connect(&m_engine, &RawEngine::highlightsChanged, this, [this](){ emit highlightsChanged(); update(); });
+  connect(&m_engine, &RawEngine::shadowsChanged, this, [this](){ emit shadowsChanged(); update(); });
+  connect(&m_engine, &RawEngine::whitesChanged, this, [this](){ emit whitesChanged(); update(); });
+  connect(&m_engine, &RawEngine::blacksChanged, this, [this](){ emit blacksChanged(); update(); });
+  connect(&m_engine, &RawEngine::vibranceChanged, this, [this](){ emit vibranceChanged(); update(); });
+  connect(&m_engine, &RawEngine::saturationChanged, this, [this](){ emit saturationChanged(); update(); });
+  connect(&m_engine, &RawEngine::temperatureChanged, this, [this](){ emit temperatureChanged(); update(); });
+  connect(&m_engine, &RawEngine::tintChanged, this, [this](){ emit tintChanged(); update(); });
+  connect(&m_engine, &RawEngine::tonemappingEnabledChanged, this, [this](){ emit tonemappingEnabledChanged(); update(); });
+  
+  // Creative Connections
+  connect(&m_engine, &RawEngine::grainAmountChanged, this, [this](){ emit grainAmountChanged(); update(); });
+  connect(&m_engine, &RawEngine::grainSizeChanged, this, [this](){ emit grainSizeChanged(); update(); });
+  connect(&m_engine, &RawEngine::grainRoughnessChanged, this, [this](){ emit grainRoughnessChanged(); update(); });
+  connect(&m_engine, &RawEngine::vignetteAmountChanged, this, [this](){ emit vignetteAmountChanged(); update(); });
+  connect(&m_engine, &RawEngine::vignetteMidpointChanged, this, [this](){ emit vignetteMidpointChanged(); update(); });
+  connect(&m_engine, &RawEngine::vignetteRoundnessChanged, this, [this](){ emit vignetteRoundnessChanged(); update(); });
+  connect(&m_engine, &RawEngine::vignetteFeatherChanged, this, [this](){ emit vignetteFeatherChanged(); update(); });
 
   // HSL Connections
   connect(&m_engine, &RawEngine::hslRedHueChanged, this, [this](){ emit hslRedHueChanged(); update(); });
@@ -72,9 +59,11 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::hslMagentaHueChanged, this, [this](){ emit hslMagentaHueChanged(); update(); });
   connect(&m_engine, &RawEngine::hslMagentaSaturationChanged, this, [this](){ emit hslMagentaSaturationChanged(); update(); });
   connect(&m_engine, &RawEngine::hslMagentaLuminanceChanged, this, [this](){ emit hslMagentaLuminanceChanged(); update(); });
+  
+  // History Connections
   connect(&m_engine, &RawEngine::editStackChanged, this, &RawViewport::editStackChanged);
-  connect(&m_engine, &RawEngine::canUndoChanged, this, &RawViewport::canUndoChanged);
-  connect(&m_engine, &RawEngine::canRedoChanged, this, &RawViewport::canRedoChanged);
+  connect(&m_engine, &RawEngine::canUndoChanged, this, [this](){ emit canUndoChanged(); });
+  connect(&m_engine, &RawEngine::canRedoChanged, this, [this](){ emit canRedoChanged(); });
 }
 
 void RawViewport::setSource(const QString& source) {

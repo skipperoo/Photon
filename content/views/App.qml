@@ -220,6 +220,32 @@ Window {
                                     onMoved: rawViewport.zoom = value
                                 }
 
+                                Rectangle { width: 1; height: 20; color: Theme.border; Layout.leftMargin: 8; Layout.rightMargin: 8 }
+
+                                Button {
+                                    icon.source: "qrc:/Main/assets/icons/undo.svg"
+                                    onClicked: rawViewport.undo()
+                                    flat: true
+                                    enabled: rawViewport.canUndo
+                                    opacity: enabled ? 1.0 : 0.3
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: "Undo"
+                                    display: AbstractButton.IconOnly
+                                    padding: 4
+                                }
+
+                                Button {
+                                    icon.source: "qrc:/Main/assets/icons/redo.svg"
+                                    onClicked: rawViewport.redo()
+                                    flat: true
+                                    enabled: rawViewport.canRedo
+                                    opacity: enabled ? 1.0 : 0.3
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: "Redo"
+                                    display: AbstractButton.IconOnly
+                                    padding: 4
+                                }
+
                                 Item { Layout.fillWidth: true }
 
                                 Text {

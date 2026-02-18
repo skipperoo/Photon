@@ -68,6 +68,9 @@ class RawViewport : public QQuickItem {
 
     Q_PROPERTY(QRectF imageRect READ imageRect NOTIFY imageRectChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
+    Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
+    Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
     Q_PROPERTY(QPointF pan READ pan WRITE setPan NOTIFY panChanged)
     QML_ELEMENT
   
@@ -189,9 +192,18 @@ class RawViewport : public QQuickItem {
             void setHslMagentaLuminance(float val);
         
             QRectF imageRect() const { return m_imageRect; }      
-        float zoom() const { return m_zoom; }    void setZoom(float zoom);
-  
-    QPointF pan() const { return m_panOffset; }
+            float zoom() const { return m_zoom; }
+            void setZoom(float zoom);
+        
+            QVariantList editStack() const { return m_engine.editStack(); }
+            bool canUndo() const { return m_engine.canUndo(); }
+            bool canRedo() const { return m_engine.canRedo(); }
+
+            Q_INVOKABLE void commitEdit() { m_engine.commitEdit(); }
+            Q_INVOKABLE void undo() { m_engine.undo(); }
+            Q_INVOKABLE void redo() { m_engine.redo(); }
+          
+            QPointF pan() const { return m_panOffset; }
     void setPan(const QPointF& offset);
   
    signals:
@@ -243,6 +255,9 @@ class RawViewport : public QQuickItem {
     void hslMagentaLuminanceChanged();
 
     void zoomChanged();
+    void editStackChanged();
+    void canUndoChanged();
+    void canRedoChanged();
     void panChanged();
 
  protected:

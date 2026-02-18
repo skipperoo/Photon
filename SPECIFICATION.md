@@ -14,7 +14,8 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 **Logic:**
 
 - When a folder is opened, Photon checks for/creates a `.PhotonData` folder (hidden on Linux/Mac, standard folder on Win).
-- **Edits:** Stored as JSON arrays to support full Undo/Redo history.
+- **Edit Stack:** Edits are stored as a **JSON array of objects**. Each object represents a complete state of the adjustment parameters.
+- **Commit Logic:** While a slider is moving, the GPU updates in real-time (60fps). A new state is only appended to the JSON array when the user **releases** the slider, provided the value is different from the previous state.
 - **Cache:** Stores generated thumbnails to avoid re-parsing RAW files on every launch.
 
 **Directory Tree:**
@@ -23,16 +24,14 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 /User/Pictures/Vacation2024/
 ├── IMG_001.ARW
 ├── IMG_002.ARW
-└── PhotonData/
+└── .PhotonData/
     ├── edits/
-    │   ├── IMG_001.json  # Contains [ {op: "exposure", val: 0.5}, ... ]
+    │   ├── IMG_001.json  # Contains [ {exposure: 0.0, ...}, {exposure: 0.5, ...} ]
     │   └── IMG_002.json
     └── cache/
         ├── thumbnails/
-        │   ├── IMG_001.jpg # 360px Preview for Library/Filmstrip
+        │   ├── IMG_001.jpg
         │   └── IMG_002.jpg
-        └── previews/       # Optional: Full 1080p previews for fast loading
-
 ```
 
 ---

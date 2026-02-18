@@ -72,6 +72,9 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::hslMagentaHueChanged, this, [this](){ emit hslMagentaHueChanged(); update(); });
   connect(&m_engine, &RawEngine::hslMagentaSaturationChanged, this, [this](){ emit hslMagentaSaturationChanged(); update(); });
   connect(&m_engine, &RawEngine::hslMagentaLuminanceChanged, this, [this](){ emit hslMagentaLuminanceChanged(); update(); });
+  connect(&m_engine, &RawEngine::editStackChanged, this, &RawViewport::editStackChanged);
+  connect(&m_engine, &RawEngine::canUndoChanged, this, &RawViewport::canUndoChanged);
+  connect(&m_engine, &RawEngine::canRedoChanged, this, &RawViewport::canRedoChanged);
 }
 
 void RawViewport::setSource(const QString& source) {

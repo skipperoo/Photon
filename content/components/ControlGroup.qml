@@ -10,6 +10,7 @@ ColumnLayout {
     property real from: 0
     property real to: 100
     signal moved(real val)
+    signal released()
 
     spacing: 4
     Layout.fillWidth: true
@@ -20,7 +21,7 @@ ColumnLayout {
             id: titleText
             text: root.title
             font: Theme.fontRegular
-            color: Theme.foreground // Brighter for better visibility
+            color: Theme.foreground 
         }
         Item { Layout.fillWidth: true }
         Text { 
@@ -32,10 +33,12 @@ ColumnLayout {
     }
 
     Slider {
+        id: slider
         Layout.fillWidth: true
         from: root.from
         to: root.to
         value: root.value
         onMoved: root.moved(value)
+        onReleased: root.released()
     }
 }

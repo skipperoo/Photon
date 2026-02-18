@@ -7,6 +7,13 @@ Slider {
     from: 0
     to: 100
     value: 50
+    
+    signal released()
+    onPressedChanged: {
+        if (!pressed) {
+            released()
+        }
+    }
 
     background: Rectangle {
         x: control.leftPadding

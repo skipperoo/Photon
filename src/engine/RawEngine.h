@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QString>
 #include <QtConcurrent>
+#include <QVariantList>
 #include <memory>
 #include <vector>
 
@@ -76,6 +77,9 @@ class RawEngine : public QObject {
   
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
+  Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
+  Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
+  Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
 
  public:
   explicit RawEngine(QObject* parent = nullptr);
@@ -211,7 +215,13 @@ class RawEngine : public QObject {
 
   // Persistence
   void loadEdits();
-  void saveEdits();
+  void commitEdit(); 
+  void undo();
+  void redo();
+
+  QVariantList editStack() const { return m_editStack; }
+  bool canUndo() const { return m_editIndex > 0; }
+  bool canRedo() const { return m_editIndex < (int)m_editStack.size() - 1; }
 
  signals:
   void sourceChanged();
@@ -263,6 +273,9 @@ class RawEngine : public QObject {
   void imageLoaded();
   void isLoadingChanged();
   void halfSizeChanged();
+  void editStackChanged();
+  void canUndoChanged();
+  void canRedoChanged();
   void errorOccurred(const QString& error);
 
  private:
@@ -314,6 +327,8 @@ class RawEngine : public QObject {
 
   bool m_isLoading = false;
   bool m_halfSize = false;
+  QVariantList m_editStack;
+  int m_editIndex = -1;
   std::unique_ptr<LibRaw> m_processor;
   libraw_processed_image_t* m_processedImage = nullptr;
   bool m_isLoaded = false;

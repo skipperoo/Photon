@@ -259,37 +259,6 @@ void RawViewport::setPan(const QPointF& offset) {
   update();
 }
 
-void RawViewport::mousePressEvent(QMouseEvent* event) {
-  if (event->button() == Qt::LeftButton) {
-    m_isPanning = true;
-    m_lastMousePos = event->position();
-    event->accept();
-  }
-}
-
-void RawViewport::mouseMoveEvent(QMouseEvent* event) {
-  if (m_isPanning) {
-    QPointF delta = event->position() - m_lastMousePos;
-    m_lastMousePos = event->position();
-    setPan(m_panOffset + delta);
-    event->accept();
-  }
-}
-
-void RawViewport::mouseReleaseEvent(QMouseEvent* event) {
-  if (event->button() == Qt::LeftButton) {
-    m_isPanning = false;
-    event->accept();
-  }
-}
-
-void RawViewport::wheelEvent(QWheelEvent* event) {
-  qreal angleDelta = event->angleDelta().y();
-  qreal factor = qPow(1.001, angleDelta);
-  setZoom(qBound(0.1f, static_cast<float>(m_zoom * factor), 10.0f));
-  event->accept();
-}
-
 void RawViewport::onImageLoaded() {
   m_imageDirty = true;
   m_textureDirty = true;

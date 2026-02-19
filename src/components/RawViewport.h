@@ -330,10 +330,6 @@ class RawViewport : public QQuickItem {
 
  protected:
   QSGNode* updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) override;
-  void mousePressEvent(QMouseEvent* event) override;
-  void mouseMoveEvent(QMouseEvent* event) override;
-  void mouseReleaseEvent(QMouseEvent* event) override;
-  void wheelEvent(QWheelEvent* event) override;
 
  private slots:
   void onImageLoaded();
@@ -342,8 +338,6 @@ class RawViewport : public QQuickItem {
   RawEngine m_engine;
   float m_zoom = 1.0f;
   QPointF m_panOffset = QPointF(0, 0);
-  QPointF m_lastMousePos;
-  bool m_isPanning = false;
   QRectF m_imageRect;
   bool m_imageDirty = false;
   bool m_textureDirty = false;

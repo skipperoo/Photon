@@ -129,7 +129,7 @@ Window {
                             anchors.fill: parent
                             anchors.margins: 2
                             source: AppState.currentImage
-                            visible: false
+                            visible: true
                         }
 
                         ShaderEffect {
@@ -200,6 +200,33 @@ Window {
                             property real cgBlending: rawViewport.cgBlending
                             
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
+                        }
+
+                        // Interaction Layer
+                        MouseArea {
+                            anchors.fill: rawViewport
+                            hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton
+                            scrollGestureEnabled: true
+                            
+                            property point lastPos
+                            
+                            onWheel: (wheel) => {
+                                var factor = Math.pow(1.001, wheel.angleDelta.y)
+                                rawViewport.zoom = Math.max(0.1, Math.min(10.0, rawViewport.zoom * factor))
+                            }
+                            
+                            onPressed: (mouse) => {
+                                lastPos = Qt.point(mouse.x, mouse.y)
+                            }
+                            
+                            onPositionChanged: (mouse) => {
+                                if (pressed) {
+                                    var delta = Qt.point(mouse.x - lastPos.x, mouse.y - lastPos.y)
+                                    rawViewport.pan = Qt.point(rawViewport.pan.x + delta.x, rawViewport.pan.y + delta.y)
+                                    lastPos = Qt.point(mouse.x, mouse.y)
+                                }
+                            }
                         }
 
                         // Bottom Toolbar

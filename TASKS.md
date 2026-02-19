@@ -40,14 +40,14 @@
   - [x] Store edits in JSON sidecar files.
   - [x] Implement persistent Undo/Redo history.
 
-## Phase 5: Advanced Features & Refinement [IN PROGRESS]
+## Phase 5: Advanced Features & Refinement [DONE]
 
-- [ ] **Histogram Component**
-  - [ ] Compute RGB/Luma distribution in C++ (Async).
-  - [ ] Render histogram overlay in QML/C++.
-- [ ] **Technical Polish**
-  - [ ] Implement Dithering for high-precision output.
-  - [ ] Optimize GPU pipeline performance.
+- [x] **Histogram Component**
+  - [x] Compute RGB/Luma distribution in C++ (Async).
+  - [x] Render histogram overlay in QML/C++.
+- [x] **Technical Polish**
+  - [x] Implement Dithering for high-precision output.
+  - [x] Optimize GPU pipeline performance.
 
 ## Phase 6: UX Enhancements
 

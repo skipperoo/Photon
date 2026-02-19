@@ -165,6 +165,10 @@ float gradient_noise(vec2 p) {
     return mix(mix(ga, gb, u.x), mix(gc, gd, u.x), u.y) * 2.0 - 1.0;
 }
 
+float dither(vec2 p) {
+    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+}
+
 void main()
 {
     vec2 pixelPos = qt_TexCoord0 * ubuf.viewportSize;
@@ -287,6 +291,9 @@ void main()
             final_rgb = mix(final_rgb, vec3(1.0), (ubuf.vignetteAmount / 100.0) * vignette_mask);
         }
     }
+
+    float dither_amount = 1.0 / 255.0;
+    final_rgb += dither(pixelPos) * dither_amount;
 
     fragColor = vec4(clamp(final_rgb, 0.0, 1.0), tex.a) * ubuf.qt_Opacity;
 }

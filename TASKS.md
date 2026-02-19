@@ -49,11 +49,21 @@
   - [x] Implement Dithering for high-precision output.
   - [x] Optimize GPU pipeline performance.
 
-## Phase 6: UX Enhancements
+## Phase 6: UX Enhancements [DONE]
 
-- [ ] **EXIF Metadata**
-  - [ ] Show EXIF metadata.
+- [x] **EXIF Metadata**
+  - [x] Show EXIF metadata.
   - [ ] Orient thumbnails using EXIF orientation.
+- [x] **Stability & Polish**
+  - [x] Fix viewport aspect ratio and stretching issues.
+  - [x] Synchronize Histogram math with GPU pipeline.
+
+## Phase 7: Advanced Edit Management [IN PROGRESS]
+
+- [ ] **Restore to Original**
+  - [ ] Implement global reset logic in C++.
+  - [ ] Add "Restore" button with Lucide icon to viewport toolbar.
+  - [ ] Implement "isDefault" check to enable/disable reset action.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
   - [ ] Add lens detection and selection UI.
@@ -63,7 +73,5 @@
 - [ ] Tone Curve (Spline UI).
 - [ ] Export functionality (Save to JPEG/TIFF).
 - [ ] Multi-image batch processing.
-  - [ ] Copy/paste edits
-  - [ ] Save/export/update presets
-  - [ ] Share presets
-  - [ ] Import presets from url/repository
+  - [ ] Copy/paste edits.
+  - [ ] Save/export/update presets.

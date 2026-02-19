@@ -302,6 +302,25 @@ Window {
                                     background: null
                                 }
 
+                                T.Button {
+                                    id: restoreBtn
+                                    icon.source: "qrc:/Main/assets/icons/rotate-ccw.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: "white"
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: rawViewport.resetToOriginal()
+                                    flat: true
+                                    enabled: !rawViewport.isDefault
+                                    opacity: enabled ? 1.0 : 0.3
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: "Restore to Original"
+                                    display: AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
                                 Item { Layout.fillWidth: true }
 
                                 Text {

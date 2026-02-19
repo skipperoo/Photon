@@ -78,6 +78,7 @@ qt_add_qml_module(appPhoton
         assets/icons/zoom-out.svg
         assets/icons/undo.svg
         assets/icons/redo.svg
+        assets/icons/rotate-ccw.svg
 )
 
 set_target_properties(appPhoton PROPERTIES

@@ -103,6 +103,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
   Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
+  Q_PROPERTY(bool isDefault READ isDefault NOTIFY isDefaultChanged)
 
  public:
   explicit RawEngine(QObject* parent = nullptr);
@@ -277,10 +278,12 @@ class RawEngine : public QObject {
   void commitEdit(); 
   void undo();
   void redo();
+  void resetToOriginal();
 
   QVariantList editStack() const { return m_editStack; }
   bool canUndo() const { return m_editIndex > 0; }
   bool canRedo() const { return m_editIndex < (int)m_editStack.size() - 1; }
+  bool isDefault() const;
 
  signals:
   void sourceChanged();
@@ -351,6 +354,7 @@ class RawEngine : public QObject {
   void editStackChanged();
   void canUndoChanged();
   void canRedoChanged();
+  void isDefaultChanged();
   void errorOccurred(const QString& error);
 
  private:

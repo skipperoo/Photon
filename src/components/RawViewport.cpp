@@ -24,6 +24,7 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::temperatureChanged, this, [this](){ emit temperatureChanged(); update(); });
   connect(&m_engine, &RawEngine::tintChanged, this, [this](){ emit tintChanged(); update(); });
   connect(&m_engine, &RawEngine::tonemappingEnabledChanged, this, [this](){ emit tonemappingEnabledChanged(); update(); });
+  connect(&m_engine, &RawEngine::isDefaultChanged, this, &RawViewport::isDefaultChanged);
   
   // Creative Connections
   connect(&m_engine, &RawEngine::grainAmountChanged, this, [this](){ emit grainAmountChanged(); update(); });

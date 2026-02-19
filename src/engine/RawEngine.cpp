@@ -127,158 +127,176 @@ void RawEngine::setExposure(float ev) {
   if (qFuzzyCompare(m_exposure, ev)) return;
   m_exposure = ev;
   emit exposureChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setContrast(float val) {
   if (qFuzzyCompare(m_contrast, val)) return;
   m_contrast = val;
   emit contrastChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setHighlights(float val) {
   if (qFuzzyCompare(m_highlights, val)) return;
   m_highlights = val;
   emit highlightsChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setShadows(float val) {
   if (qFuzzyCompare(m_shadows, val)) return;
   m_shadows = val;
   emit shadowsChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setWhites(float val) {
   if (qFuzzyCompare(m_whites, val)) return;
   m_whites = val;
   emit whitesChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setBlacks(float val) {
   if (qFuzzyCompare(m_blacks, val)) return;
   m_blacks = val;
   emit blacksChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setVibrance(float val) {
   if (qFuzzyCompare(m_vibrance, val)) return;
   m_vibrance = val;
   emit vibranceChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setSaturation(float val) {
   if (qFuzzyCompare(m_saturation, val)) return;
   m_saturation = val;
   emit saturationChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setTemperature(float val) {
   if (qFuzzyCompare(m_temperature, val)) return;
   m_temperature = val;
   emit temperatureChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setTint(float val) {
   if (qFuzzyCompare(m_tint, val)) return;
   m_tint = val;
   emit tintChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setTonemappingEnabled(bool enabled) {
   if (m_tonemappingEnabled == enabled) return;
   m_tonemappingEnabled = enabled;
   emit tonemappingEnabledChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setGrainAmount(float val) {
   if (qFuzzyCompare(m_grainAmount, val)) return;
   m_grainAmount = val;
   emit grainAmountChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setGrainSize(float val) {
   if (qFuzzyCompare(m_grainSize, val)) return;
   m_grainSize = val;
   emit grainSizeChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setGrainRoughness(float val) {
   if (qFuzzyCompare(m_grainRoughness, val)) return;
   m_grainRoughness = val;
   emit grainRoughnessChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setVignetteAmount(float val) {
   if (qFuzzyCompare(m_vignetteAmount, val)) return;
   m_vignetteAmount = val;
   emit vignetteAmountChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setVignetteMidpoint(float val) {
   if (qFuzzyCompare(m_vignetteMidpoint, val)) return;
   m_vignetteMidpoint = val;
   emit vignetteMidpointChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setVignetteRoundness(float val) {
   if (qFuzzyCompare(m_vignetteRoundness, val)) return;
   m_vignetteRoundness = val;
   emit vignetteRoundnessChanged();
+  emit isDefaultChanged();
 }
 
 void RawEngine::setVignetteFeather(float val) {
   if (qFuzzyCompare(m_vignetteFeather, val)) return;
   m_vignetteFeather = val;
   emit vignetteFeatherChanged();
+  emit isDefaultChanged();
 }
 
 // HSL Setters
-void RawEngine::setHslRedHue(float val) { if (!qFuzzyCompare(m_hslRedHue, val)) { m_hslRedHue = val; emit hslRedHueChanged(); } }
-void RawEngine::setHslRedSaturation(float val) { if (!qFuzzyCompare(m_hslRedSaturation, val)) { m_hslRedSaturation = val; emit hslRedSaturationChanged(); } }
-void RawEngine::setHslRedLuminance(float val) { if (!qFuzzyCompare(m_hslRedLuminance, val)) { m_hslRedLuminance = val; emit hslRedLuminanceChanged(); } }
+void RawEngine::setHslRedHue(float val) { if (!qFuzzyCompare(m_hslRedHue, val)) { m_hslRedHue = val; emit hslRedHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslRedSaturation(float val) { if (!qFuzzyCompare(m_hslRedSaturation, val)) { m_hslRedSaturation = val; emit hslRedSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslRedLuminance(float val) { if (!qFuzzyCompare(m_hslRedLuminance, val)) { m_hslRedLuminance = val; emit hslRedLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setHslOrangeHue(float val) { if (!qFuzzyCompare(m_hslOrangeHue, val)) { m_hslOrangeHue = val; emit hslOrangeHueChanged(); } }
-void RawEngine::setHslOrangeSaturation(float val) { if (!qFuzzyCompare(m_hslOrangeSaturation, val)) { m_hslOrangeSaturation = val; emit hslOrangeSaturationChanged(); } }
-void RawEngine::setHslOrangeLuminance(float val) { if (!qFuzzyCompare(m_hslOrangeLuminance, val)) { m_hslOrangeLuminance = val; emit hslOrangeLuminanceChanged(); } }
+void RawEngine::setHslOrangeHue(float val) { if (!qFuzzyCompare(m_hslOrangeHue, val)) { m_hslOrangeHue = val; emit hslOrangeHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslOrangeSaturation(float val) { if (!qFuzzyCompare(m_hslOrangeSaturation, val)) { m_hslOrangeSaturation = val; emit hslOrangeSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslOrangeLuminance(float val) { if (!qFuzzyCompare(m_hslOrangeLuminance, val)) { m_hslOrangeLuminance = val; emit hslOrangeLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setHslYellowHue(float val) { if (!qFuzzyCompare(m_hslYellowHue, val)) { m_hslYellowHue = val; emit hslYellowHueChanged(); } }
-void RawEngine::setHslYellowSaturation(float val) { if (!qFuzzyCompare(m_hslYellowSaturation, val)) { m_hslYellowSaturation = val; emit hslYellowSaturationChanged(); } }
-void RawEngine::setHslYellowLuminance(float val) { if (!qFuzzyCompare(m_hslYellowLuminance, val)) { m_hslYellowLuminance = val; emit hslYellowLuminanceChanged(); } }
+void RawEngine::setHslYellowHue(float val) { if (!qFuzzyCompare(m_hslYellowHue, val)) { m_hslYellowHue = val; emit hslYellowHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslYellowSaturation(float val) { if (!qFuzzyCompare(m_hslYellowSaturation, val)) { m_hslYellowSaturation = val; emit hslYellowSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslYellowLuminance(float val) { if (!qFuzzyCompare(m_hslYellowLuminance, val)) { m_hslYellowLuminance = val; emit hslYellowLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setHslGreenHue(float val) { if (!qFuzzyCompare(m_hslGreenHue, val)) { m_hslGreenHue = val; emit hslGreenHueChanged(); } }
-void RawEngine::setHslGreenSaturation(float val) { if (!qFuzzyCompare(m_hslGreenSaturation, val)) { m_hslGreenSaturation = val; emit hslGreenSaturationChanged(); } }
-void RawEngine::setHslGreenLuminance(float val) { if (!qFuzzyCompare(m_hslGreenLuminance, val)) { m_hslGreenLuminance = val; emit hslGreenLuminanceChanged(); } }
+void RawEngine::setHslGreenHue(float val) { if (!qFuzzyCompare(m_hslGreenHue, val)) { m_hslGreenHue = val; emit hslGreenHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslGreenSaturation(float val) { if (!qFuzzyCompare(m_hslGreenSaturation, val)) { m_hslGreenSaturation = val; emit hslGreenSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslGreenLuminance(float val) { if (!qFuzzyCompare(m_hslGreenLuminance, val)) { m_hslGreenLuminance = val; emit hslGreenLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setHslAquaHue(float val) { if (!qFuzzyCompare(m_hslAquaHue, val)) { m_hslAquaHue = val; emit hslAquaHueChanged(); } }
-void RawEngine::setHslAquaSaturation(float val) { if (!qFuzzyCompare(m_hslAquaSaturation, val)) { m_hslAquaSaturation = val; emit hslAquaSaturationChanged(); } }
-void RawEngine::setHslAquaLuminance(float val) { if (!qFuzzyCompare(m_hslAquaLuminance, val)) { m_hslAquaLuminance = val; emit hslAquaLuminanceChanged(); } }
+void RawEngine::setHslAquaHue(float val) { if (!qFuzzyCompare(m_hslAquaHue, val)) { m_hslAquaHue = val; emit hslAquaHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslAquaSaturation(float val) { if (!qFuzzyCompare(m_hslAquaSaturation, val)) { m_hslAquaSaturation = val; emit hslAquaSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslAquaLuminance(float val) { if (!qFuzzyCompare(m_hslAquaLuminance, val)) { m_hslAquaLuminance = val; emit hslAquaLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setHslBlueHue(float val) { if (!qFuzzyCompare(m_hslBlueHue, val)) { m_hslBlueHue = val; emit hslBlueHueChanged(); } }
-void RawEngine::setHslBlueSaturation(float val) { if (!qFuzzyCompare(m_hslBlueSaturation, val)) { m_hslBlueSaturation = val; emit hslBlueSaturationChanged(); } }
-void RawEngine::setHslBlueLuminance(float val) { if (!qFuzzyCompare(m_hslBlueLuminance, val)) { m_hslBlueLuminance = val; emit hslBlueLuminanceChanged(); } }
+void RawEngine::setHslBlueHue(float val) { if (!qFuzzyCompare(m_hslBlueHue, val)) { m_hslBlueHue = val; emit hslBlueHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslBlueSaturation(float val) { if (!qFuzzyCompare(m_hslBlueSaturation, val)) { m_hslBlueSaturation = val; emit hslBlueSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslBlueLuminance(float val) { if (!qFuzzyCompare(m_hslBlueLuminance, val)) { m_hslBlueLuminance = val; emit hslBlueLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setHslPurpleHue(float val) { if (!qFuzzyCompare(m_hslPurpleHue, val)) { m_hslPurpleHue = val; emit hslPurpleHueChanged(); } }
-void RawEngine::setHslPurpleSaturation(float val) { if (!qFuzzyCompare(m_hslPurpleSaturation, val)) { m_hslPurpleSaturation = val; emit hslPurpleSaturationChanged(); } }
-void RawEngine::setHslPurpleLuminance(float val) { if (!qFuzzyCompare(m_hslPurpleLuminance, val)) { m_hslPurpleLuminance = val; emit hslPurpleLuminanceChanged(); } }
+void RawEngine::setHslPurpleHue(float val) { if (!qFuzzyCompare(m_hslPurpleHue, val)) { m_hslPurpleHue = val; emit hslPurpleHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslPurpleSaturation(float val) { if (!qFuzzyCompare(m_hslPurpleSaturation, val)) { m_hslPurpleSaturation = val; emit hslPurpleSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslPurpleLuminance(float val) { if (!qFuzzyCompare(m_hslPurpleLuminance, val)) { m_hslPurpleLuminance = val; emit hslPurpleLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setHslMagentaHue(float val) { if (!qFuzzyCompare(m_hslMagentaHue, val)) { m_hslMagentaHue = val; emit hslMagentaHueChanged(); } }
-void RawEngine::setHslMagentaSaturation(float val) { if (!qFuzzyCompare(m_hslMagentaSaturation, val)) { m_hslMagentaSaturation = val; emit hslMagentaSaturationChanged(); } }
-void RawEngine::setHslMagentaLuminance(float val) { if (!qFuzzyCompare(m_hslMagentaLuminance, val)) { m_hslMagentaLuminance = val; emit hslMagentaLuminanceChanged(); } }
+void RawEngine::setHslMagentaHue(float val) { if (!qFuzzyCompare(m_hslMagentaHue, val)) { m_hslMagentaHue = val; emit hslMagentaHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslMagentaSaturation(float val) { if (!qFuzzyCompare(m_hslMagentaSaturation, val)) { m_hslMagentaSaturation = val; emit hslMagentaSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setHslMagentaLuminance(float val) { if (!qFuzzyCompare(m_hslMagentaLuminance, val)) { m_hslMagentaLuminance = val; emit hslMagentaLuminanceChanged(); emit isDefaultChanged(); } }
 
 // Color Grading Setters
-void RawEngine::setCgShadowsHue(float val) { if (!qFuzzyCompare(m_cgShadowsHue, val)) { m_cgShadowsHue = val; emit cgShadowsHueChanged(); } }
-void RawEngine::setCgShadowsSaturation(float val) { if (!qFuzzyCompare(m_cgShadowsSaturation, val)) { m_cgShadowsSaturation = val; emit cgShadowsSaturationChanged(); } }
-void RawEngine::setCgShadowsLuminance(float val) { if (!qFuzzyCompare(m_cgShadowsLuminance, val)) { m_cgShadowsLuminance = val; emit cgShadowsLuminanceChanged(); } }
+void RawEngine::setCgShadowsHue(float val) { if (!qFuzzyCompare(m_cgShadowsHue, val)) { m_cgShadowsHue = val; emit cgShadowsHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setCgShadowsSaturation(float val) { if (!qFuzzyCompare(m_cgShadowsSaturation, val)) { m_cgShadowsSaturation = val; emit cgShadowsSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setCgShadowsLuminance(float val) { if (!qFuzzyCompare(m_cgShadowsLuminance, val)) { m_cgShadowsLuminance = val; emit cgShadowsLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setCgMidtonesHue(float val) { if (!qFuzzyCompare(m_cgMidtonesHue, val)) { m_cgMidtonesHue = val; emit cgMidtonesHueChanged(); } }
-void RawEngine::setCgMidtonesSaturation(float val) { if (!qFuzzyCompare(m_cgMidtonesSaturation, val)) { m_cgMidtonesSaturation = val; emit cgMidtonesSaturationChanged(); } }
-void RawEngine::setCgMidtonesLuminance(float val) { if (!qFuzzyCompare(m_cgMidtonesLuminance, val)) { m_cgMidtonesLuminance = val; emit cgMidtonesLuminanceChanged(); } }
+void RawEngine::setCgMidtonesHue(float val) { if (!qFuzzyCompare(m_cgMidtonesHue, val)) { m_cgMidtonesHue = val; emit cgMidtonesHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setCgMidtonesSaturation(float val) { if (!qFuzzyCompare(m_cgMidtonesSaturation, val)) { m_cgMidtonesSaturation = val; emit cgMidtonesSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setCgMidtonesLuminance(float val) { if (!qFuzzyCompare(m_cgMidtonesLuminance, val)) { m_cgMidtonesLuminance = val; emit cgMidtonesLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setCgHighlightsHue(float val) { if (!qFuzzyCompare(m_cgHighlightsHue, val)) { m_cgHighlightsHue = val; emit cgHighlightsHueChanged(); } }
-void RawEngine::setCgHighlightsSaturation(float val) { if (!qFuzzyCompare(m_cgHighlightsSaturation, val)) { m_cgHighlightsSaturation = val; emit cgHighlightsSaturationChanged(); } }
-void RawEngine::setCgHighlightsLuminance(float val) { if (!qFuzzyCompare(m_cgHighlightsLuminance, val)) { m_cgHighlightsLuminance = val; emit cgHighlightsLuminanceChanged(); } }
+void RawEngine::setCgHighlightsHue(float val) { if (!qFuzzyCompare(m_cgHighlightsHue, val)) { m_cgHighlightsHue = val; emit cgHighlightsHueChanged(); emit isDefaultChanged(); } }
+void RawEngine::setCgHighlightsSaturation(float val) { if (!qFuzzyCompare(m_cgHighlightsSaturation, val)) { m_cgHighlightsSaturation = val; emit cgHighlightsSaturationChanged(); emit isDefaultChanged(); } }
+void RawEngine::setCgHighlightsLuminance(float val) { if (!qFuzzyCompare(m_cgHighlightsLuminance, val)) { m_cgHighlightsLuminance = val; emit cgHighlightsLuminanceChanged(); emit isDefaultChanged(); } }
 
-void RawEngine::setCgBalance(float val) { if (!qFuzzyCompare(m_cgBalance, val)) { m_cgBalance = val; emit cgBalanceChanged(); } }
-void RawEngine::setCgBlending(float val) { if (!qFuzzyCompare(m_cgBlending, val)) { m_cgBlending = val; emit cgBlendingChanged(); } }
+void RawEngine::setCgBalance(float val) { if (!qFuzzyCompare(m_cgBalance, val)) { m_cgBalance = val; emit cgBalanceChanged(); emit isDefaultChanged(); } }
+void RawEngine::setCgBlending(float val) { if (!qFuzzyCompare(m_cgBlending, val)) { m_cgBlending = val; emit cgBlendingChanged(); emit isDefaultChanged(); } }
 
 void RawEngine::requestHistogramUpdate() {
     if (!m_isLoaded) return;
@@ -820,6 +838,7 @@ void RawEngine::undo() {
     applyJsonToState(this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
     emit canUndoChanged();
     emit canRedoChanged();
+    emit isDefaultChanged();
     requestHistogramUpdate();
 }
 
@@ -829,5 +848,47 @@ void RawEngine::redo() {
     applyJsonToState(this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
     emit canUndoChanged();
     emit canRedoChanged();
+    emit isDefaultChanged();
     requestHistogramUpdate();
+}
+
+void RawEngine::resetToOriginal() {
+    resetToDefaults(this);
+    commitEdit();
+    emit isDefaultChanged();
+}
+
+bool RawEngine::isDefault() const {
+    if (!qFuzzyIsNull(m_exposure)) return false;
+    if (!qFuzzyCompare(m_contrast, 1.0f)) return false;
+    if (!qFuzzyIsNull(m_highlights)) return false;
+    if (!qFuzzyIsNull(m_shadows)) return false;
+    if (!qFuzzyIsNull(m_whites)) return false;
+    if (!qFuzzyIsNull(m_blacks)) return false;
+    if (!qFuzzyIsNull(m_vibrance)) return false;
+    if (!qFuzzyIsNull(m_saturation)) return false;
+    if (!qFuzzyIsNull(m_temperature)) return false;
+    if (!qFuzzyIsNull(m_tint)) return false;
+    if (m_tonemappingEnabled) return false;
+    if (!qFuzzyIsNull(m_grainAmount)) return false;
+    if (!qFuzzyIsNull(m_vignetteAmount)) return false;
+
+    // HSL checks
+    if (!qFuzzyIsNull(m_hslRedHue) || !qFuzzyIsNull(m_hslRedSaturation) || !qFuzzyIsNull(m_hslRedLuminance)) return false;
+    if (!qFuzzyIsNull(m_hslOrangeHue) || !qFuzzyIsNull(m_hslOrangeSaturation) || !qFuzzyIsNull(m_hslOrangeLuminance)) return false;
+    if (!qFuzzyIsNull(m_hslYellowHue) || !qFuzzyIsNull(m_hslYellowSaturation) || !qFuzzyIsNull(m_hslYellowLuminance)) return false;
+    if (!qFuzzyIsNull(m_hslGreenHue) || !qFuzzyIsNull(m_hslGreenSaturation) || !qFuzzyIsNull(m_hslGreenLuminance)) return false;
+    if (!qFuzzyIsNull(m_hslAquaHue) || !qFuzzyIsNull(m_hslAquaSaturation) || !qFuzzyIsNull(m_hslAquaLuminance)) return false;
+    if (!qFuzzyIsNull(m_hslBlueHue) || !qFuzzyIsNull(m_hslBlueSaturation) || !qFuzzyIsNull(m_hslBlueLuminance)) return false;
+    if (!qFuzzyIsNull(m_hslPurpleHue) || !qFuzzyIsNull(m_hslPurpleSaturation) || !qFuzzyIsNull(m_hslPurpleLuminance)) return false;
+    if (!qFuzzyIsNull(m_hslMagentaHue) || !qFuzzyIsNull(m_hslMagentaSaturation) || !qFuzzyIsNull(m_hslMagentaLuminance)) return false;
+
+    // Color Grading checks
+    if (!qFuzzyIsNull(m_cgShadowsHue) || !qFuzzyIsNull(m_cgShadowsSaturation) || !qFuzzyIsNull(m_cgShadowsLuminance)) return false;
+    if (!qFuzzyIsNull(m_cgMidtonesHue) || !qFuzzyIsNull(m_cgMidtonesSaturation) || !qFuzzyIsNull(m_cgMidtonesLuminance)) return false;
+    if (!qFuzzyIsNull(m_cgHighlightsHue) || !qFuzzyIsNull(m_cgHighlightsSaturation) || !qFuzzyIsNull(m_cgHighlightsLuminance)) return false;
+    if (!qFuzzyIsNull(m_cgBalance)) return false;
+    if (!qFuzzyCompare(m_cgBlending, 50.0f)) return false;
+
+    return true;
 }

@@ -92,6 +92,7 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
+    Q_PROPERTY(bool isDefault READ isDefault NOTIFY isDefaultChanged)
     Q_PROPERTY(QPointF pan READ pan WRITE setPan NOTIFY panChanged)
     QML_ELEMENT
   
@@ -252,10 +253,12 @@ class RawViewport : public QQuickItem {
             QVariantList editStack() const { return m_engine.editStack(); }
             bool canUndo() const { return m_engine.canUndo(); }
             bool canRedo() const { return m_engine.canRedo(); }
+            bool isDefault() const { return m_engine.isDefault(); }
 
             Q_INVOKABLE void commitEdit() { m_engine.commitEdit(); }
             Q_INVOKABLE void undo() { m_engine.undo(); }
             Q_INVOKABLE void redo() { m_engine.redo(); }
+            Q_INVOKABLE void resetToOriginal() { m_engine.resetToOriginal(); }
           
             QPointF pan() const { return m_panOffset; }
     void setPan(const QPointF& offset);
@@ -326,6 +329,7 @@ class RawViewport : public QQuickItem {
     void editStackChanged();
     void canUndoChanged();
     void canRedoChanged();
+    void isDefaultChanged();
     void panChanged();
 
  protected:

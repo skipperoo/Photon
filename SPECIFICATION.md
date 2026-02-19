@@ -95,6 +95,8 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 - **Behavior:**
   - Pan (Space + Drag) & Zoom (Scroll Wheel).
   - "Fit" vs "100%" toggle in a floating toolbar at the bottom of the viewport.
+  - **Tool Bar:** Contains Zoom slider, Undo/Redo buttons, and a **Restore to Original** button (Lucide `rotate-ccw` icon).
+  - **Restore Logic:** Resets all adjustment parameters to their factory defaults. The button is reactively disabled if no edits have been applied to the current image.
 
 ### B. The Tool Panel (Right - Collapsible)
 

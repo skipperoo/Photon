@@ -115,6 +115,10 @@ void RawEngine::setSource(const QString& source) {
   emit sourceChanged();
 
   m_histogramUpdatePending = false;
+  m_metadata.clear();
+  m_orientation = 1;
+  emit metadataChanged();
+  emit orientationChanged();
   loadRawFileAsync(m_source);
   loadEdits();
 }
@@ -493,7 +497,48 @@ bool RawEngine::loadRawFileSync(const QString& path) {
     return false;
   }
 
+  // Extract EXIF Metadata
+  QVariantMap meta;
+  meta["make"] = QString::fromLocal8Bit(m_processor->imgdata.idata.make);
+  meta["model"] = QString::fromLocal8Bit(m_processor->imgdata.idata.model);
+  meta["iso"] = (int)m_processor->imgdata.other.iso_speed;
+  
+  float shutter = m_processor->imgdata.other.shutter;
+  if (shutter > 0) {
+      if (shutter < 1.0f) meta["exposureTime"] = QString("1/%1 s").arg(qRound(1.0f / shutter));
+      else meta["exposureTime"] = QString("%1 s").arg(shutter, 0, 'f', 1);
+  }
+  
+  meta["aperture"] = QString("f/%1").arg(m_processor->imgdata.other.aperture, 0, 'f', 1);
+  meta["focalLength"] = QString("%1mm").arg(m_processor->imgdata.other.focal_len, 0, 'f', 1);
+  meta["timestamp"] = QString::fromLocal8Bit(std::ctime(&m_processor->imgdata.other.timestamp)).trimmed();
+
+  // Map LibRaw flip to EXIF orientation tag
+  int flip = m_processor->imgdata.sizes.flip;
+  int orient = 1;
+  if (flip == 3) orient = 3;
+  else if (flip == 5) orient = 8;
+  else if (flip == 6) orient = 6;
+
+  QMetaObject::invokeMethod(this, [this, meta, orient]() {
+      m_metadata = meta;
+      m_orientation = orient;
+      emit metadataChanged();
+      emit orientationChanged();
+  }, Qt::QueuedConnection);
+
   return true;
+}
+
+static QImage rotateImage(const QImage& img, int orient) {
+    if (orient <= 1) return img;
+    QTransform trans;
+    if (orient == 3) trans.rotate(180);
+    else if (orient == 6) trans.rotate(90);
+    else if (orient == 8) trans.rotate(270);
+    else if (orient == 2) trans.scale(-1, 1);
+    else if (orient == 4) trans.scale(1, -1);
+    return img.transformed(trans);
 }
 
 QImage RawEngine::getThumbnail() {
@@ -515,7 +560,7 @@ QImage RawEngine::getThumbnail() {
   }
 
   LibRaw::dcraw_clear_mem(thumb);
-  return img;
+  return rotateImage(img, m_orientation);
 }
 
 QImage RawEngine::extractThumbnail(const QString& path) {
@@ -525,6 +570,13 @@ QImage RawEngine::extractThumbnail(const QString& path) {
 
   ret = processor.unpack_thumb();
   if (ret != LIBRAW_SUCCESS) return QImage();
+
+  // Extract orientation for rotation
+  int flip = processor.imgdata.sizes.flip;
+  int orient = 1;
+  if (flip == 3) orient = 3;
+  else if (flip == 5) orient = 8;
+  else if (flip == 6) orient = 6;
 
   libraw_processed_image_t* thumb = processor.dcraw_make_mem_thumb(&ret);
   if (!thumb) return QImage();
@@ -539,7 +591,7 @@ QImage RawEngine::extractThumbnail(const QString& path) {
   }
 
   LibRaw::dcraw_clear_mem(thumb);
-  return img;
+  return rotateImage(img, orient);
 }
 
 const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {

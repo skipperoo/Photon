@@ -63,3 +63,7 @@
 - [ ] Tone Curve (Spline UI).
 - [ ] Export functionality (Save to JPEG/TIFF).
 - [ ] Multi-image batch processing.
+  - [ ] Copy/paste edits
+  - [ ] Save/export/update presets
+  - [ ] Share presets
+  - [ ] Import presets from url/repository

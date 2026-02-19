@@ -95,6 +95,8 @@ class RawEngine : public QObject {
     Q_PROPERTY(QVariantList histogramGreen READ histogramGreen NOTIFY histogramChanged)
     Q_PROPERTY(QVariantList histogramBlue READ histogramBlue NOTIFY histogramChanged)
     Q_PROPERTY(QVariantList histogramLuma READ histogramLuma NOTIFY histogramChanged)
+    Q_PROPERTY(QVariantMap metadata READ metadata NOTIFY metadataChanged)
+    Q_PROPERTY(int orientation READ orientation NOTIFY orientationChanged)
 
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
@@ -252,6 +254,8 @@ class RawEngine : public QObject {
   QVariantList histogramGreen() const { return m_histGreen; }
   QVariantList histogramBlue() const { return m_histBlue; }
   QVariantList histogramLuma() const { return m_histLuma; }
+  QVariantMap metadata() const { return m_metadata; }
+  int orientation() const { return m_orientation; }
   void requestHistogramUpdate();
 
   bool isLoading() const { return m_isLoading; }
@@ -338,6 +342,8 @@ class RawEngine : public QObject {
   void cgBalanceChanged();
   void cgBlendingChanged();
   void histogramChanged();
+  void metadataChanged();
+  void orientationChanged();
 
   void imageLoaded();
   void isLoadingChanged();
@@ -415,6 +421,8 @@ class RawEngine : public QObject {
   QImage m_downsampledImage; // Used for fast histogram computation
   bool m_histogramUpdatePending = false;
   bool m_histogramNeedsUpdate = false;
+  QVariantMap m_metadata;
+  int m_orientation = 1;
 
   bool m_isLoading = false;
   bool m_halfSize = false;

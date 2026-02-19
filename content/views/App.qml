@@ -159,6 +159,7 @@ Window {
                             property real vignetteFeather: rawViewport.vignetteFeather
                             property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
                             property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
+                            property int orientation: rawViewport.orientation
 
                             // HSL Panel
                             property real hslRedHue: rawViewport.hslRedHue

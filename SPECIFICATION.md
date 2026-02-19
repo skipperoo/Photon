@@ -100,12 +100,11 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 
 - **Behavior:** Scrollable vertical stack of Accordions (Shadcn `Collapsible`).
 - **Width:** Fixed (e.g., 320px). Can be toggled hidden (Shortcut: Tab).
-- **Histogram:** (Top, pinned). 
-  - **Function:** Real-time visualization of RGB and Luma distribution.
-  - **Technical:** Computed in C++ using a 256-bin array per channel.
-  - **Rendering:** Anti-aliased line graphs or filled paths with semi-transparent overlaps.
-  - **Performance:** Throttled computation to ensure UI remains at 60fps even during slider movement.
-
+  - **Histogram:** (Top, pinned). 
+    - **Function:** Professional real-time visualization of RGB and Luma distribution.
+    - **Technical:** Computed in C++ using a 256-bin array per channel. Ported the exact mathematical pipeline (Exposure, WB, Contrast, HSL, Color Grading) from the fragment shader to ensure perfect data alignment.
+    - **Rendering:** Anti-aliased line graphs with semi-transparent overlaps (Zinc aesthetic).
+    - **Performance:** Asynchronous computation with a "deferred update" logic to ensure the UI remains at 60fps while the distribution always catches up to the latest edit.
 ### GPU Processing Pipeline (Phase 5)
 
 To achieve professional-grade results, Photon employs a high-fidelity GPU pipeline:

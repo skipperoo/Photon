@@ -273,12 +273,15 @@ class RawEngine : public QObject {
 
   const uchar* getProcessedData(int& width, int& height, int& colors);
 
+  QVariantMap currentSettings() const;
+
   // Persistence
   void loadEdits();
   void commitEdit(); 
   void undo();
   void redo();
   void resetToOriginal();
+  void applySettings(const QVariantMap& settings);
 
   QVariantList editStack() const { return m_editStack; }
   bool canUndo() const { return m_editIndex > 0; }

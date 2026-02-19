@@ -748,6 +748,10 @@ static void resetToDefaults(RawEngine* e) {
     e->setCgBalance(0.0f); e->setCgBlending(50.0f);
 }
 
+QVariantMap RawEngine::currentSettings() const {
+    return stateToJson(this).toVariantMap();
+}
+
 void RawEngine::loadEdits() {
   if (m_source.isEmpty()) return;
 
@@ -850,6 +854,11 @@ void RawEngine::redo() {
     emit canRedoChanged();
     emit isDefaultChanged();
     requestHistogramUpdate();
+}
+
+void RawEngine::applySettings(const QVariantMap& settings) {
+    applyJsonToState(this, QJsonObject::fromVariantMap(settings));
+    commitEdit();
 }
 
 void RawEngine::resetToOriginal() {

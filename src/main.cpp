@@ -7,6 +7,7 @@
 #include "components/RawViewport.h"
 #include "managers/AppStateManager.h"
 #include "managers/FileScanner.h"
+#include "managers/PresetManager.h"
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
 
@@ -19,6 +20,7 @@ int main(int argc, char* argv[]) {
 
   // Create managers
   ThumbnailProvider* thumbProvider = new ThumbnailProvider(&app);
+  PresetManager* presetManager = new PresetManager(&app);
 
   // Register image provider
   engine.addImageProvider("thumbnail",
@@ -27,6 +29,9 @@ int main(int argc, char* argv[]) {
   // Register AppStateManager singleton
   qmlRegisterSingletonType<AppStateManager>(
       "Main", 1, 0, "AppState", &AppStateManager::createQmlInstance);
+
+  // Register PresetManager singleton
+  qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
 
   // Register RawViewport component
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");

@@ -156,10 +156,18 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 - **Sync:** Highlighted thumbnail matches the main Viewport image.
 - **Navigation:** Left/Right Arrow keys move selection.
 
-### D. Presets Panel (Left - Optional/Toggle)
+### D. Presets Panel (Left - Collapsible)
 
-- List of user-saved JSON states.
-- Clicking applies all settings from the JSON to the current image.
+- **Storage:** Presets are stored as individual JSON files in the user's local data directory (`QStandardPaths::AppLocalDataLocation`).
+  - **Linux:** `~/.local/share/photon/presets`
+  - **macOS:** `~/Library/Application Support/photon/presets`
+  - **Windows:** `%LOCALAPPDATA%/photon/presets`
+- **Content:** A vertical list of user-saved preset names.
+- **Behavior:**
+  - Clicking a preset applies all contained adjustment parameters to the active image.
+  - Applying a preset is a non-destructive action and adds a single step to the undo/redo stack.
+  - Hovering over a preset name provides a "Delete" option.
+  - A "Save Current" button at the top of the panel captures the current tool panel state into a new preset file.
 
 ---
 

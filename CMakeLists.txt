@@ -25,6 +25,8 @@ qt_add_executable(appPhoton
     src/managers/ThumbnailImageProvider.h
     src/managers/FileScanner.cpp
     src/managers/FileScanner.h
+    src/managers/PresetManager.cpp
+    src/managers/PresetManager.h
 )
 
 # Mark Theme.qml as a singleton (must be before qt_add_qml_module)
@@ -57,6 +59,8 @@ qt_add_qml_module(appPhoton
         src/managers/ThumbnailImageProvider.h
         src/managers/FileScanner.cpp
         src/managers/FileScanner.h
+        src/managers/PresetManager.cpp
+        src/managers/PresetManager.h
     QML_FILES
         content/views/App.qml
         content/views/WelcomeView.qml
@@ -70,6 +74,7 @@ qt_add_qml_module(appPhoton
         content/components/Collapsible.qml
         content/components/ControlGroup.qml
         content/components/Histogram.qml
+        content/components/PresetPanel.qml
         content/theme/Theme.qml
     RESOURCES
         assets/icons/search.svg

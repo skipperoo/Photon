@@ -58,12 +58,20 @@
   - [x] Fix viewport aspect ratio and stretching issues.
   - [x] Synchronize Histogram math with GPU pipeline.
 
-## Phase 7: Advanced Edit Management [IN PROGRESS]
+## Phase 7: Advanced Edit Management [DONE]
 
-- [ ] **Restore to Original**
-  - [ ] Implement global reset logic in C++.
-  - [ ] Add "Restore" button with Lucide icon to viewport toolbar.
-  - [ ] Implement "isDefault" check to enable/disable reset action.
+- [x] **Restore to Original**
+  - [x] Implement global reset logic in C++.
+  - [x] Add "Restore" button with Lucide icon to viewport toolbar.
+  - [x] Implement "isDefault" check to enable/disable reset action.
+
+## Phase 8: Presets & Batch Processing [IN PROGRESS]
+
+- [ ] **Preset System**
+  - [ ] Implement `PresetManager` (C++) with cross-platform storage.
+  - [ ] Add `applySettings` batch logic to `RawEngine`.
+  - [ ] Create `PresetsPanel.qml` (Left Sidebar).
+  - [ ] Implement "Save current as Preset" functionality.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
   - [ ] Add lens detection and selection UI.

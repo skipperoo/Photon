@@ -69,11 +69,17 @@ Window {
         MouseArea {
             id: topbarHoverArea
             anchors.top: parent.top
-            width: parent.width
+            x: viewportContainer.mapToItem(parent, 0, 0).x
+            width: viewportContainer.width
             height: 100
             hoverEnabled: true
             enabled: AppState.currentView === AppState.ViewState.Develop
             onEntered: if (AppState.currentView === AppState.ViewState.Develop) window.showTopbar = true
+            onExited: {
+                if (AppState.currentView === AppState.ViewState.Develop && !topbarMouseArea.containsMouse) {
+                    window.showTopbar = false
+                }
+            }
             z: 1000 // Ensure it's above content but below topbar if needed
         }
 
@@ -111,10 +117,20 @@ Window {
             ColumnLayout {
                 spacing: 0
                 
+                property bool showPresets: true
+
                 RowLayout {
                     spacing: 0
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+
+                    // Presets Sidebar
+                    PresetPanel {
+                        id: presetPanel
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: 250
+                        visible: parent.parent.showPresets
+                    }
 
                     // The Viewport
                     Rectangle {
@@ -417,10 +433,11 @@ Window {
 
             // Hide topbar when mouse leaves it in Develop view
             MouseArea {
+                id: topbarMouseArea
                 anchors.fill: parent
                 hoverEnabled: true
                 onExited: {
-                    if (AppState.currentView === AppState.ViewState.Develop) {
+                    if (AppState.currentView === AppState.ViewState.Develop && !topbarHoverArea.containsMouse) {
                         window.showTopbar = false
                     }
                 }
@@ -495,6 +512,22 @@ Window {
                         }
                     }
 
+                    // Presets Toggle
+                    Button {
+                        text: "Presets"
+                        flat: true
+                        font: Theme.fontMedium
+                        visible: AppState.currentView === AppState.ViewState.Develop
+                        palette.buttonText: mainStack.children[2].showPresets ? Theme.foreground : Theme.mutedFg
+                        onClicked: mainStack.children[2].showPresets = !mainStack.children[2].showPresets
+                        
+                        Rectangle {
+                            anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.width * 0.4; height: 2; color: Theme.foreground
+                            visible: mainStack.children[2].showPresets
+                        }
+                    }
+
                     Button {
                         text: "Settings"
                         flat: true
@@ -508,14 +541,6 @@ Window {
                             visible: AppState.currentView === AppState.ViewState.Settings
                         }
                     }
-                }
-                
-                // Show/Hide Toggle
-                Button {
-                    text: window.showTopbar ? "↑" : "↓"
-                    flat: true
-                    Layout.preferredWidth: 32
-                    onClicked: window.showTopbar = !window.showTopbar
                 }
             }
         }

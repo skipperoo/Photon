@@ -255,6 +255,8 @@ class RawViewport : public QQuickItem {
             bool canRedo() const { return m_engine.canRedo(); }
             bool isDefault() const { return m_engine.isDefault(); }
 
+            Q_INVOKABLE QVariantMap currentSettings() const;
+            Q_INVOKABLE void applySettings(const QVariantMap& settings) { m_engine.applySettings(settings); }
             Q_INVOKABLE void commitEdit() { m_engine.commitEdit(); }
             Q_INVOKABLE void undo() { m_engine.undo(); }
             Q_INVOKABLE void redo() { m_engine.redo(); }

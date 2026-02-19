@@ -266,6 +266,10 @@ void RawViewport::onImageLoaded() {
   update();  // Trigger updatePaintNode
 }
 
+QVariantMap RawViewport::currentSettings() const {
+    return m_engine.currentSettings();
+}
+
 QRectF RawViewport::calculateTargetRect() {
   if (m_imageWidth <= 0 || m_imageHeight <= 0) {
     return boundingRect();

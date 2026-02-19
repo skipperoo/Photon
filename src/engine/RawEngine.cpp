@@ -8,6 +8,59 @@
 #include <QJsonArray>
 #include <QDir>
 #include <cmath>
+#include <algorithm>
+
+// --- Static Math Helpers for Histogram ---
+static float smoothstep(float edge0, float edge1, float x) {
+    float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+static float lerp(float a, float b, float t) {
+    return a + t * (b - a);
+}
+
+struct HSV { float h, s, v; };
+static HSV rgb_to_hsv_cpp(float r, float g, float b) {
+    float max_val = std::max({r, g, b});
+    float min_val = std::min({r, g, b});
+    float delta = max_val - min_val;
+    float h = 0.0f;
+    if (delta > 0.0001f) {
+        if (max_val == r) h = 60.0f * std::fmod(((g - b) / delta), 6.0f);
+        else if (max_val == g) h = 60.0f * (((b - r) / delta) + 2.0f);
+        else h = 60.0f * (((r - g) / delta) + 4.0f);
+    }
+    if (h < 0.0f) h += 360.0f;
+    return { h, max_val > 0.0001f ? delta / max_val : 0.0f, max_val };
+}
+
+static void hsv_to_rgb_cpp(float h, float s, float v, float& r, float& g, float& b) {
+    float c = v * s;
+    float x = c * (1.0f - std::abs(std::fmod(h / 60.0f, 2.0f) - 1.0f));
+    float m = v - c;
+    if (h < 60.0f) { r = c; g = x; b = 0; }
+    else if (h < 120.0f) { r = x; g = c; b = 0; }
+    else if (h < 180.0f) { r = 0; g = c; b = x; }
+    else if (h < 240.0f) { r = 0; g = x; b = c; }
+    else if (h < 300.0f) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+    r += m; g += m; b += m;
+}
+
+static float get_hsl_influence_cpp(float hue, float center, float width) {
+    float dist = std::min(std::abs(hue - center), 360.0f - std::abs(hue - center));
+    float falloff = dist / (width * 0.5f);
+    return std::exp(-1.5f * falloff * falloff);
+}
+
+static void apply_region_tint_cpp(float& r, float& g, float& b, float hue, float sat, float lum) {
+    float tr, tg, tb;
+    hsv_to_rgb_cpp(hue, sat / 100.0f, 1.0f, tr, tg, tb);
+    r = lerp(r, r * tr, sat / 100.0f) * (1.0f + lum / 100.0f);
+    g = lerp(g, g * tg, sat / 100.0f) * (1.0f + lum / 100.0f);
+    b = lerp(b, b * tb, sat / 100.0f) * (1.0f + lum / 100.0f);
+}
 
 RawEngine::RawEngine(QObject* parent)
     : QObject(parent), m_processor(std::make_unique<LibRaw>()) {
@@ -231,16 +284,28 @@ void RawEngine::requestHistogramUpdate() {
         return;
     }
 
-    if (!m_processedImage) {
-        // If the image isn't processed yet, we can't compute the histogram.
-        // We'll try again when the image is processed.
-        return;
-    }
+    if (!m_processedImage) return;
 
     // Capture current edit parameters for the computation
     float exp = m_exposure;
+    float con = m_contrast;
+    float high = m_highlights;
+    float shad = m_shadows;
+    float whites = m_whites;
+    float blacks = m_blacks;
     float temp = m_temperature / 100.0f;
     float tint = m_tint / 100.0f;
+
+    // Capture HSL parameters (24 floats)
+    std::vector<float> hsl_h = { m_hslRedHue, m_hslOrangeHue, m_hslYellowHue, m_hslGreenHue, m_hslAquaHue, m_hslBlueHue, m_hslPurpleHue, m_hslMagentaHue };
+    std::vector<float> hsl_s = { m_hslRedSaturation, m_hslOrangeSaturation, m_hslYellowSaturation, m_hslGreenSaturation, m_hslAquaSaturation, m_hslBlueSaturation, m_hslPurpleSaturation, m_hslMagentaSaturation };
+    std::vector<float> hsl_l = { m_hslRedLuminance, m_hslOrangeLuminance, m_hslYellowLuminance, m_hslGreenLuminance, m_hslAquaLuminance, m_hslBlueLuminance, m_hslPurpleLuminance, m_hslMagentaLuminance };
+
+    // Capture Color Grading parameters (11 floats)
+    float cgSH = m_cgShadowsHue; float cgSS = m_cgShadowsSaturation; float cgSL = m_cgShadowsLuminance;
+    float cgMH = m_cgMidtonesHue; float cgMS = m_cgMidtonesSaturation; float cgML = m_cgMidtonesLuminance;
+    float cgHH = m_cgHighlightsHue; float cgHS = m_cgHighlightsSaturation; float cgHL = m_cgHighlightsLuminance;
+    float cgBal = m_cgBalance / 100.0f; float cgBlen = m_cgBlending / 100.0f;
 
     // Capture image data pointer and dimensions
     const ushort* src = reinterpret_cast<const ushort*>(m_processedImage->data);
@@ -251,7 +316,7 @@ void RawEngine::requestHistogramUpdate() {
     m_histogramUpdatePending = true;
     m_histogramNeedsUpdate = false;
 
-    m_histogramFuture = QtConcurrent::run([this, src, totalPixels, exp, temp, tint]() {
+    m_histogramFuture = QtConcurrent::run([this, src, totalPixels, exp, con, high, shad, whites, blacks, temp, tint, hsl_h, hsl_s, hsl_l, cgSH, cgSS, cgSL, cgMH, cgMS, cgML, cgHH, cgHS, cgHL, cgBal, cgBlen]() {
         std::vector<uint32_t> r_bins(256, 0);
         std::vector<uint32_t> g_bins(256, 0);
         std::vector<uint32_t> b_bins(256, 0);
@@ -262,6 +327,10 @@ void RawEngine::requestHistogramUpdate() {
         float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
         float exp_mult = std::pow(2.0f, exp);
 
+        // HSL centers and widths matching shader
+        float centers[8] = { 358.0f, 25.0f, 60.0f, 115.0f, 180.0f, 225.0f, 280.0f, 330.0f };
+        float widths[8] = { 35.0f, 45.0f, 40.0f, 90.0f, 60.0f, 60.0f, 55.0f, 50.0f };
+
         int step = std::max(1, totalPixels / 131072);
 
         for (int i = 0; i < totalPixels; i += step) {
@@ -269,14 +338,86 @@ void RawEngine::requestHistogramUpdate() {
             float g = src[i * 3 + 1] / 65535.0f;
             float b = src[i * 3 + 2] / 65535.0f;
             
-            r *= r_wb; g *= g_wb; b *= b_wb;
-            r *= exp_mult; g *= exp_mult; b *= exp_mult;
+            // 1. WB & Exposure
+            r *= r_wb * exp_mult; g *= g_wb * exp_mult; b *= b_wb * exp_mult;
+
+            // 2. Contrast
+            r = std::pow(std::max(0.0f, r), con);
+            g = std::pow(std::max(0.0f, g), con);
+            b = std::pow(std::max(0.0f, b), con);
+
+            // 3. Whites & Blacks
+            if (whites != 0.0f) {
+                float wl = 1.0f - (whites / 100.0f) * 0.5f;
+                float inv_wl = 1.0f / std::max(wl, 0.01f);
+                r *= inv_wl; g *= inv_wl; b *= inv_wl;
+            }
+            if (blacks != 0.0f) {
+                float l_val = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+                float mask = 1.0f - smoothstep(0.0f, 0.3f, l_val);
+                float b_factor = std::pow(2.0f, (blacks / 100.0f) * 1.5f);
+                float factor = 1.0f + (b_factor - 1.0f) * mask;
+                r *= factor; g *= factor; b *= factor;
+            }
+
+            // 4. Highlights & Shadows
+            float l_tone = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            if (shad != 0.0f) {
+                float mask = std::pow(1.0f - smoothstep(0.0f, 0.5f, l_tone), 2.0f);
+                float s_factor = std::pow(2.0f, (shad / 100.0f) * 1.5f);
+                float factor = 1.0f + (s_factor - 1.0f) * mask;
+                r *= factor; g *= factor; b *= factor;
+            }
+            if (high != 0.0f) {
+                float mask = smoothstep(0.4f, 1.0f, std::tanh(l_tone * 1.5f));
+                float h_adj = high / 100.0f;
+                if (h_adj < 0.0f) {
+                    float gamma = 1.0f - h_adj * 1.5f;
+                    r = lerp(r, std::pow(std::max(r, 0.0001f), gamma), mask);
+                    g = lerp(g, std::pow(std::max(g, 0.0001f), gamma), mask);
+                    b = lerp(b, std::pow(std::max(b, 0.0001f), gamma), mask);
+                } else {
+                    float h_factor = std::pow(2.0f, h_adj * 1.5f);
+                    float factor = 1.0f + (h_factor - 1.0f) * mask;
+                    r *= factor; g *= factor; b *= factor;
+                }
+            }
+
+            // 5. HSL PANEL
+            HSV hsv = rgb_to_hsv_cpp(r, g, b);
+            float hue_shift = 0.0f;
+            float sat_mult = 0.0f;
+            float lum_adj = 0.0f;
+            for (int b_idx = 0; b_idx < 8; b_idx++) {
+                float influence = get_hsl_influence_cpp(hsv.h, centers[b_idx], widths[b_idx]);
+                hue_shift += (hsl_h[b_idx] / 100.0f) * 0.1f * 360.0f * influence;
+                sat_mult += (hsl_s[b_idx] / 100.0f) * influence;
+                lum_adj += (hsl_l[b_idx] / 100.0f) * influence;
+            }
+            hsv.h = std::fmod(hsv.h + hue_shift + 360.0f, 360.0f);
+            hsv.s = std::clamp(hsv.s * (1.0f + sat_mult), 0.0f, 1.0f);
+            float r_hsl, g_hsl, b_hsl;
+            hsv_to_rgb_cpp(hsv.h, hsv.s, hsv.v, r_hsl, g_hsl, b_hsl);
+            r = r_hsl * (1.0f + lum_adj); g = g_hsl * (1.0f + lum_adj); b = b_hsl * (1.0f + lum_adj);
+
+            // 6. COLOR GRADING
+            float l_cg = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            float s_end = 0.4f + cgBal * 0.3f;
+            float h_start = 0.6f + cgBal * 0.3f;
+            float w_s = 1.0f - smoothstep(s_end - cgBlen * 0.4f, s_end + cgBlen * 0.4f, l_cg);
+            float w_h = smoothstep(h_start - cgBlen * 0.4f, h_start + cgBlen * 0.4f, l_cg);
+            float w_m = 1.0f - w_s - w_h;
+            float r_s = r, g_s = g, b_s = b; apply_region_tint_cpp(r_s, g_s, b_s, cgSH, cgSS, cgSL);
+            float r_m = r, g_m = g, b_m = b; apply_region_tint_cpp(r_m, g_m, b_m, cgMH, cgMS, cgML);
+            float r_h = r, g_h = g, b_h = b; apply_region_tint_cpp(r_h, g_h, b_h, cgHH, cgHS, cgHL);
+            r = r_s * w_s + r_m * w_m + r_h * w_h;
+            g = g_s * w_s + g_m * w_m + g_h * w_h;
+            b = b_s * w_s + b_m * w_m + b_h * w_h;
 
             uint8_t r8 = static_cast<uint8_t>(std::clamp(r * 255.0f, 0.0f, 255.0f));
             uint8_t g8 = static_cast<uint8_t>(std::clamp(g * 255.0f, 0.0f, 255.0f));
             uint8_t b8 = static_cast<uint8_t>(std::clamp(b * 255.0f, 0.0f, 255.0f));
             uint8_t l8 = static_cast<uint8_t>(0.2126f * r8 + 0.7152f * g8 + 0.0722f * b8);
-
             r_bins[r8]++; g_bins[g8]++; b_bins[b8]++; l_bins[l8]++;
         }
 

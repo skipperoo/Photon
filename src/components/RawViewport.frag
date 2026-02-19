@@ -118,14 +118,39 @@ vec3 color_grade(vec3 color, float luma) {
     return c_s * w_s + c_m * w_m + c_h * w_h;
 }
 
-// --- AgX Tone Mapping ---
-const float AGX_MIN_EV = -12.47393;
-const float AGX_MAX_EV = 4.026069;
+// --- AgX Tone Mapping (Ported from reference) ---
+const float AGX_MIN_EV = -15.2;
+const float AGX_MAX_EV = 5.0;
 
-vec3 agx_sigmoid(vec3 x) {
-    vec3 x2 = x * x;
-    vec3 x4 = x2 * x2;
-    return ( 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.86 * x2 * x + 0.429 * x2 + 0.115 * x );
+float agx_sigmoid(float x, float power) {
+    return x / pow(1.0 + pow(x, power), 1.0 / power);
+}
+
+float agx_scaled_sigmoid(float x, float scale, float slope, float power, float tx, float ty) {
+    return scale * agx_sigmoid(slope * (x - tx) / scale, power) + ty;
+}
+
+float agx_apply_curve_channel(float x) {
+    const float TOE_TX = 0.6060606;
+    const float TOE_TY = 0.43446;
+    const float SLOPE = 2.3843;
+    const float TOE_SCALE = -1.0359;
+    const float TOE_POWER = 1.5;
+    
+    const float SH_TX = 0.6060606;
+    const float SH_TY = 0.43446;
+    const float SH_SCALE = 1.3475;
+    const float SH_POWER = 1.5;
+    
+    const float INTERCEPT = -1.0112;
+
+    if (x < TOE_TX) {
+        return agx_scaled_sigmoid(x, TOE_SCALE, SLOPE, TOE_POWER, TOE_TX, TOE_TY);
+    } else if (x <= SH_TX) {
+        return SLOPE * x + INTERCEPT;
+    } else {
+        return agx_scaled_sigmoid(x, SH_SCALE, SLOPE, SH_POWER, SH_TX, SH_TY);
+    }
 }
 
 vec3 agx_tonemap(vec3 color) {
@@ -139,12 +164,24 @@ vec3 agx_tonemap(vec3 color) {
         -0.052896851757456, 1.15190312990417, -0.098961176844843,
         -0.05514323170335, -0.053382142916275, 1.19837733946797
     );
+    
     color = max(color, 1e-10);
     color = AgX_Inset * color;
-    color = clamp((log2(color) - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV), 0.0, 1.0);
-    color = agx_sigmoid(color);
-    color = AgX_Out * color;
-    return color;
+    
+    // Log encoding relative to 0.18
+    vec3 x_rel = color / 0.18;
+    vec3 log_encoded = (log2(x_rel) - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV);
+    vec3 mapped = clamp(log_encoded, 0.0, 1.0);
+    
+    vec3 curved;
+    curved.r = agx_apply_curve_channel(mapped.r);
+    curved.g = agx_apply_curve_channel(mapped.g);
+    curved.b = agx_apply_curve_channel(mapped.b);
+    
+    // AgX ends with bringing it back to linear space
+    vec3 tonemapped_linear = pow(max(curved, 0.0), vec3(2.4));
+    
+    return AgX_Out * tonemapped_linear;
 }
 
 // --- Film Grain & Noise ---

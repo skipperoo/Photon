@@ -86,6 +86,8 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(QVariantList histogramGreen READ histogramGreen NOTIFY histogramChanged)
     Q_PROPERTY(QVariantList histogramBlue READ histogramBlue NOTIFY histogramChanged)
     Q_PROPERTY(QVariantList histogramLuma READ histogramLuma NOTIFY histogramChanged)
+    Q_PROPERTY(QVariantMap metadata READ metadata NOTIFY metadataChanged)
+    Q_PROPERTY(int orientation READ orientation NOTIFY orientationChanged)
 
     Q_PROPERTY(QRectF imageRect READ imageRect NOTIFY imageRectChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
@@ -245,6 +247,8 @@ class RawViewport : public QQuickItem {
             QVariantList histogramGreen() const { return m_engine.histogramGreen(); }
             QVariantList histogramBlue() const { return m_engine.histogramBlue(); }
             QVariantList histogramLuma() const { return m_engine.histogramLuma(); }
+            QVariantMap metadata() const { return m_engine.metadata(); }
+            int orientation() const { return m_engine.orientation(); }
 
             QRectF imageRect() const { return m_imageRect; }      
             float zoom() const { return m_zoom; }
@@ -326,6 +330,8 @@ class RawViewport : public QQuickItem {
     void cgBalanceChanged();
     void cgBlendingChanged();
     void histogramChanged();
+    void metadataChanged();
+    void orientationChanged();
 
     void zoomChanged();
     void editStackChanged();

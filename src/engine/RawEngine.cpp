@@ -541,11 +541,6 @@ bool RawEngine::loadRawFileSync(const QString& path) {
   QDateTime dt = QDateTime::fromSecsSinceEpoch(m_processor->imgdata.other.timestamp);
   meta["timestamp"] = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : "-";
 
-  qDebug() << "Metadata extracted for" << path 
-           << "Model:" << meta["model"] 
-           << "ISO:" << meta["iso"] 
-           << "Exp:" << meta["exposureTime"];
-
   // Map LibRaw flip to EXIF orientation tag
   int flip = m_processor->imgdata.sizes.flip;
   int orient = 1;

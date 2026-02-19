@@ -74,6 +74,8 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::cgBalanceChanged, this, [this](){ emit cgBalanceChanged(); update(); });
   connect(&m_engine, &RawEngine::cgBlendingChanged, this, [this](){ emit cgBlendingChanged(); update(); });
   connect(&m_engine, &RawEngine::histogramChanged, this, &RawViewport::histogramChanged);
+  connect(&m_engine, &RawEngine::metadataChanged, this, &RawViewport::metadataChanged);
+  connect(&m_engine, &RawEngine::orientationChanged, this, &RawViewport::orientationChanged);
 
   // History Connections
   connect(&m_engine, &RawEngine::editStackChanged, this, &RawViewport::editStackChanged);

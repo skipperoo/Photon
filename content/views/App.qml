@@ -52,7 +52,7 @@ Window {
             refreshFiles();
         }
         function onCurrentViewChanged() {
-            // Auto-hide topbar when entering Develop view
+            // Strictly hide topbar in Develop view
             if (AppState.currentView === AppState.ViewState.Develop) {
                 window.showTopbar = false
             } else {
@@ -65,7 +65,7 @@ Window {
     Item {
         anchors.fill: parent
 
-        // Hover area to show topbar in Develop view
+        // Hover area to show topbar in (non-Develop) views
         MouseArea {
             id: topbarHoverArea
             anchors.top: parent.top
@@ -73,14 +73,14 @@ Window {
             width: viewportContainer.width
             height: 100
             hoverEnabled: true
-            enabled: AppState.currentView === AppState.ViewState.Develop
-            onEntered: if (AppState.currentView === AppState.ViewState.Develop) window.showTopbar = true
+            enabled: AppState.currentView !== AppState.ViewState.Develop
+            onEntered: window.showTopbar = true
             onExited: {
-                if (AppState.currentView === AppState.ViewState.Develop && !topbarMouseArea.containsMouse) {
+                if (!topbarMouseArea.containsMouse) {
                     window.showTopbar = false
                 }
             }
-            z: 1000 // Ensure it's above content but below topbar if needed
+            z: 1000 
         }
 
         // --- Content Area ---
@@ -115,22 +115,15 @@ Window {
 
             // 2: Develop View Layout
             ColumnLayout {
+                id: developLayout
                 spacing: 0
                 
-                property bool showPresets: true
+                property int activeSidebar: 1 // 0: Metadata, 1: Edit, 2: Crop, 3: Lens, 4: Presets
 
                 RowLayout {
                     spacing: 0
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-
-                    // Presets Sidebar
-                    PresetPanel {
-                        id: presetPanel
-                        Layout.fillHeight: true
-                        Layout.preferredWidth: 250
-                        visible: parent.parent.showPresets
-                    }
 
                     // The Viewport
                     Rectangle {
@@ -348,15 +341,151 @@ Window {
                         }
                     }
 
-                    // Side Tool Panel
-                    DevelopView {
-                        id: sidebar
-                        Layout.preferredWidth: 320
+                    // --- Right Side Tool Stack & Switcher ---
+                    Item {
+                        Layout.preferredWidth: 320 + 48
                         Layout.fillHeight: true
-                        viewport: rawViewport
-                        viewTopPadding: window.showTopbar ? 70 : 10
+                        
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: 0
+
+                            // 1. Tool Stack (320px)
+                        StackLayout {
+                            id: toolStack
+                            Layout.preferredWidth: 320
+                            Layout.fillHeight: true
+                            currentIndex: developLayout.activeSidebar
+                            clip: true
+
+                            // 0: Metadata
+                            Rectangle {
+                                color: Theme.background
+                                Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
+                                Text { anchors.centerIn: parent; text: "Metadata (Coming Soon)"; color: Theme.mutedFg }
+                            }
+
+                            // 1: Edit (Current Development Tools)
+                            DevelopView {
+                                viewport: rawViewport
+                                viewTopPadding: 10
+                            }
+
+                            // 2: Crop
+                            Rectangle {
+                                color: Theme.background
+                                Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
+                                Text { anchors.centerIn: parent; text: "Crop & Transform (Coming Soon)"; color: Theme.mutedFg }
+                            }
+
+                            // 3: Lens
+                            Rectangle {
+                                color: Theme.background
+                                Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
+                                Text { anchors.centerIn: parent; text: "Lens Correction (Coming Soon)"; color: Theme.mutedFg }
+                            }
+
+                            // 4: Presets
+                            PresetPanel {
+                                viewport: rawViewport
+                                viewTopPadding: 10
+                            }
+
+                            // 5: Export
+                            Rectangle {
+                                color: Theme.background
+                                Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
+                                Text { anchors.centerIn: parent; text: "Export (Coming Soon)"; color: Theme.mutedFg }
+                            }
+                        }
+
+                        // 2. Section Switcher (48px)
+                        Rectangle {
+                            Layout.preferredWidth: 48
+                            Layout.fillHeight: true
+                            color: Theme.background
+                            
+                            Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                spacing: 0
+                                anchors.topMargin: 10
+
+                                // Mode Buttons
+                                property var modes: [
+                                    { icon: "info", index: 0, tooltip: "Metadata" },
+                                    { icon: "gear", index: 1, tooltip: "Edit" },
+                                    { icon: "crop", index: 2, tooltip: "Crop" },
+                                    { icon: "telescope", index: 3, tooltip: "Lens" },
+                                    { icon: "bookmark", index: 4, tooltip: "Presets" },
+                                    { icon: "download", index: 5, tooltip: "Export" }
+                                ]
+
+                                Repeater {
+                                    model: parent.modes
+                                    T.Button {
+                                        Layout.preferredWidth: 48
+                                        Layout.preferredHeight: 48
+                                        flat: true
+                                        onClicked: developLayout.activeSidebar = modelData.index
+                                        
+                                        icon.source: "qrc:/Main/assets/icons/" + modelData.icon + ".svg"
+                                        icon.color: "white"
+                                        icon.width: 20
+                                        icon.height: 20
+                                        display: T.AbstractButton.IconOnly
+
+                                        background: Rectangle {
+                                            color: (developLayout.activeSidebar === modelData.index) ? Theme.secondary : "transparent"
+                                            Rectangle {
+                                                anchors.right: parent.right; width: 2; height: 24
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                color: "white"
+                                                visible: developLayout.activeSidebar === modelData.index
+                                            }
+                                        }
+                                        
+                                        T.ToolTip.visible: hovered
+                                        T.ToolTip.text: modelData.tooltip
+                                    }
+                                }
+
+                                Item { Layout.fillHeight: true }
+
+                                // Global Navigation
+                                T.Button {
+                                    Layout.preferredWidth: 48
+                                    Layout.preferredHeight: 48
+                                    flat: true
+                                    onClicked: AppState.setCurrentView(AppState.ViewState.Library)
+                                    icon.source: "qrc:/Main/assets/icons/library.svg"
+                                    icon.color: "white"
+                                    icon.width: 20
+                                    icon.height: 20
+                                    display: T.AbstractButton.IconOnly
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Back to Library"
+                                }
+
+                                T.Button {
+                                    Layout.preferredWidth: 48
+                                    Layout.preferredHeight: 48
+                                    flat: true
+                                    onClicked: AppState.setCurrentView(AppState.ViewState.Settings)
+                                    icon.source: "qrc:/Main/assets/icons/settings.svg"
+                                    icon.color: "white"
+                                    icon.width: 20
+                                    icon.height: 20
+                                    display: T.AbstractButton.IconOnly
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Settings"
+                                }
+                            }
+                        }
                     }
                 }
+            }
 
                 // Filmstrip
                 Rectangle {
@@ -428,7 +557,7 @@ Window {
             radius: Theme.radiusLg
             border.color: Theme.border
             border.width: 1
-            visible: AppState.currentView !== AppState.ViewState.Welcome
+            visible: AppState.currentView !== AppState.ViewState.Welcome && AppState.currentView !== AppState.ViewState.Develop
             z: 1001
 
             // Hide topbar when mouse leaves it in Develop view

@@ -15,7 +15,7 @@ void PresetManager::savePreset(const QString& name, const QVariantMap& settings)
     if (name.isEmpty()) return;
 
     QString safeName = name;
-    safeName.replace("/", "_").replace("", "_");
+    safeName.replace("/", "_").replace("\\", "_");
     QString filePath = m_presetsPath + "/" + safeName + ".json";
 
     QFile file(filePath);

@@ -86,27 +86,36 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 
 ## 4. 🎛️ Develop View (Edit Mode)
 
-**Goal:** Precision editing.
-**Layout:** Three-Pane "Holy Grail" Layout.
+**Goal:** Precision editing with a unified workflow.
+**Layout:** Unified Right-Stack Layout.
 
-### A. The Viewport (Left/Center - Dominant)
+### A. The Viewport (Center/Left - Dominant)
 
 - **Content:** The `RawViewport` (C++ Vulkan Widget).
 - **Behavior:**
   - Pan (Space + Drag) & Zoom (Scroll Wheel).
-  - "Fit" vs "100%" toggle in a floating toolbar at the bottom of the viewport.
-  - **Tool Bar:** Contains Zoom slider, Undo/Redo buttons, and a **Restore to Original** button (Lucide `rotate-ccw` icon).
-  - **Restore Logic:** Resets all adjustment parameters to their factory defaults. The button is reactively disabled if no edits have been applied to the current image.
+  - Floating toolbar at the bottom for Zoom, Undo/Redo, and **Restore to Original**.
+  - **Note:** The floating top navigation bar is **disabled** in this view to maximize vertical space.
 
-### B. The Tool Panel (Right - Collapsible)
+### B. The Tool Stack & Switcher (Right)
 
-- **Behavior:** Scrollable vertical stack of Accordions (Shadcn `Collapsible`).
-- **Width:** Fixed (e.g., 320px). Can be toggled hidden (Shortcut: Tab).
-  - **Histogram:** (Top, pinned). 
-    - **Function:** Professional real-time visualization of RGB and Luma distribution.
-    - **Technical:** Computed in C++ using a 256-bin array per channel. Ported the exact mathematical pipeline (Exposure, WB, Contrast, HSL, Color Grading) from the fragment shader to ensure perfect data alignment.
-    - **Rendering:** Anti-aliased line graphs with semi-transparent overlaps (Zinc aesthetic).
-    - **Performance:** Asynchronous computation with a "deferred update" logic to ensure the UI remains at 60fps while the distribution always catches up to the latest edit.
+The right panel is divided into two parts: a **Tool Stack** (320px) and a **Section Switcher** (48px).
+
+1.  **Section Switcher (Vertical Rail):**
+    - A slim vertical bar on the far right containing Lucide icons for high-level mode switching.
+    - **Metadata** (Info icon): Extensive EXIF and image info.
+    - **Edit** (Settings icon): The primary adjustment sliders.
+    - **Crop** (Crop icon): Aspect ratio and rotation tools.
+    - **Lens** (Telescope icon): Lens correction and distortion management.
+    - **Presets** (Bookmark icon): User-saved adjustment states.
+    - **Export** (Download icon): Save processed images to disk (JPEG/TIFF).
+    - **Library** (Books icon): One-click jump back to grid mode.
+    - **Settings** (Gear icon): Application preferences.
+
+2.  **Tool Stack (Dynamic Panel):**
+    - A `StackLayout` that displays the selected mode's controls.
+    - **Histogram:** (Pinned at the top of the stack). Professional real-time visualization of RGB and Luma distribution.
+
 ### GPU Processing Pipeline (Phase 5)
 
 To achieve professional-grade results, Photon employs a high-fidelity GPU pipeline:

@@ -4,7 +4,7 @@ project(Photon VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick ShaderTools Gui Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent)
 find_package(Vulkan REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBRAW REQUIRED libraw)
@@ -84,6 +84,15 @@ qt_add_qml_module(appPhoton
         assets/icons/undo.svg
         assets/icons/redo.svg
         assets/icons/rotate-ccw.svg
+        assets/icons/info.svg
+        assets/icons/settings.svg
+        assets/icons/crop.svg
+        assets/icons/telescope.svg
+        assets/icons/bookmark.svg
+        assets/icons/library.svg
+        assets/icons/gear.svg
+        assets/icons/trash.svg
+        assets/icons/download.svg
 )
 
 set_target_properties(appPhoton PROPERTIES
@@ -94,7 +103,7 @@ set_target_properties(appPhoton PROPERTIES
 )
 
 target_link_libraries(appPhoton
-    PRIVATE Qt6::Quick Qt6::Gui Qt6::ShaderTools Qt6::Concurrent
+    PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent
     PRIVATE ${LIBRAW_LIBRARIES}
 )
 target_include_directories(appPhoton PRIVATE

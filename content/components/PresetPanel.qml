@@ -1,115 +1,157 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as T
+import QtQuick.Dialogs
 import Main
 
 Rectangle {
     id: root
-    implicitWidth: 250
+    implicitWidth: 320
     color: Theme.background
     border.color: Theme.border
     border.width: 0
     
-    // Left border only
-    Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Theme.border }
+    // Left border
+    Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
+
+    property var viewport: null
+    property real viewTopPadding: 0
+    property string presetToDelete: ""
+
+    MessageDialog {
+        id: deleteConfirmDialog
+        title: "Delete Preset"
+        text: "Are you sure you want to delete the preset '" + root.presetToDelete + "'?"
+        buttons: MessageDialog.Yes | MessageDialog.No
+        onButtonClicked: (button, role) => {
+            if (button === MessageDialog.Yes) {
+                PresetManager.deletePreset(root.presetToDelete)
+            }
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 12
-        spacing: 16
+        anchors.topMargin: root.viewTopPadding
+        spacing: 0
 
-        RowLayout {
+        // Pinned Histogram at the top
+        Histogram {
+            id: headerHistogram
             Layout.fillWidth: true
-            Text {
-                text: "PRESETS"
-                color: Theme.mutedFg
-                font.pixelSize: Theme.fontSmall.pixelSize
-                font.bold: true
-                Layout.fillWidth: true
-            }
-            
-            T.Button {
-                id: savePresetBtn
-                text: "+"
-                implicitWidth: 24
-                implicitHeight: 24
-                onClicked: presetNameDialog.open()
-                T.ToolTip.visible: hovered
-                T.ToolTip.text: "Save Current as Preset"
-                
-                contentItem: Text {
-                    text: savePresetBtn.text
-                    font: Theme.fontMedium
-                    color: "white"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                
-                background: Rectangle {
-                    color: savePresetBtn.hovered ? Theme.secondary : "transparent"
-                    radius: 4
-                }
-            }
+            Layout.preferredHeight: 120
+            Layout.margins: 12
+            histogramRed: root.viewport ? root.viewport.histogramRed : []
+            histogramGreen: root.viewport ? root.viewport.histogramGreen : []
+            histogramBlue: root.viewport ? root.viewport.histogramBlue : []
+            histogramLuma: root.viewport ? root.viewport.histogramLuma : []
         }
 
-        ListView {
-            id: presetList
+        // Inner Tool Content
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            model: PresetManager.presets
-            spacing: 4
-            clip: true
+            Layout.margins: 12
+            spacing: 16
 
-            delegate: T.ItemDelegate {
-                width: presetList.width
-                height: 32
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: "PRESETS"
+                    color: Theme.mutedFg
+                    font.pixelSize: Theme.fontSmall.pixelSize
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
                 
-                contentItem: RowLayout {
-                    Text {
-                        text: modelData
-                        color: parent.hovered ? "white" : Theme.foreground
+                T.Button {
+                    id: savePresetBtn
+                    text: "+"
+                    implicitWidth: 24
+                    implicitHeight: 24
+                    onClicked: presetNameDialog.open()
+                    T.ToolTip.visible: hovered
+                    T.ToolTip.text: "Save Current as Preset"
+                    
+                    contentItem: Text {
+                        text: savePresetBtn.text
                         font: Theme.fontMedium
-                        Layout.fillWidth: true
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
                     }
                     
-                    T.Button {
-                        text: "×"
-                        visible: parent.parent.hovered
-                        implicitWidth: 20
-                        implicitHeight: 20
-                        onClicked: PresetManager.deletePreset(modelData)
-                        background: null
-                        contentItem: Text {
-                            text: "×"
-                            color: Theme.mutedFg
-                            font.pixelSize: 18
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                    background: Rectangle {
+                        color: savePresetBtn.hovered ? Theme.secondary : "transparent"
+                        radius: 4
+                    }
+                }
+            }
+
+            ListView {
+                id: presetList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                model: PresetManager.presets
+                spacing: 4
+                clip: true
+
+                delegate: T.ItemDelegate {
+                    width: presetList.width
+                    height: 32
+                    
+                    contentItem: RowLayout {
+                        Text {
+                            text: modelData
+                            color: parent.hovered ? "white" : Theme.foreground
+                            font: Theme.fontMedium
+                            Layout.fillWidth: true
+                        }
+                        
+                        T.Button {
+                            visible: parent.parent.hovered
+                            implicitWidth: 24
+                            implicitHeight: 24
+                            onClicked: {
+                                root.presetToDelete = modelData
+                                deleteConfirmDialog.open()
+                            }
+                            
+                            icon.source: "qrc:/Main/assets/icons/trash.svg"
+                            icon.color: "#ff0000" // Bright Red (destructive)
+                            icon.width: 14
+                            icon.height: 14
+                            display: T.AbstractButton.IconOnly
+                            
+                            background: null
+                            
+                            T.ToolTip.visible: hovered
+                            T.ToolTip.text: "Delete Preset"
+                        }
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered ? Theme.secondary : "transparent"
+                        radius: 4
+                    }
+
+                    onClicked: {
+                        var settings = PresetManager.loadPreset(modelData)
+                        if (Object.keys(settings).length > 0 && root.viewport) {
+                            root.viewport.applySettings(settings)
                         }
                     }
                 }
-
-                background: Rectangle {
-                    color: parent.hovered ? Theme.secondary : "transparent"
-                    radius: 4
-                }
-
-                onClicked: {
-                    var settings = PresetManager.loadPreset(modelData)
-                    if (Object.keys(settings).length > 0) {
-                        rawViewport.applySettings(settings)
-                    }
+                
+                Text {
+                    anchors.centerIn: parent
+                    text: "No presets saved"
+                    color: Theme.mutedFg
+                    font: Theme.fontSmall
+                    visible: presetList.count === 0
                 }
             }
-            
-            Text {
-                anchors.centerIn: parent
-                text: "No presets saved"
-                color: Theme.mutedFg
-                font: Theme.fontSmall
-                visible: presetList.count === 0
-            }
-        }
+        } // End Inner Tool Content
     }
 
     T.Dialog {
@@ -137,7 +179,9 @@ Rectangle {
         }
 
         onAccepted: {
-            PresetManager.savePreset(presetNameInput.text, rawViewport.currentSettings())
+            if (root.viewport) {
+                PresetManager.savePreset(presetNameInput.text, root.viewport.currentSettings())
+            }
             presetNameInput.text = ""
         }
     }

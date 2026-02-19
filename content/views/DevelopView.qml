@@ -23,20 +23,16 @@ Control {
         anchors.topMargin: root.viewTopPadding
         spacing: 0
 
-        // --- Header ---
-        Rectangle {
+        // Pinned Histogram at the top
+        Histogram {
+            id: headerHistogram
             Layout.fillWidth: true
-            Layout.preferredHeight: 60
-            color: "transparent"
-            
-            Text {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: 20
-                text: "Develop"
-                font: Theme.fontLarge
-                color: Theme.foreground
-            }
+            Layout.preferredHeight: 120
+            Layout.margins: 12
+            histogramRed: root.viewport ? root.viewport.histogramRed : []
+            histogramGreen: root.viewport ? root.viewport.histogramGreen : []
+            histogramBlue: root.viewport ? root.viewport.histogramBlue : []
+            histogramLuma: root.viewport ? root.viewport.histogramLuma : []
         }
 
         ScrollView {
@@ -48,19 +44,6 @@ Control {
             ColumnLayout {
                 width: parent.width
                 spacing: 0
-
-                // --- Histogram ---
-                Histogram {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 180
-                    Layout.margins: 12
-                    Layout.bottomMargin: 20
-                    
-                    histogramRed: root.viewport ? root.viewport.histogramRed : []
-                    histogramGreen: root.viewport ? root.viewport.histogramGreen : []
-                    histogramBlue: root.viewport ? root.viewport.histogramBlue : []
-                    histogramLuma: root.viewport ? root.viewport.histogramLuma : []
-                }
 
                 // --- Metadata Section ---
                 Rectangle {

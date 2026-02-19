@@ -359,10 +359,9 @@ Window {
                             clip: true
 
                             // 0: Metadata
-                            Rectangle {
-                                color: Theme.background
-                                Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
-                                Text { anchors.centerIn: parent; text: "Metadata (Coming Soon)"; color: Theme.mutedFg }
+                            MetadataPanel {
+                                viewport: rawViewport
+                                viewTopPadding: 10
                             }
 
                             // 1: Edit (Current Development Tools)

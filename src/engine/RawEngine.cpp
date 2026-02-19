@@ -517,19 +517,34 @@ bool RawEngine::loadRawFileSync(const QString& path) {
 
   // Extract EXIF Metadata
   QVariantMap meta;
-  meta["make"] = QString::fromLocal8Bit(m_processor->imgdata.idata.make);
-  meta["model"] = QString::fromLocal8Bit(m_processor->imgdata.idata.model);
+  meta["make"] = QString::fromLocal8Bit(m_processor->imgdata.idata.make).trimmed();
+  meta["model"] = QString::fromLocal8Bit(m_processor->imgdata.idata.model).trimmed();
   meta["iso"] = (int)m_processor->imgdata.other.iso_speed;
   
   float shutter = m_processor->imgdata.other.shutter;
   if (shutter > 0) {
       if (shutter < 1.0f) meta["exposureTime"] = QString("1/%1 s").arg(qRound(1.0f / shutter));
       else meta["exposureTime"] = QString("%1 s").arg(shutter, 0, 'f', 1);
+  } else {
+      meta["exposureTime"] = "-";
   }
   
-  meta["aperture"] = QString("f/%1").arg(m_processor->imgdata.other.aperture, 0, 'f', 1);
-  meta["focalLength"] = QString("%1mm").arg(m_processor->imgdata.other.focal_len, 0, 'f', 1);
-  meta["timestamp"] = QString::fromLocal8Bit(std::ctime(&m_processor->imgdata.other.timestamp)).trimmed();
+  meta["aperture"] = m_processor->imgdata.other.aperture > 0 ? QString("f/%1").arg(m_processor->imgdata.other.aperture, 0, 'f', 1) : "-";
+  meta["focalLength"] = m_processor->imgdata.other.focal_len > 0 ? QString("%1mm").arg(m_processor->imgdata.other.focal_len, 0, 'f', 1) : "-";
+  
+  QString lens = QString::fromUtf8(m_processor->imgdata.lens.Lens).trimmed();
+  meta["lensModel"] = lens.isEmpty() ? "Unknown Lens" : lens;
+  
+  QString artist = QString::fromUtf8(m_processor->imgdata.other.artist).trimmed();
+  meta["artist"] = artist.isEmpty() ? "-" : artist;
+  
+  QDateTime dt = QDateTime::fromSecsSinceEpoch(m_processor->imgdata.other.timestamp);
+  meta["timestamp"] = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : "-";
+
+  qDebug() << "Metadata extracted for" << path 
+           << "Model:" << meta["model"] 
+           << "ISO:" << meta["iso"] 
+           << "Exp:" << meta["exposureTime"];
 
   // Map LibRaw flip to EXIF orientation tag
   int flip = m_processor->imgdata.sizes.flip;

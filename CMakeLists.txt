@@ -75,6 +75,7 @@ qt_add_qml_module(appPhoton
         content/components/ControlGroup.qml
         content/components/Histogram.qml
         content/components/PresetPanel.qml
+        content/components/MetadataPanel.qml
         content/theme/Theme.qml
     RESOURCES
         assets/icons/search.svg

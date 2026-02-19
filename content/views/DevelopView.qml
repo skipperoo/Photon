@@ -34,6 +34,50 @@ Control {
             histogramBlue: root.viewport ? root.viewport.histogramBlue : []
             histogramLuma: root.viewport ? root.viewport.histogramLuma : []
         }
+        // --- Metadata Section ---
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 80
+            Layout.margins: 12
+            Layout.topMargin: 0
+            Layout.bottomMargin: 20
+            color: "transparent"
+
+            GridLayout {
+                anchors.fill: parent
+                columns: 2
+                columnSpacing: 20
+                rowSpacing: 4
+
+                Text {
+                    text: root.viewport && root.viewport.metadata.model ? root.viewport.metadata.model : "Unknown Camera"
+                    font: Theme.fontMedium
+                    color: Theme.foreground
+                    Layout.columnSpan: 2
+                }
+
+                Row {
+                    spacing: 8
+                    Text { text: "ISO"; font: Theme.fontSmall; color: Theme.mutedFg }
+                    Text { text: root.viewport && root.viewport.metadata.iso ? root.viewport.metadata.iso : "-"; font: Theme.fontSmall; color: Theme.foreground }
+                }
+                Row {
+                    spacing: 8
+                    Text { text: "Exp"; font: Theme.fontSmall; color: Theme.mutedFg }
+                    Text { text: root.viewport && root.viewport.metadata.exposureTime ? root.viewport.metadata.exposureTime : "-"; font: Theme.fontSmall; color: Theme.foreground }
+                }
+                Row {
+                    spacing: 8
+                    Text { text: "Ap"; font: Theme.fontSmall; color: Theme.mutedFg }
+                    Text { text: root.viewport && root.viewport.metadata.aperture ? root.viewport.metadata.aperture : "-"; font: Theme.fontSmall; color: Theme.foreground }
+                }
+                Row {
+                    spacing: 8
+                    Text { text: "Focal"; font: Theme.fontSmall; color: Theme.mutedFg }
+                    Text { text: root.viewport && root.viewport.metadata.focalLength ? root.viewport.metadata.focalLength : "-"; font: Theme.fontSmall; color: Theme.foreground }
+                }
+            }
+        }
 
         ScrollView {
             Layout.fillWidth: true
@@ -44,51 +88,6 @@ Control {
             ColumnLayout {
                 width: parent.width
                 spacing: 0
-
-                // --- Metadata Section ---
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 80
-                    Layout.margins: 12
-                    Layout.topMargin: 0
-                    Layout.bottomMargin: 20
-                    color: "transparent"
-
-                    GridLayout {
-                        anchors.fill: parent
-                        columns: 2
-                        columnSpacing: 20
-                        rowSpacing: 4
-
-                        Text { 
-                            text: root.viewport && root.viewport.metadata.model ? root.viewport.metadata.model : "Unknown Camera"
-                            font: Theme.fontMedium
-                            color: Theme.foreground
-                            Layout.columnSpan: 2 
-                        }
-                        
-                        Row {
-                            spacing: 8
-                            Text { text: "ISO"; font: Theme.fontSmall; color: Theme.mutedFg }
-                            Text { text: root.viewport && root.viewport.metadata.iso ? root.viewport.metadata.iso : "-"; font: Theme.fontSmall; color: Theme.foreground }
-                        }
-                        Row {
-                            spacing: 8
-                            Text { text: "Exp"; font: Theme.fontSmall; color: Theme.mutedFg }
-                            Text { text: root.viewport && root.viewport.metadata.exposureTime ? root.viewport.metadata.exposureTime : "-"; font: Theme.fontSmall; color: Theme.foreground }
-                        }
-                        Row {
-                            spacing: 8
-                            Text { text: "Ap"; font: Theme.fontSmall; color: Theme.mutedFg }
-                            Text { text: root.viewport && root.viewport.metadata.aperture ? root.viewport.metadata.aperture : "-"; font: Theme.fontSmall; color: Theme.foreground }
-                        }
-                        Row {
-                            spacing: 8
-                            Text { text: "Focal"; font: Theme.fontSmall; color: Theme.mutedFg }
-                            Text { text: root.viewport && root.viewport.metadata.focalLength ? root.viewport.metadata.focalLength : "-"; font: Theme.fontSmall; color: Theme.foreground }
-                        }
-                    }
-                }
 
                 // --- Light Section ---
                 Collapsible {

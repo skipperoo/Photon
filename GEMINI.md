@@ -34,6 +34,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 - `.PhotonData/`: (Runtime) Hidden directory for sidecar metadata and cache.
 
 ## 📜 Development Conventions
+- **STRICT SAFETY RULE:** ALWAYS build and manually RUN the application (`./build/appPhoton`) to verify runtime stability and UI correctness BEFORE merging any changes into the `develop` branch. Unit tests alone are insufficient for UI/Graphics verification.
 - **C++ Style:** Follows `.clang-format` (Google/Qt style). Use `m_member` for private variables and `PascalCase` for classes.
 - **QML Style:** Use the `Theme` singleton for all styling (colors, spacing). Avoid hardcoding values.
 - **Memory:** Strict RAII with `std::unique_ptr` for backend resources; parent-child ownership for `QObject` hierarchies.

@@ -326,6 +326,58 @@ Control {
                     }
                 }
 
+                // --- Demosaic Section ---
+                Collapsible {
+                    title: "Demosaic"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { 
+                                text: "Method"
+                                font: Theme.fontSmall
+                                color: Theme.mutedFg
+                            }
+                            ComboBox {
+                                Layout.fillWidth: true
+                                model: ["LibRaw", "PPG", "RCD", "AMaZE", "VNG4"]
+                                currentIndex: model.indexOf(root.viewport ? root.viewport.demosaicMethod : "LibRaw")
+                                onActivated: if(root.viewport) root.viewport.demosaicMethod = currentText
+                                
+                                background: Rectangle {
+                                    color: parent.pressed ? Theme.background : Theme.item
+                                    border.color: Theme.border
+                                    radius: 4
+                                }
+                                contentItem: Text {
+                                    leftPadding: 10
+                                    rightPadding: 10
+                                    text: parent.displayText
+                                    font: Theme.fontSmall
+                                    color: Theme.foreground
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                delegate: ItemDelegate {
+                                    width: parent.width
+                                    contentItem: Text {
+                                        text: modelData
+                                        font: Theme.fontSmall
+                                        color: Theme.foreground
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        color: parent.highlighted ? Theme.highlight : Theme.item
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // --- Detail Section ---
                 Collapsible {
                     title: "Detail"

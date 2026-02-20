@@ -2,6 +2,8 @@
 
 #include <libraw/libraw.h>
 
+#include "DemosaicEngine.h"
+
 #include <QFutureWatcher>
 #include <QImage>
 #include <QObject>
@@ -25,6 +27,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY saturationChanged)
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
+  Q_PROPERTY(QString demosaicMethod READ demosaicMethod WRITE setDemosaicMethod NOTIFY demosaicMethodChanged)
   Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE
                  setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
   Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY
@@ -141,6 +144,9 @@ class RawEngine : public QObject {
 
   float tint() const { return m_tint; }
   void setTint(float val);
+
+  QString demosaicMethod() const { return DemosaicEngine::methodName(m_demosaicMethod); }
+  void setDemosaicMethod(const QString& method);
 
   bool tonemappingEnabled() const { return m_tonemappingEnabled; }
   void setTonemappingEnabled(bool enabled);
@@ -300,6 +306,7 @@ class RawEngine : public QObject {
   void saturationChanged();
   void temperatureChanged();
   void tintChanged();
+  void demosaicMethodChanged();
   void tonemappingEnabledChanged();
   void grainAmountChanged();
   void grainSizeChanged();
@@ -372,6 +379,8 @@ class RawEngine : public QObject {
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;
   float m_tint = 0.0f;
+  DemosaicMethod m_demosaicMethod = DemosaicMethod::LibRaw;
+  DemosaicEngine m_demosaic;
   bool m_tonemappingEnabled = false;
   float m_grainAmount = 0.0f;
   float m_grainSize = 1.0f;
@@ -437,6 +446,7 @@ class RawEngine : public QObject {
   int m_editIndex = -1;
   std::unique_ptr<LibRaw> m_processor;
   libraw_processed_image_t* m_processedImage = nullptr;
+  std::vector<uint8_t> m_customBuffer;
   bool m_isLoaded = false;
 
   QFutureWatcher<bool> m_loadWatcher;

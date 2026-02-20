@@ -249,6 +249,17 @@ void RawEngine::setVignetteFeather(float val) {
   emit isDefaultChanged();
 }
 
+void RawEngine::setDemosaicMethod(const QString& method) {
+  DemosaicMethod m = DemosaicEngine::methodFromString(method);
+  if (m_demosaicMethod == m) return;
+  m_demosaicMethod = m;
+  emit demosaicMethodChanged();
+  emit isDefaultChanged();
+  if (m_isLoaded) {
+    emit imageLoaded(); // Re-trigger processing
+  }
+}
+
 // HSL Setters
 void RawEngine::setHslRedHue(float val) { if (!qFuzzyCompare(m_hslRedHue, val)) { m_hslRedHue = val; emit hslRedHueChanged(); emit isDefaultChanged(); } }
 void RawEngine::setHslRedSaturation(float val) { if (!qFuzzyCompare(m_hslRedSaturation, val)) { m_hslRedSaturation = val; emit hslRedSaturationChanged(); emit isDefaultChanged(); } }
@@ -625,19 +636,73 @@ QImage RawEngine::extractThumbnail(const QString& path) {
 const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
   if (!m_isLoaded) return nullptr;
 
-  clearProcessedImage();
+  if (m_demosaicMethod == DemosaicMethod::LibRaw) {
+      clearProcessedImage();
 
-  int ret = m_processor->dcraw_process();
-  if (ret != LIBRAW_SUCCESS) return nullptr;
+      int ret = m_processor->dcraw_process();
+      if (ret != LIBRAW_SUCCESS) return nullptr;
 
-  m_processedImage = m_processor->dcraw_make_mem_image(&ret);
-  if (!m_processedImage) return nullptr;
+      m_processedImage = m_processor->dcraw_make_mem_image(&ret);
+      if (!m_processedImage) return nullptr;
 
-  width = m_processedImage->width;
-  height = m_processedImage->height;
-  colors = m_processedImage->colors;
+      width = m_processedImage->width;
+      height = m_processedImage->height;
+      colors = m_processedImage->colors;
 
-  return m_processedImage->data;
+      return m_processedImage->data;
+  }
+
+  // Custom Demosaic
+  if (!m_processor->imgdata.rawdata.raw_image) return nullptr;
+
+  int raw_width = m_processor->imgdata.sizes.raw_width;
+  int raw_height = m_processor->imgdata.sizes.raw_height;
+  int visible_width = m_processor->imgdata.sizes.iwidth;
+  int visible_height = m_processor->imgdata.sizes.iheight;
+  int top_margin = m_processor->imgdata.sizes.top_margin;
+  int left_margin = m_processor->imgdata.sizes.left_margin;
+
+  // Prepare input float buffer
+  std::vector<float> input(raw_width * raw_height);
+  ushort* raw_data = m_processor->imgdata.rawdata.raw_image;
+  
+  float white_level = m_processor->imgdata.color.maximum;
+  if (white_level <= 0) white_level = 16383.0f;
+  float black_level = m_processor->imgdata.color.black;
+
+  // Simple normalization
+  // Note: LibRaw might have more complex black level handling (per channel, etc)
+  for(int i=0; i<raw_width*raw_height; ++i) {
+      input[i] = std::max(0.0f, (float)raw_data[i] - black_level) / (white_level - black_level);
+  }
+
+  // Prepare output float buffer (RGBA)
+  std::vector<float> output(raw_width * raw_height * 4);
+  
+  if(!m_demosaic.demosaic(input.data(), output.data(), raw_width, raw_height, m_processor->imgdata.idata.filters, m_demosaicMethod)) {
+      return nullptr;
+  }
+
+  // Crop and Convert to 16-bit RGB (3 channels) for display
+  width = visible_width;
+  height = visible_height;
+  colors = 3;
+  
+  m_customBuffer.resize(width * height * 3 * sizeof(ushort));
+  ushort* out_ptr = reinterpret_cast<ushort*>(m_customBuffer.data());
+
+  for(int y=0; y<height; ++y) {
+      for(int x=0; x<width; ++x) {
+          int in_pixel_idx = ((y + top_margin) * raw_width + (x + left_margin)) * 4;
+          int out_pixel_idx = (y * width + x) * 3;
+          
+          for(int c=0; c<3; ++c) {
+              out_ptr[out_pixel_idx + c] = (ushort)std::clamp(output[in_pixel_idx + c] * 65535.0f, 0.0f, 65535.0f);
+          }
+      }
+  }
+
+  return m_customBuffer.data();
 }
 
 static QJsonObject stateToJson(const RawEngine* e) {
@@ -674,6 +739,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
     obj["cgMidtonesHue"] = e->cgMidtonesHue(); obj["cgMidtonesSaturation"] = e->cgMidtonesSaturation(); obj["cgMidtonesLuminance"] = e->cgMidtonesLuminance();
     obj["cgHighlightsHue"] = e->cgHighlightsHue(); obj["cgHighlightsSaturation"] = e->cgHighlightsSaturation(); obj["cgHighlightsLuminance"] = e->cgHighlightsLuminance();
     obj["cgBalance"] = e->cgBalance(); obj["cgBlending"] = e->cgBlending();
+    obj["demosaicMethod"] = e->demosaicMethod();
     return obj;
 }
 
@@ -734,6 +800,7 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("cgHighlightsLuminance")) e->setCgHighlightsLuminance(obj["cgHighlightsLuminance"].toDouble());
   if (obj.contains("cgBalance")) e->setCgBalance(obj["cgBalance"].toDouble());
   if (obj.contains("cgBlending")) e->setCgBlending(obj["cgBlending"].toDouble());
+  if (obj.contains("demosaicMethod")) e->setDemosaicMethod(obj["demosaicMethod"].toString());
 }
 
 static void resetToDefaults(RawEngine* e) {
@@ -756,6 +823,7 @@ static void resetToDefaults(RawEngine* e) {
     e->setCgMidtonesHue(0.0f); e->setCgMidtonesSaturation(0.0f); e->setCgMidtonesLuminance(0.0f);
     e->setCgHighlightsHue(0.0f); e->setCgHighlightsSaturation(0.0f); e->setCgHighlightsLuminance(0.0f);
     e->setCgBalance(0.0f); e->setCgBlending(50.0f);
+    e->setDemosaicMethod("LibRaw");
 }
 
 QVariantMap RawEngine::currentSettings() const {
@@ -908,6 +976,7 @@ bool RawEngine::isDefault() const {
     if (!qFuzzyIsNull(m_cgHighlightsHue) || !qFuzzyIsNull(m_cgHighlightsSaturation) || !qFuzzyIsNull(m_cgHighlightsLuminance)) return false;
     if (!qFuzzyIsNull(m_cgBalance)) return false;
     if (!qFuzzyCompare(m_cgBlending, 50.0f)) return false;
+    if (m_demosaicMethod != DemosaicMethod::LibRaw) return false;
 
     return true;
 }

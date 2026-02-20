@@ -24,6 +24,7 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY saturationChanged)
     Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY temperatureChanged)
     Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
+    Q_PROPERTY(QString demosaicMethod READ demosaicMethod WRITE setDemosaicMethod NOTIFY demosaicMethodChanged)
     Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
     Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY grainAmountChanged)
     Q_PROPERTY(float grainSize READ grainSize WRITE setGrainSize NOTIFY grainSizeChanged)
@@ -133,6 +134,9 @@ class RawViewport : public QQuickItem {
   
     float tint() const { return m_engine.tint(); }
     void setTint(float val);
+
+    QString demosaicMethod() const { return m_engine.demosaicMethod(); }
+    void setDemosaicMethod(const QString& method) { m_engine.setDemosaicMethod(method); }
   
     bool tonemappingEnabled() const { return m_engine.tonemappingEnabled(); }
     void setTonemappingEnabled(bool enabled);
@@ -281,6 +285,7 @@ class RawViewport : public QQuickItem {
     void saturationChanged();
     void temperatureChanged();
     void tintChanged();
+    void demosaicMethodChanged();
     void tonemappingEnabledChanged();
     void grainAmountChanged();
     void grainSizeChanged();

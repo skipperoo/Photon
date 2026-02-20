@@ -9,7 +9,8 @@ We follow a **Feature-Branch Workflow**. Direct commits to main are forbidden.
 
 ### Branching Strategy
 
-- **main**: The stable production branch. Must always compile and launch.
+- **master**: The stable production branch. Must always compile and launch. Only humans merge code here!!!
+- **develop**: The stable develop branch where all the features get merged. Agents can merge code here.
 - **feat/\<name\>**: For new features (e.g., feat/histogram, feat/raw-loader).
 - **fix/\<name\>**: For bug fixes (e.g., fix/memory-leak-raw).
 - **refactor/\<name\>**: For code cleanup without behavior changes.

@@ -23,7 +23,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
   cmake -DCMAKE_BUILD_TYPE=Debug ..
   make -j$(nproc)
   ```
-- **Run:** `./build/appPhoton`
+- **Run:** `./build/Photon`
 - **Test:** `cd build && ctest --output-on-failure`
 - **Format:** `find src tests -name "*.cpp" -o -name "*.h" | xargs clang-format -i`
 
@@ -34,7 +34,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 - `.PhotonData/`: (Runtime) Hidden directory for sidecar metadata and cache.
 
 ## 📜 Development Conventions
-- **STRICT SAFETY RULE:** ALWAYS build and manually RUN the application (`./build/appPhoton`) to verify runtime stability and UI correctness BEFORE merging any changes into the `develop` branch. Unit tests alone are insufficient for UI/Graphics verification.
+- **STRICT SAFETY RULE:** ALWAYS build and manually RUN the application (`./build/Photon`) to verify runtime stability and UI correctness BEFORE merging any changes into the `develop` branch. Unit tests alone are insufficient for UI/Graphics verification.
 - **C++ Style:** Follows `.clang-format` (Google/Qt style). Use `m_member` for private variables and `PascalCase` for classes.
 - **QML Style:** Use the `Theme` singleton for all styling (colors, spacing). Avoid hardcoding values.
 - **Memory:** Strict RAII with `std::unique_ptr` for backend resources; parent-child ownership for `QObject` hierarchies.

@@ -11,7 +11,7 @@ make -j$(nproc)
 
 **Run Application:**
 ```bash
-./build/appPhoton
+./build/Photon
 ```
 
 **Run All Tests:**

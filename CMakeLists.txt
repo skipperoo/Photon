@@ -11,7 +11,7 @@ pkg_check_modules(LIBRAW REQUIRED libraw)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
-qt_add_executable(appPhoton
+qt_add_executable(Photon
     src/main.cpp
     src/engine/RawEngine.cpp
     src/engine/RawEngine.h
@@ -36,7 +36,7 @@ set_source_files_properties(content/theme/Theme.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
-qt6_add_shaders(appPhoton "raw_shaders"
+qt6_add_shaders(Photon "raw_shaders"
     PREFIX "/Main/shaders"
     BASE "src/components"
     FILES
@@ -44,7 +44,7 @@ qt6_add_shaders(appPhoton "raw_shaders"
         src/components/RawViewport.frag
 )
 
-qt_add_qml_module(appPhoton
+qt_add_qml_module(Photon
     URI "Main"
     VERSION 1.0
     RESOURCE_PREFIX "/"
@@ -100,19 +100,19 @@ qt_add_qml_module(appPhoton
         assets/icons/download.svg
 )
 
-set_target_properties(appPhoton PROPERTIES
+set_target_properties(Photon PROPERTIES
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
     MACOSX_BUNDLE TRUE
     WIN32_EXECUTABLE TRUE
 )
 
-target_link_libraries(appPhoton
+target_link_libraries(Photon
     PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent
     PRIVATE ${LIBRAW_LIBRARIES}
     PRIVATE Vulkan::Vulkan
 )
-target_include_directories(appPhoton PRIVATE
+target_include_directories(Photon PRIVATE
     src
     src/engine
     src/components
@@ -121,12 +121,12 @@ target_include_directories(appPhoton PRIVATE
 )
 
 # Ensure QML types are registered before main
-set_target_properties(appPhoton PROPERTIES
+set_target_properties(Photon PROPERTIES
     QT_QML_IMPORT_PATH "${CMAKE_BINARY_DIR}/Main"
 )
 
 include(GNUInstallDirs)
-install(TARGETS appPhoton
+install(TARGETS Photon
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

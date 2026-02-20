@@ -13,15 +13,19 @@
 #include "managers/ThumbnailProvider.h"
 
 #include <QSettings>
-#include <QVulkanInstance>
-#include <QVulkanFunctions>
 #include <vector>
+#include <vulkan/vulkan.h>
+#include <dlfcn.h>
+
+// Function pointer types
+typedef VkResult (*PFN_vkCreateInstance_t)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*);
+typedef VkResult (*PFN_vkEnumeratePhysicalDevices_t)(VkInstance, uint32_t*, VkPhysicalDevice*);
+typedef void (*PFN_vkGetPhysicalDeviceProperties_t)(VkPhysicalDevice, VkPhysicalDeviceProperties*);
+typedef void (*PFN_vkDestroyInstance_t)(VkInstance, const VkAllocationCallbacks*);
 
 int main(int argc, char* argv[]) {
   QCoreApplication::setOrganizationName("Photon");
   QCoreApplication::setApplicationName("Photon");
-
-  QGuiApplication app(argc, argv);
 
   // Read preferred GPU from settings
   {
@@ -29,26 +33,42 @@ int main(int argc, char* argv[]) {
       QString preferredGpu = settings.value("performance/preferredGpu", "Auto").toString();
 
       if (preferredGpu != "Auto") {
-          QVulkanInstance vulkan;
-          if (vulkan.create()) {
-              auto *f = vulkan.functions();
-              uint32_t deviceCount = 0;
-              f->vkEnumeratePhysicalDevices(vulkan.vkInstance(), &deviceCount, nullptr);
-              if (deviceCount > 0) {
-                  std::vector<VkPhysicalDevice> devices(deviceCount);
-                  f->vkEnumeratePhysicalDevices(vulkan.vkInstance(), &deviceCount, devices.data());
-                  for (uint32_t i = 0; i < deviceCount; ++i) {
-                      VkPhysicalDeviceProperties props;
-                      f->vkGetPhysicalDeviceProperties(devices[i], &props);
-                      if (preferredGpu == QString::fromUtf8(props.deviceName)) {
-                          qputenv("QT_VULKAN_DEVICE_INDEX", QByteArray::number(i));
-                          break;
+          void* libvulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+          if (libvulkan) {
+              auto vkCreateInstance_ptr = (PFN_vkCreateInstance_t)dlsym(libvulkan, "vkCreateInstance");
+              auto vkEnumeratePhysicalDevices_ptr = (PFN_vkEnumeratePhysicalDevices_t)dlsym(libvulkan, "vkEnumeratePhysicalDevices");
+              auto vkGetPhysicalDeviceProperties_ptr = (PFN_vkGetPhysicalDeviceProperties_t)dlsym(libvulkan, "vkGetPhysicalDeviceProperties");
+              auto vkDestroyInstance_ptr = (PFN_vkDestroyInstance_t)dlsym(libvulkan, "vkDestroyInstance");
+
+              if (vkCreateInstance_ptr && vkEnumeratePhysicalDevices_ptr && vkGetPhysicalDeviceProperties_ptr && vkDestroyInstance_ptr) {
+                  VkInstance instance = VK_NULL_HANDLE;
+                  VkInstanceCreateInfo createInfo = {};
+                  createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+                  
+                  if (vkCreateInstance_ptr(&createInfo, nullptr, &instance) == VK_SUCCESS) {
+                      uint32_t deviceCount = 0;
+                      vkEnumeratePhysicalDevices_ptr(instance, &deviceCount, nullptr);
+                      if (deviceCount > 0) {
+                          std::vector<VkPhysicalDevice> devices(deviceCount);
+                          vkEnumeratePhysicalDevices_ptr(instance, &deviceCount, devices.data());
+                          for (uint32_t i = 0; i < deviceCount; ++i) {
+                              VkPhysicalDeviceProperties props;
+                              vkGetPhysicalDeviceProperties_ptr(devices[i], &props);
+                              if (preferredGpu == QString::fromUtf8(props.deviceName)) {
+                                  qputenv("QT_VULKAN_DEVICE_INDEX", QByteArray::number(i));
+                                  break;
+                              }
+                          }
                       }
+                      vkDestroyInstance_ptr(instance, nullptr);
                   }
               }
+              dlclose(libvulkan);
           }
       }
   }
+
+  QGuiApplication app(argc, argv);
 
   QQuickWindow::setGraphicsApi(QSGRendererInterface::VulkanRhi);
 

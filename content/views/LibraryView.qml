@@ -104,8 +104,8 @@ Control {
                     anchors.fill: parent
                     
                     ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 0
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
                         spacing: 0
 
                         // Thumbnail placeholder
@@ -156,16 +156,16 @@ Control {
                             }
                         }
                     }
+                }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        onDoubleClicked: {
-                            AppState.setCurrentImage(model.path)
-                            AppState.setCurrentView(AppState.ViewState.Develop)
-                        }
-                        onClicked: {
-                            grid.currentIndex = index
-                        }
+                MouseArea {
+                    anchors.fill: parent
+                    onDoubleClicked: {
+                        AppState.setCurrentImage(model.path)
+                        AppState.setCurrentView(AppState.ViewState.Develop)
+                    }
+                    onClicked: {
+                        grid.currentIndex = index
                     }
                 }
             }

@@ -122,7 +122,8 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 
 1.  **Linear Workflow:** Input textures are converted from sRGB to **Linear Space** for all mathematical operations. This ensures correct light addition and blending.
 2.  **White Balance:** Handled in linear space using a kelvin-based temperature shift and a magenta/green tint adjustment.
-3.  **Tonemapping:** **AgX Sigmoid transform** is implemented to provide a filmic highlight roll-off and natural color compression, preventing "digital" clipping of bright highlights.
+3.  **Demosaicing:** While Photon explored custom implementations of various demosaicing algorithms (including PPG and RCD), rigorous testing concluded that **LibRaw's native implementation** remains the superior choice. It provides the best balance of image reconstruction quality, artifact suppression, and computational performance for this project.
+4.  **Tonemapping:** **AgX Sigmoid transform** is implemented to provide a filmic highlight roll-off and natural color compression, preventing "digital" clipping of bright highlights.
 4.  **Grain:** High-quality **Film Grain** is implemented using a gradient noise algorithm, with controls for amount, size, and roughness. It is applied in linear-to-srgb space with a luma-based mask to protect shadows and highlights.
 5.  **Vignette:** An **Advanced Vignette** system is implemented with midpoint, roundness, and feathering controls, allowing for precise artistic framing.
 6.  **HSL Panel:** An **8-band HSL system** (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta) is implemented in the fragment shader. It uses weighted influence curves to allow targeted Hue, Saturation, and Luminance adjustments without causing artifacts.

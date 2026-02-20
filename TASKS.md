@@ -98,6 +98,8 @@ Based on analysis of darktable's demosaicing implementation at `tmp/darktable/sr
   - [x] Add demosaicing method selection property to RawEngine
   - [x] Integrate with RawEngine to bypass LibRaw's dcraw_process when using custom algorithms
   - [x] Expose demosaicing method selection in QML UI
+  - [x] **Quality Improvements:** Added per-channel black level subtraction, white balance scaling, and color matrix (camera to sRGB) conversion.
+  - [x] **UI Polish:** Styled demosaic selection dropdown to follow the Zinc Dark theme.
 - [x] **Algorithm Research**
   - [x] Research darktable's RCD full implementation with tiling for memory efficiency
   - [x] Research AMaZE (Aliasing Minimization and Zipper Elimination) algorithm

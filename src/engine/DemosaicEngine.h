@@ -35,6 +35,11 @@ class DemosaicEngine : public QObject {
   static QString methodName(DemosaicMethod method);
   static DemosaicMethod methodFromString(const QString& name);
 
+  // Helper function to get color index (0-3) for a given row/col and filters
+  inline int fc(int row, int col, uint32_t filters) const {
+    return (filters >> (((row << 1) & 6) | (col & 1))) & 3;
+  }
+
  private:
   // LibRaw's built-in demosaicing (reference implementation)
   bool demosaicLibRaw(float* output, int width, int height);
@@ -46,11 +51,6 @@ class DemosaicEngine : public QObject {
   // RCD (Ratio Corrected Demosaicing) - based on darktable's implementation
   bool demosaicRCD(const float* input, float* output, int width, int height,
                    uint32_t filters);
-
-  // Helper functions
-  inline int fc(int row, int col, uint32_t filters) const {
-    return (filters >> (((row << 1) & 6) | (col & 1))) & 3;
-  }
 
   void interpolateGreenPPG(float* output, const float* input, int width,
                            int height, uint32_t filters);

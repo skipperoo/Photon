@@ -343,16 +343,54 @@ Control {
                                 color: Theme.mutedFg
                             }
                             ComboBox {
+                                id: demosaicCombo
                                 Layout.fillWidth: true
                                 model: ["LibRaw", "PPG", "RCD", "AMaZE", "VNG4"]
                                 currentIndex: model.indexOf(root.viewport ? root.viewport.demosaicMethod : "LibRaw")
                                 onActivated: if(root.viewport) root.viewport.demosaicMethod = currentText
                                 
+                                delegate: ItemDelegate {
+                                    width: parent.width
+                                    contentItem: Text {
+                                        text: modelData
+                                        font: Theme.fontSmall
+                                        color: parent.highlighted ? Theme.foreground : Theme.mutedFg
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        color: parent.highlighted ? Theme.highlight : "transparent"
+                                    }
+                                }
+
+                                popup: Popup {
+                                    y: demosaicCombo.height + 1
+                                    width: demosaicCombo.width
+                                    implicitHeight: contentItem.implicitHeight
+                                    padding: 1
+
+                                    contentItem: ListView {
+                                        clip: true
+                                        implicitHeight: contentHeight
+                                        model: demosaicCombo.delegateModel
+                                        currentIndex: demosaicCombo.highlightedIndex
+
+                                        ScrollIndicator.vertical: ScrollIndicator { }
+                                    }
+
+                                    background: Rectangle {
+                                        color: Theme.secondary
+                                        border.color: Theme.border
+                                        radius: 4
+                                    }
+                                }
+
                                 background: Rectangle {
-                                    color: parent.pressed ? Theme.background : Theme.secondary
+                                    implicitHeight: 32
+                                    color: Theme.secondary
                                     border.color: Theme.border
                                     radius: 4
                                 }
+
                                 contentItem: Text {
                                     leftPadding: 10
                                     rightPadding: 10
@@ -360,18 +398,6 @@ Control {
                                     font: Theme.fontSmall
                                     color: Theme.foreground
                                     verticalAlignment: Text.AlignVCenter
-                                }
-                                delegate: ItemDelegate {
-                                    width: parent.width
-                                    contentItem: Text {
-                                        text: modelData
-                                        font: Theme.fontSmall
-                                        color: Theme.foreground
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                    background: Rectangle {
-                                        color: parent.highlighted ? Theme.accent : Theme.secondary
-                                    }
                                 }
                             }
                         }

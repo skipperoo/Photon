@@ -179,6 +179,15 @@ void DemosaicEngine::interpolateGreenPPG(float* output, const float* input,
   }
 }
 
+static float hueTransit(float l1, float l2, float l3, float v1, float v3) {
+  if (std::abs(l3 - l1) < 1e-6f) return (v1 + v3) * 0.5f + (l2 * 2.0f - l1 - l3) * 0.25f;
+  if ((l1 < l2 && l2 < l3) || (l1 > l2 && l2 > l3)) {
+    return v1 + (v3 - v1) * (l2 - l1) / (l3 - l1);
+  } else {
+    return (v1 + v3) * 0.5f + (l2 * 2.0f - l1 - l3) * 0.25f;
+  }
+}
+
 void DemosaicEngine::interpolateRedBluePPG(float* output, int width, int height,
                                            uint32_t filters) {
   // Process inner region (excluding 1-pixel border)
@@ -186,7 +195,6 @@ void DemosaicEngine::interpolateRedBluePPG(float* output, int width, int height,
     for (int i = 1; i < width - 1; i++) {
       int c = fc(j, i, filters);
       float* pixel = &output[(j * width + i) * 4];
-      float color[4] = {pixel[0], pixel[1], pixel[2], pixel[3]};
 
       if (c & 1) {  // Green pixel
         // Calculate red and blue for green pixels
@@ -195,12 +203,15 @@ void DemosaicEngine::interpolateRedBluePPG(float* output, int width, int height,
         float* nl = &output[(j * width + i - 1) * 4];
         float* nr = &output[(j * width + i + 1) * 4];
 
+        float g_x = pixel[1];
+        float g_n = nt[1], g_s = nb[1], g_w = nl[1], g_e = nr[1];
+
         if (fc(j, i + 1, filters) == 0) {  // Red neighbor in same row
-          color[2] = (nt[2] + nb[2] + 2.0f * color[1] - nt[1] - nb[1]) * 0.5f;
-          color[0] = (nl[0] + nr[0] + 2.0f * color[1] - nl[1] - nr[1]) * 0.5f;
+          pixel[0] = hueTransit(g_w, g_x, g_e, nl[0], nr[0]);
+          pixel[2] = hueTransit(g_n, g_x, g_s, nt[2], nb[2]);
         } else {  // Blue neighbor in same row
-          color[0] = (nt[0] + nb[0] + 2.0f * color[1] - nt[1] - nb[1]) * 0.5f;
-          color[2] = (nl[2] + nr[2] + 2.0f * color[1] - nl[1] - nr[1]) * 0.5f;
+          pixel[2] = hueTransit(g_w, g_x, g_e, nl[2], nr[2]);
+          pixel[0] = hueTransit(g_n, g_x, g_s, nt[0], nb[0]);
         }
       } else {
         // Red or blue pixel - fill the other color
@@ -209,47 +220,30 @@ void DemosaicEngine::interpolateRedBluePPG(float* output, int width, int height,
         float* nbl = &output[((j + 1) * width + i - 1) * 4];
         float* nbr = &output[((j + 1) * width + i + 1) * 4];
 
-        if (c == 0) {  // Red pixel, fill blue
-          float diff1 = std::fabs(ntl[2] - nbr[2]) +
-                        std::fabs(ntl[1] - color[1]) +
-                        std::fabs(nbr[1] - color[1]);
-          float guess1 = ntl[2] + nbr[2] + 2.0f * color[1] - ntl[1] - nbr[1];
-          float diff2 = std::fabs(ntr[2] - nbl[2]) +
-                        std::fabs(ntr[1] - color[1]) +
-                        std::fabs(nbl[1] - color[1]);
-          float guess2 = ntr[2] + nbl[2] + 2.0f * color[1] - ntr[1] - nbl[1];
+        float g_x = pixel[1];
+        float g_nw = ntl[1], g_ne = ntr[1], g_sw = nbl[1], g_se = nbr[1];
 
-          if (diff1 > diff2) {
-            color[2] = guess2 * 0.5f;
-          } else if (diff1 < diff2) {
-            color[2] = guess1 * 0.5f;
+        if (c == 0) {  // Red pixel, fill blue
+          float diff_ne_sw = std::abs(ntr[2] - nbl[2]) + std::abs(g_ne - g_x) + std::abs(g_sw - g_x);
+          float diff_nw_se = std::abs(ntl[2] - nbr[2]) + std::abs(g_nw - g_x) + std::abs(g_se - g_x);
+
+          if (diff_ne_sw < diff_nw_se) {
+            pixel[2] = hueTransit(g_ne, g_x, g_sw, ntr[2], nbl[2]);
           } else {
-            color[2] = (guess1 + guess2) * 0.25f;
+            pixel[2] = hueTransit(g_nw, g_x, g_se, ntl[2], nbr[2]);
           }
         } else {  // Blue pixel, fill red
-          float diff1 = std::fabs(ntl[0] - nbr[0]) +
-                        std::fabs(ntl[1] - color[1]) +
-                        std::fabs(nbr[1] - color[1]);
-          float guess1 = ntl[0] + nbr[0] + 2.0f * color[1] - ntl[1] - nbr[1];
-          float diff2 = std::fabs(ntr[0] - nbl[0]) +
-                        std::fabs(ntr[1] - color[1]) +
-                        std::fabs(nbl[1] - color[1]);
-          float guess2 = ntr[0] + nbl[0] + 2.0f * color[1] - ntr[1] - nbl[1];
+          float diff_ne_sw = std::abs(ntr[0] - nbl[0]) + std::abs(g_ne - g_x) + std::abs(g_sw - g_x);
+          float diff_nw_se = std::abs(ntl[0] - nbr[0]) + std::abs(g_nw - g_x) + std::abs(g_se - g_x);
 
-          if (diff1 > diff2) {
-            color[0] = guess2 * 0.5f;
-          } else if (diff1 < diff2) {
-            color[0] = guess1 * 0.5f;
+          if (diff_ne_sw < diff_nw_se) {
+            pixel[0] = hueTransit(g_ne, g_x, g_sw, ntr[0], nbl[0]);
           } else {
-            color[0] = (guess1 + guess2) * 0.25f;
+            pixel[0] = hueTransit(g_nw, g_x, g_se, ntl[0], nbr[0]);
           }
         }
       }
-
-      pixel[0] = color[0];
-      pixel[1] = color[1];
-      pixel[2] = color[2];
-      pixel[3] = color[3];
+      pixel[3] = 0.0f;
     }
   }
 }

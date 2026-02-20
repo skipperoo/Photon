@@ -64,6 +64,12 @@ static void apply_region_tint_cpp(float& r, float& g, float& b, float hue, float
     b = lerp(b, b * tb, sat / 100.0f) * (1.0f + lum / 100.0f);
 }
 
+static float linear_to_srgb_cpp(float val) {
+    float v = std::clamp(val, 0.0f, 1.0f);
+    if (v <= 0.0031308f) return v * 12.92f;
+    return 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+}
+
 RawEngine::RawEngine(QObject* parent)
     : QObject(parent), m_processor(std::make_unique<LibRaw>()) {
   updateProcessingParams();
@@ -664,28 +670,57 @@ const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
   int top_margin = m_processor->imgdata.sizes.top_margin;
   int left_margin = m_processor->imgdata.sizes.left_margin;
 
-  // Prepare input float buffer
+  // 1. Prepare input float buffer with Black Level subtraction and White Balance
   std::vector<float> input(raw_width * raw_height);
   ushort* raw_data = m_processor->imgdata.rawdata.raw_image;
   
   float white_level = m_processor->imgdata.color.maximum;
   if (white_level <= 0) white_level = 16383.0f;
-  float black_level = m_processor->imgdata.color.black;
-
-  // Simple normalization
-  // Note: LibRaw might have more complex black level handling (per channel, etc)
-  for(int i=0; i<raw_width*raw_height; ++i) {
-      input[i] = std::max(0.0f, (float)raw_data[i] - black_level) / (white_level - black_level);
+  
+  // Get WB multipliers and normalize them so Green is 1.0
+  float wb[4];
+  for(int i=0; i<4; ++i) wb[i] = m_processor->imgdata.color.cam_mul[i];
+  if (wb[1] > 0) {
+      float g = wb[1];
+      wb[0] /= g; wb[1] /= g; wb[2] /= g; wb[3] /= g;
   }
 
-  // Prepare output float buffer (RGBA)
+  for(int y=0; y<raw_height; ++y) {
+      for(int x=0; x<raw_width; ++x) {
+          int i = y * raw_width + x;
+          int c = m_demosaic.fc(y, x, m_processor->imgdata.idata.filters);
+          float black = m_processor->imgdata.color.cblack[c];
+          float val = (float)raw_data[i] - black;
+          // Apply WB scaling and normalize to 0..1 based on white level
+          input[i] = std::max(0.0f, val) * wb[c] / (white_level - black);
+      }
+  }
+
+  // 2. Demosaic
   std::vector<float> output(raw_width * raw_height * 4);
-  
   if(!m_demosaic.demosaic(input.data(), output.data(), raw_width, raw_height, m_processor->imgdata.idata.filters, m_demosaicMethod)) {
       return nullptr;
   }
 
-  // Crop and Convert to 16-bit RGB (3 channels) for display
+  // 3. Apply Color Matrix (Camera Space to sRGB)
+  // LibRaw's rgb_cam converts camera space to working space (usually sRGB)
+  float mat[3][4];
+  for(int i=0; i<3; ++i)
+      for(int j=0; j<4; ++j)
+          mat[i][j] = m_processor->imgdata.color.rgb_cam[i][j];
+
+  for(int i=0; i<raw_width*raw_height; ++i) {
+      float r = output[i*4];
+      float g = output[i*4+1];
+      float b = output[i*4+2];
+      
+      // rgb_cam is [3][4], we fold the two green columns (1 and 3) for 3-channel input
+      output[i*4]   = r * mat[0][0] + g * (mat[0][1] + mat[0][3]) + b * mat[0][2];
+      output[i*4+1] = r * mat[1][0] + g * (mat[1][1] + mat[1][3]) + b * mat[1][2];
+      output[i*4+2] = r * mat[2][0] + g * (mat[2][1] + mat[2][3]) + b * mat[2][2];
+  }
+
+  // 4. Crop and Convert to 16-bit RGB (3 channels) for display
   width = visible_width;
   height = visible_height;
   colors = 3;
@@ -699,7 +734,10 @@ const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
           int out_pixel_idx = (y * width + x) * 3;
           
           for(int c=0; c<3; ++c) {
-              out_ptr[out_pixel_idx + c] = (ushort)std::clamp(output[in_pixel_idx + c] * 65535.0f, 0.0f, 65535.0f);
+              // Apply sRGB gamma and scale to 16-bit
+              float linear_val = output[in_pixel_idx + c];
+              float srgb_val = linear_to_srgb_cpp(linear_val);
+              out_ptr[out_pixel_idx + c] = (ushort)std::clamp(srgb_val * 65535.0f, 0.0f, 65535.0f);
           }
       }
   }

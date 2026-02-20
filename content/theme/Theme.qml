@@ -12,6 +12,7 @@ QtObject {
     readonly property color input:      "#27272a"
     readonly property color secondary:  "#27272a"
     readonly property color accent:     "#27272a"
+    readonly property color highlight:  "#3f3f46"
     readonly property color destructive: "#7f1d1d"
     readonly property color ring:       "#d4d4d8"
     readonly property color card:       "#09090b"

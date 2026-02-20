@@ -640,22 +640,6 @@ Window {
                         }
                     }
 
-                    // Presets Toggle
-                    Button {
-                        text: "Presets"
-                        flat: true
-                        font: Theme.fontMedium
-                        visible: AppState.currentView === AppState.ViewState.Develop
-                        palette.buttonText: mainStack.children[2].showPresets ? Theme.foreground : Theme.mutedFg
-                        onClicked: mainStack.children[2].showPresets = !mainStack.children[2].showPresets
-                        
-                        Rectangle {
-                            anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width * 0.4; height: 2; color: Theme.foreground
-                            visible: mainStack.children[2].showPresets
-                        }
-                    }
-
                     Button {
                         text: "Settings"
                         flat: true

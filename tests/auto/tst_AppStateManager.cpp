@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QTemporaryDir>
 
 #include "managers/AppStateManager.h"
 
@@ -20,7 +21,7 @@ class TestAppStateManager : public QObject {
 };
 
 void TestAppStateManager::initTestCase() {
-  m_manager = AppStateManager::instance();
+  m_manager = AppStateManager::instance("PhotonTest");
   QVERIFY(m_manager != nullptr);
 }
 
@@ -58,7 +59,8 @@ void TestAppStateManager::testCurrentFolder() {
                            &AppStateManager::lastOpenedFolderChanged);
   QSignalSpy sessionSpy(m_manager, &AppStateManager::hasLastSessionChanged);
 
-  QString testPath = "/tmp/test_folder";
+  QTemporaryDir tempDir;
+  QString testPath = tempDir.path();
   m_manager->setCurrentFolder(testPath);
 
   QCOMPARE(m_manager->currentFolder(), testPath);
@@ -74,7 +76,9 @@ void TestAppStateManager::testHasLastSession() {
   QVERIFY(!m_manager->hasLastSession());
 
   // Set a folder
-  m_manager->setCurrentFolder("/some/path");
+  QTemporaryDir tempDir;
+  QString testPath = tempDir.path();
+  m_manager->setCurrentFolder(testPath);
   QVERIFY(m_manager->hasLastSession());
 
   // Clear again
@@ -86,7 +90,8 @@ void TestAppStateManager::testContinueSession() {
   m_manager->setCurrentView(AppStateManager::ViewState::Welcome);
   m_manager->setCurrentFolder("");
   
-  QString testPath = "/tmp/session_path";
+  QTemporaryDir tempDir;
+  QString testPath = tempDir.path();
   m_manager->setCurrentFolder(testPath);
   
   // Go back to welcome and clear current folder (but lastOpened remains)
@@ -105,7 +110,9 @@ void TestAppStateManager::testContinueSession() {
 
 void TestAppStateManager::testSettingsPersistence() {
   // Set some values
-  m_manager->setCurrentFolder("/persisted/path");
+  QTemporaryDir tempDir;
+  QString testPath = tempDir.path();
+  m_manager->setCurrentFolder(testPath);
   m_manager->setPreferredGpu("Vulkan");
   m_manager->setCacheSizeGB(20);
 
@@ -113,7 +120,7 @@ void TestAppStateManager::testSettingsPersistence() {
   m_manager->saveSettings();
 
   // Values should persist
-  QCOMPARE(m_manager->lastOpenedFolder(), QString("/persisted/path"));
+  QCOMPARE(m_manager->lastOpenedFolder(), testPath);
   QCOMPARE(m_manager->preferredGpu(), QString("Vulkan"));
   QCOMPARE(m_manager->cacheSizeGB(), 20);
 }

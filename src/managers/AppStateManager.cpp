@@ -5,18 +5,18 @@
 
 AppStateManager* AppStateManager::s_instance = nullptr;
 
-AppStateManager::AppStateManager(QObject* parent)
+AppStateManager::AppStateManager(const QString& appName, QObject* parent)
     : QObject(parent),
       m_settings(QSettings::IniFormat, QSettings::UserScope, "Photon",
-                 "Photon") {
+                 appName) {
   loadSettings();
 }
 
 AppStateManager::~AppStateManager() = default;
 
-AppStateManager* AppStateManager::instance() {
+AppStateManager* AppStateManager::instance(const QString& appName) {
   if (!s_instance) {
-    s_instance = new AppStateManager();
+    s_instance = new AppStateManager(appName);
   }
   return s_instance;
 }
@@ -72,11 +72,10 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
     m_currentFolder = folder;
 
     if (!folder.isEmpty()) {
-      m_lastOpenedFolder = folder;
-
       // Create .PhotonData folder structure if it doesn't exist
       QDir folderDir(folder);
       if (folderDir.exists()) {
+        m_lastOpenedFolder = folder;
         QString photonDataPath = folder + "/.PhotonData";
 
         // Create .PhotonData directory
@@ -89,11 +88,13 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
         photonDir.mkpath("edits");
         photonDir.mkpath("cache/thumbnails");
         photonDir.mkpath("cache/previews");
-      }
 
-      emit lastOpenedFolderChanged();
-      emit hasLastSessionChanged();
-      saveSettings();
+        emit lastOpenedFolderChanged();
+        emit hasLastSessionChanged();
+        saveSettings();
+      } else {
+        qWarning() << "Folder does not exist:" << folder;
+      }
     }
 
     emit currentFolderChanged();

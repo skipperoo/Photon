@@ -38,11 +38,11 @@ class AppStateManager : public QObject {
   enum class ViewState { Welcome, Library, Develop, Settings };
   Q_ENUM(ViewState)
 
-  explicit AppStateManager(QObject* parent = nullptr);
+  explicit AppStateManager(const QString& appName = "Photon", QObject* parent = nullptr);
   ~AppStateManager() override;
 
   // Singleton accessor
-  static AppStateManager* instance();
+  static AppStateManager* instance(const QString& appName = "Photon");
 
   // QML singleton factory
   static QObject* createQmlInstance(QQmlEngine* engine,

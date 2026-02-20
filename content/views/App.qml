@@ -130,7 +130,7 @@ Window {
                         id: viewportContainer
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        color: "#000000"
+                        color: Theme.background
                         clip: true
 
                         RawViewport {
@@ -168,6 +168,7 @@ Window {
                             property real vignetteFeather: rawViewport.vignetteFeather
                             property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
                             property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
+                            property color backgroundColor: Theme.background
                             property int orientation: rawViewport.orientation
 
                             // HSL Panel
@@ -244,7 +245,8 @@ Window {
                             anchors.bottom: parent.bottom
                             width: parent.width
                             height: 36
-                            color: "#CC09090B"
+                            color: Theme.background
+                            opacity: 0.8
                             border.color: Theme.border
                             border.width: 0
                             
@@ -278,7 +280,7 @@ Window {
                                     icon.source: "qrc:/Main/assets/icons/undo.svg"
                                     icon.width: 16
                                     icon.height: 16
-                                    icon.color: "white"
+                                    icon.color: Theme.foreground
                                     implicitWidth: 24
                                     implicitHeight: 24
                                     onClicked: rawViewport.undo()
@@ -297,7 +299,7 @@ Window {
                                     icon.source: "qrc:/Main/assets/icons/redo.svg"
                                     icon.width: 16
                                     icon.height: 16
-                                    icon.color: "white"
+                                    icon.color: Theme.foreground
                                     implicitWidth: 24
                                     implicitHeight: 24
                                     onClicked: rawViewport.redo()
@@ -430,7 +432,7 @@ Window {
                                         onClicked: developLayout.activeSidebar = modelData.index
                                         
                                         icon.source: "qrc:/Main/assets/icons/" + modelData.icon + ".svg"
-                                        icon.color: "white"
+                                        icon.color: Theme.foreground
                                         icon.width: 20
                                         icon.height: 20
                                         display: T.AbstractButton.IconOnly
@@ -440,7 +442,7 @@ Window {
                                             Rectangle {
                                                 anchors.right: parent.right; width: 2; height: 24
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                color: "white"
+                                                color: Theme.accent
                                                 visible: developLayout.activeSidebar === modelData.index
                                             }
                                         }
@@ -459,7 +461,7 @@ Window {
                                     flat: true
                                     onClicked: AppState.setCurrentView(AppState.ViewState.Library)
                                     icon.source: "qrc:/Main/assets/icons/library.svg"
-                                    icon.color: "white"
+                                    icon.color: Theme.foreground
                                     icon.width: 20
                                     icon.height: 20
                                     display: T.AbstractButton.IconOnly
@@ -473,7 +475,7 @@ Window {
                                     flat: true
                                     onClicked: AppState.setCurrentView(AppState.ViewState.Settings)
                                     icon.source: "qrc:/Main/assets/icons/settings.svg"
-                                    icon.color: "white"
+                                    icon.color: Theme.foreground
                                     icon.width: 20
                                     icon.height: 20
                                     display: T.AbstractButton.IconOnly

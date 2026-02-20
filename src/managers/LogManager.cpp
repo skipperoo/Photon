@@ -34,6 +34,21 @@ void LogManager::setLogLocation(const QString& location) {
     }
 }
 
+void LogManager::setMinLogLevel(const QString& level) {
+    if (m_minLogLevel != level) {
+        m_minLogLevel = level;
+        emit minLogLevelChanged();
+    }
+}
+
+int LogManager::levelToInt(const QString& level) const {
+    if (level == "DEBUG") return 0;
+    if (level == "INFO") return 1;
+    if (level == "WARNING") return 2;
+    if (level == "ERROR") return 3;
+    return 1;
+}
+
 void LogManager::openLogFile() {
     if (m_logFile.isOpen()) {
         m_logFile.close();
@@ -42,11 +57,12 @@ void LogManager::openLogFile() {
     if (!m_logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
         qWarning() << "Failed to open log file at" << m_logLocation;
     } else {
-        log("Logging started at " + m_logLocation);
+        log("Logging started at " + m_logLocation, "INFO");
     }
 }
 
 void LogManager::log(const QString& message, const QString& level) {
+    if (levelToInt(level) < levelToInt(m_minLogLevel)) return;
     if (!m_logFile.isOpen()) return;
 
     QTextStream out(&m_logFile);

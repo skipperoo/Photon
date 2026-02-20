@@ -158,6 +158,24 @@ Control {
                         }
                     }
 
+                    ColumnLayout {
+                        spacing: 8
+                        Layout.fillWidth: true
+                        Text { text: "Log Level"; font: Theme.fontRegular; color: Theme.mutedFg }
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: ["DEBUG", "INFO", "WARNING", "ERROR"]
+                            currentIndex: model.indexOf(AppState.logLevel)
+                            onActivated: AppState.setLogLevel(currentText)
+                            background: Rectangle {
+                                implicitHeight: 32
+                                color: Theme.secondary
+                                border.color: Theme.border
+                                radius: 4
+                            }
+                        }
+                    }
+
                     Button {
                         text: "Clear Current Log"
                         variantOutline: true

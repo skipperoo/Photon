@@ -66,6 +66,8 @@ void AppStateManager::loadSettings() {
   m_cacheSizeGB = m_settings.value(KEY_CACHE_SIZE, 10).toInt();
   m_isDarkMode = m_settings.value(KEY_DARK_MODE, true).toBool();
   m_accentColor = m_settings.value(KEY_ACCENT_COLOR, "#3b82f6").toString();
+  QString level = m_settings.value("diagnostics/logLevel", "INFO").toString();
+  LogManager::instance()->setMinLogLevel(level);
 
   emit lastOpenedFolderChanged();
   emit hasLastSessionChanged();
@@ -193,6 +195,17 @@ void AppStateManager::setLogLocation(const QString& location) {
   // We don't save log location in m_settings here as LogManager handles its own persistence if needed, 
   // but let's be consistent and save it if we want it to persist across sessions via Photon settings.
   m_settings.setValue("diagnostics/logLocation", location);
+  m_settings.sync();
+}
+
+QString AppStateManager::logLevel() const {
+  return LogManager::instance()->minLogLevel();
+}
+
+void AppStateManager::setLogLevel(const QString& level) {
+  LogManager::instance()->setMinLogLevel(level);
+  emit logLevelChanged();
+  m_settings.setValue("diagnostics/logLevel", level);
   m_settings.sync();
 }
 

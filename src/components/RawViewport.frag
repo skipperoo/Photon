@@ -28,6 +28,7 @@ layout(std140, binding = 0) uniform buf {
     float vignetteFeather;
     vec4 imageRect; 
     vec2 viewportSize;
+    vec4 backgroundColor;
     
     // HSL Panel (24 floats)
     float hslRedHue; float hslRedSaturation; float hslRedLuminance;
@@ -211,7 +212,7 @@ void main()
     vec2 pixelPos = qt_TexCoord0 * ubuf.viewportSize;
     if (pixelPos.x < ubuf.imageRect.x || pixelPos.x > ubuf.imageRect.x + ubuf.imageRect.z ||
         pixelPos.y < ubuf.imageRect.y || pixelPos.y > ubuf.imageRect.y + ubuf.imageRect.w) {
-        fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        fragColor = ubuf.backgroundColor;
         return;
     }
     vec2 imgCoord = (pixelPos - ubuf.imageRect.xy) / ubuf.imageRect.zw;

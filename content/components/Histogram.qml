@@ -15,7 +15,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: "#09090B"
+        color: Theme.secondary
         radius: Theme.radius
         border.color: Theme.border
         clip: true
@@ -42,9 +42,9 @@ Item {
             layer.enabled: true
             layer.samples: 4
             ShapePath {
-                fillColor: "#ffffff"
+                fillColor: Theme.foreground
                 strokeWidth: 1
-                strokeColor: "#ffffff"
+                strokeColor: Theme.foreground
                 startX: 0; startY: root.height
                 PathPolyline {
                     path: {

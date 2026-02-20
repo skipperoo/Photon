@@ -112,12 +112,17 @@ void TestAppStateManager::testContinueSession() {
 }
 
 void TestAppStateManager::testThemeSettings() {
+  m_manager->setIsDarkMode(true);
   QSignalSpy darkSpy(m_manager, &AppStateManager::isDarkModeChanged);
   QSignalSpy accentSpy(m_manager, &AppStateManager::accentColorChanged);
 
   m_manager->setIsDarkMode(false);
   QCOMPARE(m_manager->isDarkMode(), false);
   QCOMPARE(darkSpy.count(), 1);
+
+  m_manager->setIsDarkMode(true);
+  QCOMPARE(m_manager->isDarkMode(), true);
+  QCOMPARE(darkSpy.count(), 2);
 
   QString newAccent = "#ff0000";
   m_manager->setAccentColor(newAccent);

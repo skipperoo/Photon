@@ -39,6 +39,8 @@ class AppStateManager : public QObject {
                  accentColorChanged)
   Q_PROPERTY(QString logLocation READ logLocation WRITE setLogLocation NOTIFY
                  logLocationChanged)
+  Q_PROPERTY(QString logLevel READ logLevel WRITE setLogLevel NOTIFY
+                 logLevelChanged)
   Q_PROPERTY(int cacheSizeGB READ cacheSizeGB WRITE setCacheSizeGB NOTIFY
                  cacheSizeGBChanged)
 
@@ -67,6 +69,7 @@ class AppStateManager : public QObject {
   bool isDarkMode() const { return m_isDarkMode; }
   QString accentColor() const { return m_accentColor; }
   QString logLocation() const;
+  QString logLevel() const;
   int cacheSizeGB() const { return m_cacheSizeGB; }
 
   // Settings operations
@@ -84,6 +87,7 @@ class AppStateManager : public QObject {
   void setIsDarkMode(bool dark);
   void setAccentColor(const QString& color);
   void setLogLocation(const QString& location);
+  void setLogLevel(const QString& level);
   void setCacheSizeGB(int size);
 
  signals:
@@ -97,6 +101,7 @@ class AppStateManager : public QObject {
   void isDarkModeChanged();
   void accentColorChanged();
   void logLocationChanged();
+  void logLevelChanged();
   void cacheSizeGBChanged();
 
  private:

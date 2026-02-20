@@ -12,8 +12,43 @@
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
 
+#include <QSettings>
+#include <QVulkanInstance>
+#include <QVulkanFunctions>
+#include <vector>
+
 int main(int argc, char* argv[]) {
+  QCoreApplication::setOrganizationName("Photon");
+  QCoreApplication::setApplicationName("Photon");
+
   QGuiApplication app(argc, argv);
+
+  // Read preferred GPU from settings
+  {
+      QSettings settings(QSettings::IniFormat, QSettings::UserScope, "Photon", "Photon");
+      QString preferredGpu = settings.value("performance/preferredGpu", "Auto").toString();
+
+      if (preferredGpu != "Auto") {
+          QVulkanInstance vulkan;
+          if (vulkan.create()) {
+              auto *f = vulkan.functions();
+              uint32_t deviceCount = 0;
+              f->vkEnumeratePhysicalDevices(vulkan.vkInstance(), &deviceCount, nullptr);
+              if (deviceCount > 0) {
+                  std::vector<VkPhysicalDevice> devices(deviceCount);
+                  f->vkEnumeratePhysicalDevices(vulkan.vkInstance(), &deviceCount, devices.data());
+                  for (uint32_t i = 0; i < deviceCount; ++i) {
+                      VkPhysicalDeviceProperties props;
+                      f->vkGetPhysicalDeviceProperties(devices[i], &props);
+                      if (preferredGpu == QString::fromUtf8(props.deviceName)) {
+                          qputenv("QT_VULKAN_DEVICE_INDEX", QByteArray::number(i));
+                          break;
+                      }
+                  }
+              }
+          }
+      }
+  }
 
   QQuickWindow::setGraphicsApi(QSGRendererInterface::VulkanRhi);
 

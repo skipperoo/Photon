@@ -17,7 +17,7 @@ Control {
     padding: 0
 
     background: Rectangle {
-        color: "#121214" // Lighter than background
+        color: Theme.secondary
         border.color: Theme.border
         border.width: 1
         radius: Theme.radius
@@ -36,7 +36,7 @@ Control {
 
             Rectangle {
                 anchors.fill: parent
-                color: parent.containsMouse ? "#1a1a1c" : "transparent"
+                color: parent.containsMouse ? Theme.highlight : "transparent"
                 radius: Theme.radius
                 
                 // Only round top corners if expanded, all if collapsed

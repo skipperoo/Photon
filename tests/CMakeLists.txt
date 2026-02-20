@@ -22,10 +22,13 @@ add_executable(tst_AppStateManager
     auto/tst_AppStateManager.cpp
     ../src/managers/AppStateManager.cpp
     ../src/managers/AppStateManager.h
+    ../src/managers/LogManager.cpp
+    ../src/managers/LogManager.h
 )
 
 target_link_libraries(tst_AppStateManager
     PRIVATE Qt6::Test Qt6::Qml
+    PRIVATE Vulkan::Vulkan
 )
 
 target_include_directories(tst_AppStateManager PRIVATE

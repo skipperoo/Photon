@@ -31,6 +31,14 @@ class AppStateManager : public QObject {
       bool hasLastSession READ hasLastSession NOTIFY hasLastSessionChanged)
   Q_PROPERTY(QString preferredGpu READ preferredGpu WRITE setPreferredGpu NOTIFY
                  preferredGpuChanged)
+  Q_PROPERTY(QStringList availableGpus READ availableGpus NOTIFY
+                 availableGpusChanged)
+  Q_PROPERTY(bool isDarkMode READ isDarkMode WRITE setIsDarkMode NOTIFY
+                 isDarkModeChanged)
+  Q_PROPERTY(QString accentColor READ accentColor WRITE setAccentColor NOTIFY
+                 accentColorChanged)
+  Q_PROPERTY(QString logLocation READ logLocation WRITE setLogLocation NOTIFY
+                 logLocationChanged)
   Q_PROPERTY(int cacheSizeGB READ cacheSizeGB WRITE setCacheSizeGB NOTIFY
                  cacheSizeGBChanged)
 
@@ -55,6 +63,10 @@ class AppStateManager : public QObject {
   QString lastOpenedFolder() const { return m_lastOpenedFolder; }
   bool hasLastSession() const { return !m_lastOpenedFolder.isEmpty(); }
   QString preferredGpu() const { return m_preferredGpu; }
+  QStringList availableGpus() const { return m_availableGpus; }
+  bool isDarkMode() const { return m_isDarkMode; }
+  QString accentColor() const { return m_accentColor; }
+  QString logLocation() const;
   int cacheSizeGB() const { return m_cacheSizeGB; }
 
   // Settings operations
@@ -62,12 +74,16 @@ class AppStateManager : public QObject {
   Q_INVOKABLE void saveSettings();
   Q_INVOKABLE void clearLastSession();
   Q_INVOKABLE void continueSession();
+  Q_INVOKABLE void clearThumbnailCache();
 
  public slots:
   void setCurrentView(ViewState view);
   void setCurrentFolder(const QString& folder);
   void setCurrentImage(const QString& image);
   void setPreferredGpu(const QString& gpu);
+  void setIsDarkMode(bool dark);
+  void setAccentColor(const QString& color);
+  void setLogLocation(const QString& location);
   void setCacheSizeGB(int size);
 
  signals:
@@ -77,9 +93,15 @@ class AppStateManager : public QObject {
   void lastOpenedFolderChanged();
   void hasLastSessionChanged();
   void preferredGpuChanged();
+  void availableGpusChanged();
+  void isDarkModeChanged();
+  void accentColorChanged();
+  void logLocationChanged();
   void cacheSizeGBChanged();
 
  private:
+  void detectGpus();
+
   static AppStateManager* s_instance;
 
   ViewState m_currentView = ViewState::Welcome;
@@ -87,6 +109,9 @@ class AppStateManager : public QObject {
   QString m_currentImage;
   QString m_lastOpenedFolder;
   QString m_preferredGpu = "Auto";
+  QStringList m_availableGpus;
+  bool m_isDarkMode = true;
+  QString m_accentColor = "#3b82f6"; // Default Blue
   int m_cacheSizeGB = 10;
 
   QSettings m_settings;
@@ -94,4 +119,6 @@ class AppStateManager : public QObject {
   static constexpr const char* KEY_LAST_FOLDER = "workspace/lastOpenedFolder";
   static constexpr const char* KEY_PREFERRED_GPU = "performance/preferredGpu";
   static constexpr const char* KEY_CACHE_SIZE = "performance/cacheSizeGB";
+  static constexpr const char* KEY_DARK_MODE = "ui/darkMode";
+  static constexpr const char* KEY_ACCENT_COLOR = "ui/accentColor";
 };

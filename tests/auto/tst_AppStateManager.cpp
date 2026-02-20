@@ -14,6 +14,9 @@ class TestAppStateManager : public QObject {
   void testCurrentFolder();
   void testHasLastSession();
   void testContinueSession();
+  void testThemeSettings();
+  void testLogSettings();
+  void testGpuDetection();
   void testSettingsPersistence();
 
  private:
@@ -108,6 +111,35 @@ void TestAppStateManager::testContinueSession() {
   QCOMPARE(m_manager->currentView(), AppStateManager::ViewState::Library);
 }
 
+void TestAppStateManager::testThemeSettings() {
+  QSignalSpy darkSpy(m_manager, &AppStateManager::isDarkModeChanged);
+  QSignalSpy accentSpy(m_manager, &AppStateManager::accentColorChanged);
+
+  m_manager->setIsDarkMode(false);
+  QCOMPARE(m_manager->isDarkMode(), false);
+  QCOMPARE(darkSpy.count(), 1);
+
+  QString newAccent = "#ff0000";
+  m_manager->setAccentColor(newAccent);
+  QCOMPARE(m_manager->accentColor(), newAccent);
+  QCOMPARE(accentSpy.count(), 1);
+}
+
+void TestAppStateManager::testLogSettings() {
+  QSignalSpy logSpy(m_manager, &AppStateManager::logLocationChanged);
+
+  QString newLog = "/tmp/photon_test.log";
+  m_manager->setLogLocation(newLog);
+  QCOMPARE(m_manager->logLocation(), newLog);
+  QCOMPARE(logSpy.count(), 1);
+}
+
+void TestAppStateManager::testGpuDetection() {
+  QStringList gpus = m_manager->availableGpus();
+  QVERIFY(!gpus.isEmpty());
+  QVERIFY(gpus.contains("Auto"));
+}
+
 void TestAppStateManager::testSettingsPersistence() {
   // Set some values
   QTemporaryDir tempDir;
@@ -115,6 +147,8 @@ void TestAppStateManager::testSettingsPersistence() {
   m_manager->setCurrentFolder(testPath);
   m_manager->setPreferredGpu("Vulkan");
   m_manager->setCacheSizeGB(20);
+  m_manager->setIsDarkMode(false);
+  m_manager->setAccentColor("#ff00ff");
 
   // Force save
   m_manager->saveSettings();
@@ -123,6 +157,8 @@ void TestAppStateManager::testSettingsPersistence() {
   QCOMPARE(m_manager->lastOpenedFolder(), testPath);
   QCOMPARE(m_manager->preferredGpu(), QString("Vulkan"));
   QCOMPARE(m_manager->cacheSizeGB(), 20);
+  QCOMPARE(m_manager->isDarkMode(), false);
+  QCOMPARE(m_manager->accentColor(), QString("#ff00ff"));
 }
 
 QTEST_MAIN(TestAppStateManager)

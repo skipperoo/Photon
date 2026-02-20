@@ -1,21 +1,26 @@
 pragma Singleton
 import "."
 import QtQuick
+import Main
 
 QtObject {
-    readonly property color background: "#09090b"
-    readonly property color foreground: "#fafafa"
-    readonly property color mutedFg:    "#a1a1aa"
-    readonly property color primary:    "#fafafa"
-    readonly property color primaryFg:  "#18181b"
-    readonly property color border:     "#27272a"
-    readonly property color input:      "#27272a"
-    readonly property color secondary:  "#27272a"
-    readonly property color accent:     "#27272a"
-    readonly property color highlight:  "#3f3f46"
+    // Theme switching logic
+    readonly property bool isDark: AppState.isDarkMode
+
+    // Palette Definitions
+    readonly property color background: isDark ? "#09090b" : "#ffffff"
+    readonly property color foreground: isDark ? "#fafafa" : "#09090b"
+    readonly property color mutedFg:    isDark ? "#a1a1aa" : "#71717a"
+    readonly property color primary:    isDark ? "#fafafa" : "#18181b"
+    readonly property color primaryFg:  isDark ? "#18181b" : "#fafafa"
+    readonly property color border:     isDark ? "#27272a" : "#e4e4e7"
+    readonly property color input:      isDark ? "#27272a" : "#ffffff"
+    readonly property color secondary:  isDark ? "#27272a" : "#f4f4f5"
+    readonly property color accent:     AppState.accentColor
+    readonly property color highlight:  isDark ? "#3f3f46" : "#f4f4f5"
     readonly property color destructive: "#7f1d1d"
-    readonly property color ring:       "#d4d4d8"
-    readonly property color card:       "#09090b"
+    readonly property color ring:       isDark ? "#d4d4d8" : "#a1a1aa"
+    readonly property color card:       isDark ? "#09090b" : "#ffffff"
 
     readonly property int radius: 6
     readonly property int radiusSm: 4

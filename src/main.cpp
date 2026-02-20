@@ -8,6 +8,7 @@
 #include "managers/AppStateManager.h"
 #include "managers/FileScanner.h"
 #include "managers/PresetManager.h"
+#include "managers/LogManager.h"
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
 
@@ -29,6 +30,8 @@ int main(int argc, char* argv[]) {
   // Register AppStateManager singleton
   qmlRegisterSingletonType<AppStateManager>(
       "Main", 1, 0, "AppState", &AppStateManager::createQmlInstance);
+
+  qmlRegisterSingletonInstance("Main", 1, 0, "Logger", photon::LogManager::instance());
 
   // Register PresetManager singleton
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);

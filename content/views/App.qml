@@ -621,7 +621,7 @@ Window {
                         
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width * 0.4; height: 2; color: Theme.foreground
+                            width: parent.width * 0.4; height: 2; color: Theme.accent
                             visible: AppState.currentView === AppState.ViewState.Library
                         }
                     }
@@ -635,7 +635,7 @@ Window {
 
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width * 0.4; height: 2; color: Theme.foreground
+                            width: parent.width * 0.4; height: 2; color: Theme.accent
                             visible: AppState.currentView === AppState.ViewState.Develop
                         }
                     }
@@ -649,7 +649,7 @@ Window {
 
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width * 0.4; height: 2; color: Theme.foreground
+                            width: parent.width * 0.4; height: 2; color: Theme.accent
                             visible: AppState.currentView === AppState.ViewState.Settings
                         }
                     }

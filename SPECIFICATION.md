@@ -59,7 +59,25 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 1. **Settings Icon (⚙️):**
 
 - _Position:_ Top-right or below buttons.
-- _Action:_ Opens a modal overlay with Application Preferences (GPU selection, Cache size).
+- _Action:_ Opens a modal overlay with Application Preferences.
+
+### Application Settings (Phase 11)
+
+Photon provides advanced control over performance and aesthetics:
+
+1.  **GPU Selection:**
+    *   Dynamically detects available Vulkan-compatible physical devices.
+    *   Allows users to select a specific GPU for RHI rendering.
+    *   Changes may require an application restart.
+2.  **Aesthetics:**
+    *   **Theme:** Toggle between "Zinc Dark" and "Zinc Light".
+    *   **Accent Color:** Choose from a predefined palette of high-contrast colors (Blue, Rose, Green, Orange).
+3.  **Cache Management:**
+    *   Option to clear the `.PhotonData/cache/thumbnails` directory.
+    *   Only active when a workspace is currently loaded.
+4.  **Logging:**
+    *   Integrated `Logger` class for system diagnostics.
+    *   User-definable log file location with sensible defaults.
 
 ---
 

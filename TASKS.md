@@ -86,9 +86,25 @@
 - [ ] **Develop UI Polish**
   - [x] Remove floating top bar in Development view (exclusive to Library/Settings).
   - [ ] Add sidebar-based navigation for Library and Settings.
-
-## Backlog / Future
-
+  
+  ## Phase 11: Advanced Settings & Diagnostics [IN PROGRESS]
+  
+  - [ ] **GPU Management**
+    - [ ] Detect available Vulkan physical devices in C++.
+    - [ ] Implement GPU selection logic in `AppStateManager`.
+  - [ ] **Aesthetics & Theme**
+    - [ ] Implement Light/Dark mode toggle.
+    - [ ] Implement Accent color selection.
+    - [ ] Synchronize `Theme.qml` with persistent settings.
+  - [ ] **Cache & Maintenance**
+    - [ ] Implement "Clear Thumbnail Cache" logic.
+    - [ ] Context-aware enabling/disabling of cache maintenance.
+  - [ ] **Logging System**
+    - [ ] Implement `LogManager` C++ class.
+    - [ ] Add log file location selection to UI.
+    - [ ] Set default log location based on OS standards.
+  
+  ## Backlog / Future
 - [ ] **Crop & Transform**
   - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
   - [ ] Straighten tool and arbitrary rotation.

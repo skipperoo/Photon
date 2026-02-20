@@ -27,6 +27,8 @@ qt_add_executable(appPhoton
     src/managers/FileScanner.h
     src/managers/PresetManager.cpp
     src/managers/PresetManager.h
+    src/managers/LogManager.cpp
+    src/managers/LogManager.h
 )
 
 # Mark Theme.qml as a singleton (must be before qt_add_qml_module)
@@ -61,6 +63,8 @@ qt_add_qml_module(appPhoton
         src/managers/FileScanner.h
         src/managers/PresetManager.cpp
         src/managers/PresetManager.h
+        src/managers/LogManager.cpp
+        src/managers/LogManager.h
     QML_FILES
         content/views/App.qml
         content/views/WelcomeView.qml
@@ -106,6 +110,7 @@ set_target_properties(appPhoton PROPERTIES
 target_link_libraries(appPhoton
     PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent
     PRIVATE ${LIBRAW_LIBRARIES}
+    PRIVATE Vulkan::Vulkan
 )
 target_include_directories(appPhoton PRIVATE
     src

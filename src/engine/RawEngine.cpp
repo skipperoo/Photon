@@ -10,6 +10,8 @@
 #include <cmath>
 #include <algorithm>
 
+using namespace photon;
+
 // --- Static Math Helpers for Histogram ---
 static float smoothstep(float edge0, float edge1, float x) {
     float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);

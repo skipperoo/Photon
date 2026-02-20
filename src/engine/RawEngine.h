@@ -145,7 +145,7 @@ class RawEngine : public QObject {
   float tint() const { return m_tint; }
   void setTint(float val);
 
-  QString demosaicMethod() const { return DemosaicEngine::methodName(m_demosaicMethod); }
+  QString demosaicMethod() const { return photon::DemosaicEngine::methodName(m_demosaicMethod); }
   void setDemosaicMethod(const QString& method);
 
   bool tonemappingEnabled() const { return m_tonemappingEnabled; }
@@ -379,8 +379,8 @@ class RawEngine : public QObject {
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;
   float m_tint = 0.0f;
-  DemosaicMethod m_demosaicMethod = DemosaicMethod::LibRaw;
-  DemosaicEngine m_demosaic;
+  photon::DemosaicMethod m_demosaicMethod = photon::DemosaicMethod::LibRaw;
+  photon::DemosaicEngine m_demosaic;
   bool m_tonemappingEnabled = false;
   float m_grainAmount = 0.0f;
   float m_grainSize = 1.0f;

@@ -349,7 +349,7 @@ Control {
                                 onActivated: if(root.viewport) root.viewport.demosaicMethod = currentText
                                 
                                 background: Rectangle {
-                                    color: parent.pressed ? Theme.background : Theme.item
+                                    color: parent.pressed ? Theme.background : Theme.secondary
                                     border.color: Theme.border
                                     radius: 4
                                 }
@@ -370,7 +370,7 @@ Control {
                                         verticalAlignment: Text.AlignVCenter
                                     }
                                     background: Rectangle {
-                                        color: parent.highlighted ? Theme.highlight : Theme.item
+                                        color: parent.highlighted ? Theme.accent : Theme.secondary
                                     }
                                 }
                             }

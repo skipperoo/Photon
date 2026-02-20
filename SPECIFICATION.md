@@ -178,6 +178,20 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
   - Hovering over a preset name provides a "Delete" option.
   - A "Save Current" button at the top of the panel captures the current tool panel state into a new preset file.
 
+### Demosaicing Engine (Phase 10)
+
+To provide professional-grade image reconstruction from RAW Bayer data, Photon includes a dedicated `DemosaicEngine` with multiple high-performance algorithms:
+
+1.  **Algorithm Selection:** Users can choose between multiple demosaicing methods in the "Demosaic" tool section:
+    *   **LibRaw (Default):** Standard processing using LibRaw's built-in `dcraw_process`.
+    *   **PPG (Patterned Pixel Grouping):** A fast, high-quality algorithm that performs well on images with moderate detail.
+    *   **RCD (Ratio Corrected Demosaicing):** A high-performance, high-quality algorithm designed to minimize artifacts and preserve fine detail. Photon implements a custom tiled version of RCD for optimal L2 cache utilization.
+2.  **Architecture:**
+    *   **Tiling:** Large RAW images are processed in overlapping tiles (e.g., 112x112 pixels) to keep memory usage low and improve cache locality.
+    *   **Asynchrony:** Custom demosaicing is performed on the CPU in worker threads, ensuring the UI remains responsive.
+    *   **Bayer Pattern Support:** The engine dynamically detects the sensor's Bayer filter pattern (RGGB, BGGR, etc.) via LibRaw metadata and adapts its interpolation logic accordingly.
+3.  **UI Integration:** A dedicated "Demosaic" section in the tool stack allows real-time switching between algorithms, with the viewport updating immediately to show the results of the new interpolation.
+
 ---
 
 ## 5. 🖱️ Contextual Actions & Shortcuts

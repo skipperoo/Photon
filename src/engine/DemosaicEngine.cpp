@@ -585,3 +585,5 @@ void DemosaicEngine::rcdBorderInterpolate(float* output, const float* input, int
                             int height, uint32_t filters, int margin) {
     borderInterpolate(output, input, width, height, filters, margin);
 }
+
+}  // namespace photon

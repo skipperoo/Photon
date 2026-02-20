@@ -17,58 +17,69 @@
 #include <vulkan/vulkan.h>
 #include <dlfcn.h>
 
-// Function pointer types
-typedef VkResult (*PFN_vkCreateInstance_t)(const VkInstanceCreateInfo*, const VkAllocationCallbacks*, VkInstance*);
-typedef VkResult (*PFN_vkEnumeratePhysicalDevices_t)(VkInstance, uint32_t*, VkPhysicalDevice*);
-typedef void (*PFN_vkGetPhysicalDeviceProperties_t)(VkPhysicalDevice, VkPhysicalDeviceProperties*);
-typedef void (*PFN_vkDestroyInstance_t)(VkInstance, const VkAllocationCallbacks*);
+#include <QSettings>
+#include <vector>
+#include <QVulkanInstance>
+#include <QVulkanFunctions>
 
 int main(int argc, char* argv[]) {
+  // Enable RHI and Vulkan info logging
+  qputenv("QSG_INFO", "1");
+  qputenv("QT_LOGGING_RULES", "qt.vulkan=true");
+
   QCoreApplication::setOrganizationName("Photon");
   QCoreApplication::setApplicationName("Photon");
 
+  QGuiApplication app(argc, argv);
+
+  // Setup Vulkan Instance
+  QVulkanInstance vulkanInstance;
+  
   // Read preferred GPU from settings
-  {
-      QSettings settings(QSettings::IniFormat, QSettings::UserScope, "Photon", "Photon");
-      QString preferredGpu = settings.value("performance/preferredGpu", "Auto").toString();
+  QSettings settings(QSettings::IniFormat, QSettings::UserScope, "Photon", "Photon");
+  QString preferredGpu = settings.value("performance/preferredGpu", "Auto").toString();
 
-      if (preferredGpu != "Auto") {
-          void* libvulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
-          if (libvulkan) {
-              auto vkCreateInstance_ptr = (PFN_vkCreateInstance_t)dlsym(libvulkan, "vkCreateInstance");
-              auto vkEnumeratePhysicalDevices_ptr = (PFN_vkEnumeratePhysicalDevices_t)dlsym(libvulkan, "vkEnumeratePhysicalDevices");
-              auto vkGetPhysicalDeviceProperties_ptr = (PFN_vkGetPhysicalDeviceProperties_t)dlsym(libvulkan, "vkGetPhysicalDeviceProperties");
-              auto vkDestroyInstance_ptr = (PFN_vkDestroyInstance_t)dlsym(libvulkan, "vkDestroyInstance");
-
-              if (vkCreateInstance_ptr && vkEnumeratePhysicalDevices_ptr && vkGetPhysicalDeviceProperties_ptr && vkDestroyInstance_ptr) {
-                  VkInstance instance = VK_NULL_HANDLE;
-                  VkInstanceCreateInfo createInfo = {};
-                  createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-                  
-                  if (vkCreateInstance_ptr(&createInfo, nullptr, &instance) == VK_SUCCESS) {
-                      uint32_t deviceCount = 0;
-                      vkEnumeratePhysicalDevices_ptr(instance, &deviceCount, nullptr);
-                      if (deviceCount > 0) {
-                          std::vector<VkPhysicalDevice> devices(deviceCount);
-                          vkEnumeratePhysicalDevices_ptr(instance, &deviceCount, devices.data());
-                          for (uint32_t i = 0; i < deviceCount; ++i) {
-                              VkPhysicalDeviceProperties props;
-                              vkGetPhysicalDeviceProperties_ptr(devices[i], &props);
-                              if (preferredGpu == QString::fromUtf8(props.deviceName)) {
-                                  qputenv("QT_VULKAN_DEVICE_INDEX", QByteArray::number(i));
-                                  break;
-                              }
-                          }
+  if (preferredGpu != "Auto") {
+      // We need to create a temporary instance to enumerate devices if we want to be sure about the index
+      // But QVulkanInstance::create() already does that.
+      vulkanInstance.setLayers({});
+      if (vulkanInstance.create()) {
+          auto *f = vulkanInstance.functions();
+          uint32_t deviceCount = 0;
+          f->vkEnumeratePhysicalDevices(vulkanInstance.vkInstance(), &deviceCount, nullptr);
+          if (deviceCount > 0) {
+              std::vector<VkPhysicalDevice> devices(deviceCount);
+              f->vkEnumeratePhysicalDevices(vulkanInstance.vkInstance(), &deviceCount, devices.data());
+                  for (uint32_t i = 0; i < deviceCount; ++i) {
+                      VkPhysicalDeviceProperties props;
+                      f->vkGetPhysicalDeviceProperties(devices[i], &props);
+                      QString deviceName = QString::fromUtf8(props.deviceName);
+                      if (preferredGpu == deviceName) {
+                          fprintf(stderr, "Photon: Explicitly selecting GPU: %s (ID: %04x:%04x)\n", 
+                                  props.deviceName, props.vendorID, props.deviceID);
+                          
+                          QByteArray idx = QByteArray::number(i);
+                          qputenv("QSG_RHI_DEVICE_INDEX", idx);
+                          
+                          // For Mesa-based systems (Intel/AMD), this is very reliable
+                          QByteArray deviceSelect = QByteArray::number(props.vendorID, 16) + ":" + QByteArray::number(props.deviceID, 16);
+                          qputenv("MESA_VK_DEVICE_SELECT", deviceSelect);
+                          
+                          // For NVIDIA, sometimes setting this helps if using the Optimus layer
+                          qputenv("__NV_PRIME_RENDER_OFFLOAD", "1");
+                          qputenv("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
+                          qputenv("__VK_LAYER_NV_optimus", "NVIDIA_only");
+                          
+                          break;
                       }
-                      vkDestroyInstance_ptr(instance, nullptr);
                   }
-              }
-              dlclose(libvulkan);
           }
       }
   }
 
-  QGuiApplication app(argc, argv);
+  if (!vulkanInstance.isValid()) {
+      vulkanInstance.create();
+  }
 
   QQuickWindow::setGraphicsApi(QSGRendererInterface::VulkanRhi);
 
@@ -105,8 +116,13 @@ int main(int argc, char* argv[]) {
 
   QObject::connect(
       &engine, &QQmlApplicationEngine::objectCreated, &app,
-      [url](QObject* obj, const QUrl& objUrl) {
+      [url, &vulkanInstance](QObject* obj, const QUrl& objUrl) {
         if (!obj && url == objUrl) QCoreApplication::exit(-1);
+        
+        QQuickWindow *window = qobject_cast<QQuickWindow *>(obj);
+        if (window) {
+            window->setVulkanInstance(&vulkanInstance);
+        }
       },
       Qt::QueuedConnection);
 

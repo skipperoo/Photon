@@ -10,8 +10,6 @@
 #include <cmath>
 #include <algorithm>
 
-using namespace photon;
-
 // --- Static Math Helpers for Histogram ---
 static float smoothstep(float edge0, float edge1, float x) {
     float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
@@ -62,12 +60,6 @@ static void apply_region_tint_cpp(float& r, float& g, float& b, float hue, float
     r = lerp(r, r * tr, sat / 100.0f) * (1.0f + lum / 100.0f);
     g = lerp(g, g * tg, sat / 100.0f) * (1.0f + lum / 100.0f);
     b = lerp(b, b * tb, sat / 100.0f) * (1.0f + lum / 100.0f);
-}
-
-static float linear_to_srgb_cpp(float val) {
-    float v = std::clamp(val, 0.0f, 1.0f);
-    if (v <= 0.0031308f) return v * 12.92f;
-    return 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
 }
 
 RawEngine::RawEngine(QObject* parent)
@@ -255,17 +247,6 @@ void RawEngine::setVignetteFeather(float val) {
   m_vignetteFeather = val;
   emit vignetteFeatherChanged();
   emit isDefaultChanged();
-}
-
-void RawEngine::setDemosaicMethod(const QString& method) {
-  DemosaicMethod m = DemosaicEngine::methodFromString(method);
-  if (m_demosaicMethod == m) return;
-  m_demosaicMethod = m;
-  emit demosaicMethodChanged();
-  emit isDefaultChanged();
-  if (m_isLoaded) {
-    emit imageLoaded(); // Re-trigger processing
-  }
 }
 
 // HSL Setters
@@ -644,105 +625,19 @@ QImage RawEngine::extractThumbnail(const QString& path) {
 const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
   if (!m_isLoaded) return nullptr;
 
-  if (m_demosaicMethod == DemosaicMethod::LibRaw) {
-      clearProcessedImage();
+  clearProcessedImage();
 
-      int ret = m_processor->dcraw_process();
-      if (ret != LIBRAW_SUCCESS) return nullptr;
+  int ret = m_processor->dcraw_process();
+  if (ret != LIBRAW_SUCCESS) return nullptr;
 
-      m_processedImage = m_processor->dcraw_make_mem_image(&ret);
-      if (!m_processedImage) return nullptr;
+  m_processedImage = m_processor->dcraw_make_mem_image(&ret);
+  if (!m_processedImage) return nullptr;
 
-      width = m_processedImage->width;
-      height = m_processedImage->height;
-      colors = m_processedImage->colors;
+  width = m_processedImage->width;
+  height = m_processedImage->height;
+  colors = m_processedImage->colors;
 
-      return m_processedImage->data;
-  }
-
-  // Custom Demosaic
-  if (!m_processor->imgdata.rawdata.raw_image) return nullptr;
-
-  int raw_width = m_processor->imgdata.sizes.raw_width;
-  int raw_height = m_processor->imgdata.sizes.raw_height;
-  int visible_width = m_processor->imgdata.sizes.iwidth;
-  int visible_height = m_processor->imgdata.sizes.iheight;
-  int top_margin = m_processor->imgdata.sizes.top_margin;
-  int left_margin = m_processor->imgdata.sizes.left_margin;
-
-  // 1. Prepare input float buffer with Black Level subtraction and White Balance
-  std::vector<float> input(raw_width * raw_height);
-  ushort* raw_data = m_processor->imgdata.rawdata.raw_image;
-  
-  float white_level = m_processor->imgdata.color.maximum;
-  if (white_level <= 0) white_level = 16383.0f;
-  
-  // Get WB multipliers and normalize them so Green is 1.0
-  float wb[4];
-  for(int i=0; i<4; ++i) wb[i] = m_processor->imgdata.color.cam_mul[i];
-  if (wb[1] > 0) {
-      float g = wb[1];
-      wb[0] /= g; wb[1] /= g; wb[2] /= g; wb[3] /= g;
-  }
-
-  for(int y=0; y<raw_height; ++y) {
-      for(int x=0; x<raw_width; ++x) {
-          int i = y * raw_width + x;
-          int c = m_demosaic.fc(y, x, m_processor->imgdata.idata.filters);
-          float black = m_processor->imgdata.color.cblack[c];
-          float val = (float)raw_data[i] - black;
-          // Apply WB scaling and normalize to 0..1 based on white level
-          input[i] = std::max(0.0f, val) * wb[c] / (white_level - black);
-      }
-  }
-
-  // 2. Demosaic
-  std::vector<float> output(raw_width * raw_height * 4);
-  if(!m_demosaic.demosaic(input.data(), output.data(), raw_width, raw_height, m_processor->imgdata.idata.filters, m_demosaicMethod)) {
-      return nullptr;
-  }
-
-  // 3. Apply Color Matrix (Camera Space to sRGB)
-  // LibRaw's rgb_cam converts camera space to working space (usually sRGB)
-  float mat[3][4];
-  for(int i=0; i<3; ++i)
-      for(int j=0; j<4; ++j)
-          mat[i][j] = m_processor->imgdata.color.rgb_cam[i][j];
-
-  for(int i=0; i<raw_width*raw_height; ++i) {
-      float r = output[i*4];
-      float g = output[i*4+1];
-      float b = output[i*4+2];
-      
-      // rgb_cam is [3][4], we fold the two green columns (1 and 3) for 3-channel input
-      output[i*4]   = r * mat[0][0] + g * (mat[0][1] + mat[0][3]) + b * mat[0][2];
-      output[i*4+1] = r * mat[1][0] + g * (mat[1][1] + mat[1][3]) + b * mat[1][2];
-      output[i*4+2] = r * mat[2][0] + g * (mat[2][1] + mat[2][3]) + b * mat[2][2];
-  }
-
-  // 4. Crop and Convert to 16-bit RGB (3 channels) for display
-  width = visible_width;
-  height = visible_height;
-  colors = 3;
-  
-  m_customBuffer.resize(width * height * 3 * sizeof(ushort));
-  ushort* out_ptr = reinterpret_cast<ushort*>(m_customBuffer.data());
-
-  for(int y=0; y<height; ++y) {
-      for(int x=0; x<width; ++x) {
-          int in_pixel_idx = ((y + top_margin) * raw_width + (x + left_margin)) * 4;
-          int out_pixel_idx = (y * width + x) * 3;
-          
-          for(int c=0; c<3; ++c) {
-              // Apply sRGB gamma and scale to 16-bit
-              float linear_val = output[in_pixel_idx + c];
-              float srgb_val = linear_to_srgb_cpp(linear_val);
-              out_ptr[out_pixel_idx + c] = (ushort)std::clamp(srgb_val * 65535.0f, 0.0f, 65535.0f);
-          }
-      }
-  }
-
-  return m_customBuffer.data();
+  return m_processedImage->data;
 }
 
 static QJsonObject stateToJson(const RawEngine* e) {
@@ -779,7 +674,6 @@ static QJsonObject stateToJson(const RawEngine* e) {
     obj["cgMidtonesHue"] = e->cgMidtonesHue(); obj["cgMidtonesSaturation"] = e->cgMidtonesSaturation(); obj["cgMidtonesLuminance"] = e->cgMidtonesLuminance();
     obj["cgHighlightsHue"] = e->cgHighlightsHue(); obj["cgHighlightsSaturation"] = e->cgHighlightsSaturation(); obj["cgHighlightsLuminance"] = e->cgHighlightsLuminance();
     obj["cgBalance"] = e->cgBalance(); obj["cgBlending"] = e->cgBlending();
-    obj["demosaicMethod"] = e->demosaicMethod();
     return obj;
 }
 
@@ -840,7 +734,6 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("cgHighlightsLuminance")) e->setCgHighlightsLuminance(obj["cgHighlightsLuminance"].toDouble());
   if (obj.contains("cgBalance")) e->setCgBalance(obj["cgBalance"].toDouble());
   if (obj.contains("cgBlending")) e->setCgBlending(obj["cgBlending"].toDouble());
-  if (obj.contains("demosaicMethod")) e->setDemosaicMethod(obj["demosaicMethod"].toString());
 }
 
 static void resetToDefaults(RawEngine* e) {
@@ -863,7 +756,6 @@ static void resetToDefaults(RawEngine* e) {
     e->setCgMidtonesHue(0.0f); e->setCgMidtonesSaturation(0.0f); e->setCgMidtonesLuminance(0.0f);
     e->setCgHighlightsHue(0.0f); e->setCgHighlightsSaturation(0.0f); e->setCgHighlightsLuminance(0.0f);
     e->setCgBalance(0.0f); e->setCgBlending(50.0f);
-    e->setDemosaicMethod("LibRaw");
 }
 
 QVariantMap RawEngine::currentSettings() const {
@@ -1016,7 +908,6 @@ bool RawEngine::isDefault() const {
     if (!qFuzzyIsNull(m_cgHighlightsHue) || !qFuzzyIsNull(m_cgHighlightsSaturation) || !qFuzzyIsNull(m_cgHighlightsLuminance)) return false;
     if (!qFuzzyIsNull(m_cgBalance)) return false;
     if (!qFuzzyCompare(m_cgBlending, 50.0f)) return false;
-    if (m_demosaicMethod != DemosaicMethod::LibRaw) return false;
 
     return true;
 }

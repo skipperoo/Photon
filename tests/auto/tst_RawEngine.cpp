@@ -49,11 +49,6 @@ void TestRawEngine::testProperties() {
   QCOMPARE(engine.tonemappingEnabled(), true);
   QCOMPARE(toneSpy.count(), 1);
 
-  QSignalSpy demosaicSpy(&engine, &RawEngine::demosaicMethodChanged);
-  engine.setDemosaicMethod("PPG");
-  QCOMPARE(engine.demosaicMethod(), QString("PPG"));
-  QCOMPARE(demosaicSpy.count(), 1);
-
   QSignalSpy grainSpy(&engine, &RawEngine::grainAmountChanged);
   engine.setGrainAmount(25.0f);
   QCOMPARE(engine.grainAmount(), 25.0f);

@@ -6,8 +6,6 @@ add_executable(tst_RawEngine
     auto/tst_RawEngine.cpp
     ../src/engine/RawEngine.cpp
     ../src/engine/RawEngine.h
-    ../src/engine/DemosaicEngine.cpp
-    ../src/engine/DemosaicEngine.h
 )
 
 target_link_libraries(tst_RawEngine

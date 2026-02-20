@@ -15,8 +15,6 @@ qt_add_executable(appPhoton
     src/main.cpp
     src/engine/RawEngine.cpp
     src/engine/RawEngine.h
-    src/engine/DemosaicEngine.cpp
-    src/engine/DemosaicEngine.h
     src/components/RawViewport.cpp
     src/components/RawViewport.h
     src/managers/AppStateManager.cpp

@@ -87,25 +87,6 @@
   - [x] Remove floating top bar in Development view (exclusive to Library/Settings).
   - [ ] Add sidebar-based navigation for Library and Settings.
 
-## Phase 10: Enhanced Demosaicing [DONE]
-
-Based on analysis of darktable's demosaicing implementation at `tmp/darktable/src/iop/demosaic.c` and `tmp/darktable/src/iop/demosaicing/`.
-
-- [x] **Demosaic Engine**
-  - [x] Create DemosaicEngine class architecture in `src/engine/DemosaicEngine.h`
-  - [x] Implement PPG (Patterned Pixel Grouping) algorithm - fast, good quality
-  - [x] Implement RCD (Ratio Corrected Demosaicing) algorithm with tiling support
-  - [x] Add demosaicing method selection property to RawEngine
-  - [x] Integrate with RawEngine to bypass LibRaw's dcraw_process when using custom algorithms
-  - [x] Expose demosaicing method selection in QML UI
-  - [x] **Quality Improvements:** Added per-channel black level subtraction, white balance scaling, and color matrix (camera to sRGB) conversion.
-  - [x] **UI Polish:** Styled demosaic selection dropdown to follow the Zinc Dark theme.
-- [x] **Algorithm Research**
-  - [x] Research darktable's RCD full implementation with tiling for memory efficiency
-  - [x] Research AMaZE (Aliasing Minimization and Zipper Elimination) algorithm
-  - [x] Research VNG4 (Variable Number of Gradients) for special cases
-  - [x] Compare quality/speed tradeoffs of different algorithms
-
 ## Backlog / Future
 
 - [ ] **Crop & Transform**

@@ -178,21 +178,6 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
   - Hovering over a preset name provides a "Delete" option.
   - A "Save Current" button at the top of the panel captures the current tool panel state into a new preset file.
 
-### Demosaicing Engine (Phase 10)
-
-To provide professional-grade image reconstruction from RAW Bayer data, Photon includes a dedicated `DemosaicEngine` with multiple high-performance algorithms:
-
-1.  **Algorithm Selection:** Users can choose between multiple demosaicing methods in the "Demosaic" tool section:
-    *   **LibRaw (Default):** Standard processing using LibRaw's built-in `dcraw_process`.
-    *   **PPG (Patterned Pixel Grouping):** A fast, high-quality algorithm that performs well on images with moderate detail.
-    *   **RCD (Ratio Corrected Demosaicing):** A high-performance, high-quality algorithm designed to minimize artifacts and preserve fine detail. Photon implements a custom tiled version of RCD for optimal L2 cache utilization.
-2.  **Processing Pipeline Integration:**
-    *   **Normalization:** Before demosaicing, RAW data is normalized by subtracting per-channel black levels (`cblack`) and scaling by "As Shot" white balance multipliers (`cam_mul`).
-    *   **Color Space Conversion:** After demosaicing, the image is transformed from Camera Space to sRGB using the camera's specific color matrix (`rgb_cam`).
-    *   **Gamma Correction:** Custom demosaicing results are converted to sRGB gamma space in C++ before being passed to the GPU, ensuring consistent brightness across all methods.
-    *   **Tiling:** Large RAW images are processed in overlapping tiles (e.g., 112x112 pixels) to keep memory usage low and improve cache locality.
-3.  **UI Integration:** A dedicated "Demosaic" section in the tool stack allows real-time switching between algorithms, with the viewport updating immediately. The UI follows the Zinc Dark theme with custom-styled controls.
-
 ---
 
 ## 5. 🖱️ Contextual Actions & Shortcuts

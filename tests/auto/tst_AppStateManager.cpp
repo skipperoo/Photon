@@ -12,6 +12,7 @@ class TestAppStateManager : public QObject {
   void testViewState();
   void testCurrentFolder();
   void testHasLastSession();
+  void testContinueSession();
   void testSettingsPersistence();
 
  private:
@@ -79,6 +80,27 @@ void TestAppStateManager::testHasLastSession() {
   // Clear again
   m_manager->clearLastSession();
   QVERIFY(!m_manager->hasLastSession());
+}
+
+void TestAppStateManager::testContinueSession() {
+  m_manager->setCurrentView(AppStateManager::ViewState::Welcome);
+  m_manager->setCurrentFolder("");
+  
+  QString testPath = "/tmp/session_path";
+  m_manager->setCurrentFolder(testPath);
+  
+  // Go back to welcome and clear current folder (but lastOpened remains)
+  m_manager->setCurrentView(AppStateManager::ViewState::Welcome);
+  m_manager->setCurrentFolder("");
+  
+  QCOMPARE(m_manager->currentFolder(), QString(""));
+  QCOMPARE(m_manager->lastOpenedFolder(), testPath);
+  QVERIFY(m_manager->hasLastSession());
+  
+  m_manager->continueSession();
+  
+  QCOMPARE(m_manager->currentFolder(), testPath);
+  QCOMPARE(m_manager->currentView(), AppStateManager::ViewState::Library);
 }
 
 void TestAppStateManager::testSettingsPersistence() {

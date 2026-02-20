@@ -61,6 +61,7 @@ class AppStateManager : public QObject {
   Q_INVOKABLE void loadSettings();
   Q_INVOKABLE void saveSettings();
   Q_INVOKABLE void clearLastSession();
+  Q_INVOKABLE void continueSession();
 
  public slots:
   void setCurrentView(ViewState view);

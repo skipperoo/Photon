@@ -100,7 +100,7 @@ Window {
             // 0: Welcome View
             WelcomeView {
                 onContinueSessionRequested: {
-                    AppState.setCurrentView(AppState.ViewState.Library)
+                    AppState.continueSession()
                 }
                 onSettingsRequested: {
                     AppState.setCurrentView(AppState.ViewState.Settings)

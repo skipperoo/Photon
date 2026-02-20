@@ -53,6 +53,13 @@ void AppStateManager::clearLastSession() {
   emit hasLastSessionChanged();
 }
 
+void AppStateManager::continueSession() {
+  if (hasLastSession()) {
+    setCurrentFolder(m_lastOpenedFolder);
+    setCurrentView(ViewState::Library);
+  }
+}
+
 void AppStateManager::setCurrentView(ViewState view) {
   if (m_currentView != view) {
     m_currentView = view;
@@ -63,30 +70,33 @@ void AppStateManager::setCurrentView(ViewState view) {
 void AppStateManager::setCurrentFolder(const QString& folder) {
   if (m_currentFolder != folder) {
     m_currentFolder = folder;
-    m_lastOpenedFolder = folder;
 
-    // Create .PhotonData folder structure if it doesn't exist
-    QDir folderDir(folder);
-    if (folderDir.exists()) {
-      QString photonDataPath = folder + "/.PhotonData";
+    if (!folder.isEmpty()) {
+      m_lastOpenedFolder = folder;
 
-      // Create .PhotonData directory
-      QDir photonDir(photonDataPath);
-      if (!photonDir.exists()) {
-        folderDir.mkpath(".PhotonData");
+      // Create .PhotonData folder structure if it doesn't exist
+      QDir folderDir(folder);
+      if (folderDir.exists()) {
+        QString photonDataPath = folder + "/.PhotonData";
+
+        // Create .PhotonData directory
+        QDir photonDir(photonDataPath);
+        if (!photonDir.exists()) {
+          folderDir.mkpath(".PhotonData");
+        }
+
+        // Create subdirectories
+        photonDir.mkpath("edits");
+        photonDir.mkpath("cache/thumbnails");
+        photonDir.mkpath("cache/previews");
       }
 
-      // Create subdirectories
-      photonDir.mkpath("edits");
-      photonDir.mkpath("cache/thumbnails");
-      photonDir.mkpath("cache/previews");
+      emit lastOpenedFolderChanged();
+      emit hasLastSessionChanged();
+      saveSettings();
     }
 
     emit currentFolderChanged();
-    emit lastOpenedFolderChanged();
-    emit hasLastSessionChanged();
-
-    saveSettings();
   }
 }
 

@@ -99,29 +99,34 @@ vec3 apply_region_tint(vec3 color, float hue, float sat, float lum) {
 }
 
 vec3 color_grade(vec3 color, float luma) {
-    // 1. Calculate weights based on luma, balance, and blending
     float balance = ubuf.cgBalance / 100.0; // -1 to 1
     float blending = ubuf.cgBlending / 100.0; // 0 to 1
     
-    // Shift thresholds based on balance
-    float s_end = 0.4 + balance * 0.3;
-    float h_start = 0.6 + balance * 0.3;
+    float base_shadow_crossover = 0.1;
+    float base_highlight_crossover = 0.5;
+    float balance_range = 0.5;
     
-    float w_s = 1.0 - smoothstep(s_end - blending * 0.4, s_end + blending * 0.4, luma);
-    float w_h = smoothstep(h_start - blending * 0.4, h_start + blending * 0.4, luma);
-    float w_m = 1.0 - w_s - w_h;
+    float shadow_crossover = base_shadow_crossover + max(0.0, -balance) * balance_range;
+    float highlight_crossover = base_highlight_crossover - max(0.0, balance) * balance_range;
+    float feather = 0.2 * blending;
     
-    // 2. Apply tints
+    float final_shadow_crossover = min(shadow_crossover, highlight_crossover - 0.01);
+    
+    float shadow_mask = 1.0 - smoothstep(final_shadow_crossover - feather, final_shadow_crossover + feather, luma);
+    float highlight_mask = smoothstep(highlight_crossover - feather, highlight_crossover + feather, luma);
+    float midtone_mask = max(0.0, 1.0 - shadow_mask - highlight_mask);
+    
+    // Apply tints using hsv_to_rgb for cinematic coloring
     vec3 c_s = apply_region_tint(color, ubuf.cgShadowsHue, ubuf.cgShadowsSaturation, ubuf.cgShadowsLuminance);
     vec3 c_m = apply_region_tint(color, ubuf.cgMidtonesHue, ubuf.cgMidtonesSaturation, ubuf.cgMidtonesLuminance);
     vec3 c_h = apply_region_tint(color, ubuf.cgHighlightsHue, ubuf.cgHighlightsSaturation, ubuf.cgHighlightsLuminance);
     
-    return c_s * w_s + c_m * w_m + c_h * w_h;
+    return c_s * shadow_mask + c_m * midtone_mask + c_h * highlight_mask;
 }
 
 // --- AgX Tone Mapping (Ported from reference) ---
 const float AGX_MIN_EV = -15.2;
-const float AGX_MAX_EV = 5.0;
+const float AGX_MAX_EV = 8;
 
 float agx_sigmoid(float x, float power) {
     return x / pow(1.0 + pow(x, power), 1.0 / power);
@@ -243,20 +248,43 @@ void main()
 
     // 5. Highlights & Shadows
     float luma = get_luma(max(color, 0.0));
+    
+    // Shadow Mask (inspired by crossover logic at WGSL line 615)
     if (ubuf.shadows != 0.0) {
-        float shadow_mask = pow(1.0 - smoothstep(0.0, 0.5, luma), 2.0);
-        color = mix(color, color * pow(2.0, (ubuf.shadows / 100.0) * 1.5), shadow_mask);
+        float shadow_mask = 1.0 - smoothstep(0.0, 0.25, luma);
+        float adjustment = (ubuf.shadows / 100.0) * 1.5;
+        color *= mix(1.0, pow(2.0, adjustment), shadow_mask);
     }
+    
+    // Highlight Mask (inspired by crossover logic at WGSL line 615 + specialized reduction)
     if (ubuf.highlights != 0.0) {
-        float highlight_mask = smoothstep(0.4, 1.0, tanh(luma * 1.5));
+        float highlight_mask = smoothstep(0.3, 0.95, tanh(luma * 1.5));
         float h_adj = ubuf.highlights / 100.0;
+        
+        vec3 h_color;
         if (h_adj < 0.0) {
-            float gamma = 1.0 - h_adj * 1.5;
-            vec3 h_color = pow(max(color, 0.0001), vec3(gamma));
-            color = mix(color, h_color, highlight_mask);
+            // Advanced Reduction: Gamma for normal range, Compression for over-exposed
+            float new_luma;
+            if (luma <= 1.0) {
+                float gamma = 1.0 - h_adj * 1.75;
+                new_luma = pow(max(luma, 0.0001), gamma);
+            } else {
+                float luma_excess = luma - 1.0;
+                float compression_strength = -h_adj * 6.0;
+                float compressed_excess = luma_excess / (1.0 + luma_excess * compression_strength);
+                new_luma = 1.0 + compressed_excess;
+            }
+            
+            h_color = color * (new_luma / max(luma, 0.0001));
+            
+            // Desaturate extremely bright highlights to avoid color shifts
+            float desat = smoothstep(1.0, 5.0, luma);
+            h_color = mix(h_color, vec3(new_luma), desat);
         } else {
-            color = mix(color, color * pow(2.0, h_adj * 1.5), highlight_mask);
+            h_color = color * pow(2.0, h_adj * 1.5);
         }
+        
+        color = mix(color, h_color, highlight_mask);
     }
 
     // --- HSL PANEL ---

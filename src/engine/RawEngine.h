@@ -41,6 +41,7 @@ class RawEngine : public QObject {
                  setVignetteRoundness NOTIFY vignetteRoundnessChanged)
     Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE setVignetteFeather
                    NOTIFY vignetteFeatherChanged)
+    Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount NOTIFY denoiseAmountChanged)
   
     // HSL Panel Properties
     Q_PROPERTY(float hslRedHue READ hslRedHue WRITE setHslRedHue NOTIFY hslRedHueChanged)
@@ -99,6 +100,7 @@ class RawEngine : public QObject {
     Q_PROPERTY(int orientation READ orientation NOTIFY orientationChanged)
 
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+    Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
   Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
@@ -165,6 +167,9 @@ class RawEngine : public QObject {
 
   float vignetteFeather() const { return m_vignetteFeather; }
   void setVignetteFeather(float val);
+
+  float denoiseAmount() const { return m_denoiseAmount; }
+  void setDenoiseAmount(float val);
 
   // HSL Getters & Setters
   float hslRedHue() const { return m_hslRedHue; }
@@ -260,6 +265,7 @@ class RawEngine : public QObject {
   void requestHistogramUpdate();
 
   bool isLoading() const { return m_isLoading; }
+  bool isDenoising() const { return m_isDenoising; }
 
   bool halfSize() const { return m_halfSize; }
   void setHalfSize(bool half);
@@ -308,6 +314,7 @@ class RawEngine : public QObject {
   void vignetteMidpointChanged();
   void vignetteRoundnessChanged();
   void vignetteFeatherChanged();
+  void denoiseAmountChanged();
 
   // HSL Signals
   void hslRedHueChanged();
@@ -353,6 +360,8 @@ class RawEngine : public QObject {
 
   void imageLoaded();
   void isLoadingChanged();
+  void isDenoisingChanged();
+  void denoisingFinished();
   void halfSizeChanged();
   void editStackChanged();
   void canUndoChanged();
@@ -380,6 +389,7 @@ class RawEngine : public QObject {
   float m_vignetteMidpoint = 0.5f;
   float m_vignetteRoundness = 0.0f;
   float m_vignetteFeather = 0.5f;
+  float m_denoiseAmount = 0.0f;
 
   // HSL Member Variables
   float m_hslRedHue = 0.0f;
@@ -432,18 +442,23 @@ class RawEngine : public QObject {
   int m_orientation = 1;
 
   bool m_isLoading = false;
+  bool m_isDenoising = false;
   bool m_halfSize = false;
   QVariantList m_editStack;
   int m_editIndex = -1;
   std::unique_ptr<LibRaw> m_processor;
   libraw_processed_image_t* m_processedImage = nullptr;
   std::vector<uint8_t> m_customBuffer;
+  std::vector<uint8_t> m_denoisedBuffer;
+  bool m_hasDenoisedResult = false;
   bool m_isLoaded = false;
 
   QFutureWatcher<bool> m_loadWatcher;
+  QFutureWatcher<QImage> m_denoiseWatcher;
   QFuture<void> m_histogramFuture;
 
   void clearProcessedImage();
   void updateProcessingParams();
+  void startAsyncDenoise();
   bool loadRawFileSync(const QString& path);
 };

@@ -6,6 +6,8 @@ add_executable(tst_RawEngine
     auto/tst_RawEngine.cpp
     ../src/engine/RawEngine.cpp
     ../src/engine/RawEngine.h
+    ../src/engine/Denoiser.cpp
+    ../src/engine/Denoiser.h
 )
 
 target_link_libraries(tst_RawEngine

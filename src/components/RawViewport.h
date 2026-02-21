@@ -32,6 +32,8 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float vignetteMidpoint READ vignetteMidpoint WRITE setVignetteMidpoint NOTIFY vignetteMidpointChanged)
     Q_PROPERTY(float vignetteRoundness READ vignetteRoundness WRITE setVignetteRoundness NOTIFY vignetteRoundnessChanged)
     Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE setVignetteFeather NOTIFY vignetteFeatherChanged)
+    Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount NOTIFY denoiseAmountChanged)
+    Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
 
     // HSL Panel Properties
     Q_PROPERTY(float hslRedHue READ hslRedHue WRITE setHslRedHue NOTIFY hslRedHueChanged)
@@ -155,10 +157,15 @@ class RawViewport : public QQuickItem {
     float vignetteRoundness() const { return m_engine.vignetteRoundness(); }
     void setVignetteRoundness(float val);
 
-            float vignetteFeather() const { return m_engine.vignetteFeather(); }
-            void setVignetteFeather(float val);
+    float vignetteFeather() const { return m_engine.vignetteFeather(); }
+    void setVignetteFeather(float val);
+
+    float denoiseAmount() const { return m_engine.denoiseAmount(); }
+    void setDenoiseAmount(float val);
+
+    bool isDenoising() const { return m_engine.isDenoising(); }
         
-            // HSL Getters & Setters
+    // HSL Getters & Setters
             float hslRedHue() const { return m_engine.hslRedHue(); }
             void setHslRedHue(float val);
             float hslRedSaturation() const { return m_engine.hslRedSaturation(); }
@@ -289,6 +296,8 @@ class RawViewport : public QQuickItem {
     void vignetteMidpointChanged();
     void vignetteRoundnessChanged();
     void vignetteFeatherChanged();
+    void denoiseAmountChanged();
+    void isDenoisingChanged();
     void imageRectChanged();
 
     // HSL Signals

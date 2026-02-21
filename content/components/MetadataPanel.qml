@@ -88,6 +88,58 @@ Rectangle {
                     Text { text: "Artist"; color: Theme.mutedFg; font: Theme.fontSmall }
                     Text { text: parent.getValue("artist"); color: Theme.foreground; font: Theme.fontSmall; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
                 }
+
+                // Denoising Status Indicator
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+                    visible: root.viewport ? root.viewport.isDenoising : false
+                    
+                                            Rectangle {
+                                                width: 16; height: 16; color: "transparent"
+                                                border.color: Theme.accent
+                                                border.width: 2
+                                                radius: 8
+                                                opacity: 0.3
+                                            }
+                                            
+                                            Rectangle {
+                                                width: 16; height: 16; color: "transparent"
+                                                border.color: "transparent"
+                                                border.width: 2
+                                                radius: 8
+                                                
+                                                // Visual workaround for a "top border only" in QML: Use a smaller rectangle clipped or a canvas
+                                                // Simple version: rotate a child that has a visible part
+                                                Rectangle {
+                                                    width: 16; height: 8; color: Theme.foreground; radius: 2; anchors.top: parent.top
+                                                    visible: false // fallback if needed
+                                                }
+                                                
+                                                // Better way: use a Canvas for a proper arc
+                                                Canvas {
+                                                    anchors.fill: parent
+                                                    onPaint: {
+                                                        var ctx = getContext("2d");
+                                                        ctx.reset();
+                                                        ctx.lineWidth = 2;
+                                                        ctx.strokeStyle = Theme.foreground;
+                                                        ctx.beginPath();
+                                                        ctx.arc(8, 8, 7, 0, Math.PI / 2);
+                                                        ctx.stroke();
+                                                    }
+                                                }
+                                                
+                                                RotationAnimation on rotation {
+                                                    from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.parent.visible
+                                                }
+                                            }
+                    Text {
+                        text: "Denoising..."
+                        color: Theme.foreground
+                        font: Theme.fontSmall
+                    }
+                }
                 
                 Item { Layout.fillHeight: true }
             }

@@ -50,7 +50,7 @@ Control {
                 rowSpacing: 4
 
                 Text {
-                    text: root.viewport && root.viewport.metadata.model ? root.viewport.metadata.model : "Unknown Camera"
+                    text: root.viewport && root.viewport.metadata.model ? root.viewport.metadata.make + " " + root.viewport.metadata.model : "Unknown Camera"
                     font: Theme.fontMedium
                     color: Theme.foreground
                     Layout.columnSpan: 2
@@ -334,8 +334,25 @@ Control {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 16
+                        
+                        property real localDenoise: root.viewport ? root.viewport.denoiseAmount : 0.0
+
                         ControlGroup { title: "Sharpening"; value: 0; from: 0; to: 100 }
-                        ControlGroup { title: "Noise Reduction"; value: 0; from: 0; to: 100 }
+                        ControlGroup { 
+                            title: "Noise Reduction"; 
+                            value: parent.localDenoise; 
+                            from: 0; to: 100; 
+                            enabled: root.viewport ? !root.viewport.isDenoising : true
+                            onMoved: (v) => { parent.localDenoise = v }; 
+                            onReleased: {
+                                if(root.viewport) {
+                                    root.viewport.denoiseAmount = parent.localDenoise;
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                            ToolTip.visible: hovered && !enabled
+                            ToolTip.text: "Already denoising"
+                        }
                     }
                 }
 

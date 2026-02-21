@@ -15,6 +15,8 @@ qt_add_executable(Photon
     src/main.cpp
     src/engine/RawEngine.cpp
     src/engine/RawEngine.h
+    src/engine/Denoiser.cpp
+    src/engine/Denoiser.h
     src/components/RawViewport.cpp
     src/components/RawViewport.h
     src/managers/AppStateManager.cpp
@@ -53,6 +55,8 @@ qt_add_qml_module(Photon
         src/components/RawViewport.h
         src/engine/RawEngine.cpp
         src/engine/RawEngine.h
+        src/engine/Denoiser.cpp
+        src/engine/Denoiser.h
         src/managers/AppStateManager.cpp
         src/managers/AppStateManager.h
         src/managers/ThumbnailProvider.cpp

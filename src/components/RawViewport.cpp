@@ -34,6 +34,9 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::vignetteMidpointChanged, this, [this](){ emit vignetteMidpointChanged(); update(); });
   connect(&m_engine, &RawEngine::vignetteRoundnessChanged, this, [this](){ emit vignetteRoundnessChanged(); update(); });
   connect(&m_engine, &RawEngine::vignetteFeatherChanged, this, [this](){ emit vignetteFeatherChanged(); update(); });
+  connect(&m_engine, &RawEngine::denoiseAmountChanged, this, [this](){ emit denoiseAmountChanged(); update(); });
+  connect(&m_engine, &RawEngine::isDenoisingChanged, this, [this](){ emit isDenoisingChanged(); });
+  connect(&m_engine, &RawEngine::denoisingFinished, this, [this](){ m_textureDirty = true; update(); });
 
   // HSL Connections
   connect(&m_engine, &RawEngine::hslRedHueChanged, this, [this](){ emit hslRedHueChanged(); update(); });
@@ -206,6 +209,14 @@ void RawViewport::setVignetteFeather(float val) {
   if (qFuzzyCompare(m_engine.vignetteFeather(), val)) return;
   m_engine.setVignetteFeather(val);
   emit vignetteFeatherChanged();
+}
+
+void RawViewport::setDenoiseAmount(float val) {
+  if (qFuzzyCompare(m_engine.denoiseAmount(), val)) return;
+  m_engine.setDenoiseAmount(val);
+  m_textureDirty = true;
+  emit denoiseAmountChanged();
+  update();
 }
 
 // HSL Setters

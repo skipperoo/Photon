@@ -24,8 +24,8 @@
 
 int main(int argc, char* argv[]) {
   // Enable RHI and Vulkan info logging
-  qputenv("QSG_INFO", "1");
-  qputenv("QT_LOGGING_RULES", "qt.vulkan=true");
+  // qputenv("QSG_INFO", "1");
+  // qputenv("QT_LOGGING_RULES", "qt.vulkan=true");
 
   QCoreApplication::setOrganizationName("Photon");
   QCoreApplication::setApplicationName("Photon");

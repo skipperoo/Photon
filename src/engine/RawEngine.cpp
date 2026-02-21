@@ -1,4 +1,5 @@
 #include "RawEngine.h"
+#include "Denoiser.h"
 
 #include <QDebug>
 #include <QFile>
@@ -79,14 +80,31 @@ RawEngine::RawEngine(QObject* parent)
     emit isLoadingChanged();
     if (m_loadWatcher.result()) {
       m_isLoaded = true;
+      m_hasDenoisedResult = false;
       requestHistogramUpdate();
+      if (m_denoiseAmount > 0.0f) {
+          startAsyncDenoise();
+      }
       emit imageLoaded();
     }
+  });
+
+  connect(&m_denoiseWatcher, &QFutureWatcher<QImage>::finished, this, [this]() {
+      QImage result = m_denoiseWatcher.result();
+      if (!result.isNull()) {
+          m_denoisedBuffer.resize(result.sizeInBytes());
+          std::copy(result.constBits(), result.constBits() + m_denoisedBuffer.size(), m_denoisedBuffer.begin());
+          m_hasDenoisedResult = true;
+      }
+      m_isDenoising = false;
+      emit isDenoisingChanged();
+      emit denoisingFinished();
   });
 }
 
 RawEngine::~RawEngine() {
   m_loadWatcher.waitForFinished();
+  m_denoiseWatcher.waitForFinished();
   m_histogramFuture.waitForFinished();
   clearProcessedImage();
 }
@@ -247,6 +265,73 @@ void RawEngine::setVignetteFeather(float val) {
   m_vignetteFeather = val;
   emit vignetteFeatherChanged();
   emit isDefaultChanged();
+}
+
+void RawEngine::setDenoiseAmount(float val) {
+  if (qFuzzyCompare(m_denoiseAmount, val)) return;
+  m_denoiseAmount = val;
+  m_hasDenoisedResult = false;
+  emit denoiseAmountChanged();
+  emit isDefaultChanged();
+  if (m_isLoaded && m_denoiseAmount > 0.0f) {
+      startAsyncDenoise();
+  }
+}
+
+void RawEngine::startAsyncDenoise() {
+    if (!m_isLoaded || m_denoiseAmount <= 0.0f) return;
+    if (m_denoiseWatcher.isRunning()) {
+        // Can't cancel easily, but finishing the old one before starting new is safer
+        m_denoiseWatcher.waitForFinished();
+    }
+
+    m_isDenoising = true;
+    m_hasDenoisedResult = false;
+    emit isDenoisingChanged();
+
+    // We need to capture the current state of the RAW development
+    // Since dcraw_process is synchronous and modifies state, we do it carefully.
+    // Actually, we'll run it in the thread too if needed, but here we assume 
+    // the caller (RawViewport) might be calling getProcessedData soon.
+    
+    // To stay responsive, we'll extract the current noisy image into a QImage 
+    // and pass THAT to the background thread.
+    int width, height, colors;
+    int ret = m_processor->dcraw_process();
+    if (ret != LIBRAW_SUCCESS) {
+        m_isDenoising = false;
+        emit isDenoisingChanged();
+        return;
+    }
+    libraw_processed_image_t* img_data = m_processor->dcraw_make_mem_image(&ret);
+    if (!img_data) {
+        m_isDenoising = false;
+        emit isDenoisingChanged();
+        return;
+    }
+
+    width = img_data->width;
+    height = img_data->height;
+    colors = img_data->colors;
+
+    QImage img;
+    if (colors == 3) {
+        img = QImage(width, height, QImage::Format_RGBX64);
+        const ushort* src = reinterpret_cast<const ushort*>(img_data->data);
+        QRgba64* dst = reinterpret_cast<QRgba64*>(img.bits());
+        for (int i = 0; i < width * height; ++i) {
+            dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1], src[i * 3 + 2], 65535);
+        }
+    } else {
+        img = QImage(img_data->data, width, height, QImage::Format_RGBA64).copy();
+    }
+    LibRaw::dcraw_clear_mem(img_data);
+
+    float amount = m_denoiseAmount;
+    QFuture<QImage> future = QtConcurrent::run([img, amount]() {
+        return photon::Denoiser::denoise(img, amount);
+    });
+    m_denoiseWatcher.setFuture(future);
 }
 
 // HSL Setters
@@ -625,6 +710,13 @@ QImage RawEngine::extractThumbnail(const QString& path) {
 const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
   if (!m_isLoaded) return nullptr;
 
+  if (m_hasDenoisedResult && m_denoiseAmount > 0.0f) {
+      width = m_processor->imgdata.sizes.iwidth;
+      height = m_processor->imgdata.sizes.iheight;
+      colors = 4;
+      return m_denoisedBuffer.data();
+  }
+
   clearProcessedImage();
 
   int ret = m_processor->dcraw_process();
@@ -660,6 +752,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
     obj["vignetteMidpoint"] = e->vignetteMidpoint();
     obj["vignetteRoundness"] = e->vignetteRoundness();
     obj["vignetteFeather"] = e->vignetteFeather();
+    obj["denoiseAmount"] = e->denoiseAmount();
 
     obj["hslRedHue"] = e->hslRedHue(); obj["hslRedSaturation"] = e->hslRedSaturation(); obj["hslRedLuminance"] = e->hslRedLuminance();
     obj["hslOrangeHue"] = e->hslOrangeHue(); obj["hslOrangeSaturation"] = e->hslOrangeSaturation(); obj["hslOrangeLuminance"] = e->hslOrangeLuminance();
@@ -697,6 +790,7 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("vignetteMidpoint")) e->setVignetteMidpoint(obj["vignetteMidpoint"].toDouble());
   if (obj.contains("vignetteRoundness")) e->setVignetteRoundness(obj["vignetteRoundness"].toDouble());
   if (obj.contains("vignetteFeather")) e->setVignetteFeather(obj["vignetteFeather"].toDouble());
+  if (obj.contains("denoiseAmount")) e->setDenoiseAmount(obj["denoiseAmount"].toDouble());
 
   if (obj.contains("hslRedHue")) e->setHslRedHue(obj["hslRedHue"].toDouble());
   if (obj.contains("hslRedSaturation")) e->setHslRedSaturation(obj["hslRedSaturation"].toDouble());
@@ -742,6 +836,7 @@ static void resetToDefaults(RawEngine* e) {
     e->setTemperature(0.0f); e->setTint(0.0f); e->setTonemappingEnabled(false);
     e->setGrainAmount(0.0f); e->setGrainSize(1.0f); e->setGrainRoughness(0.5f);
     e->setVignetteAmount(0.0f); e->setVignetteMidpoint(50.0f); e->setVignetteRoundness(0.0f); e->setVignetteFeather(50.0f);
+    e->setDenoiseAmount(0.0f);
     
     e->setHslRedHue(0.0f); e->setHslRedSaturation(0.0f); e->setHslRedLuminance(0.0f);
     e->setHslOrangeHue(0.0f); e->setHslOrangeSaturation(0.0f); e->setHslOrangeLuminance(0.0f);
@@ -891,6 +986,7 @@ bool RawEngine::isDefault() const {
     if (m_tonemappingEnabled) return false;
     if (!qFuzzyIsNull(m_grainAmount)) return false;
     if (!qFuzzyIsNull(m_vignetteAmount)) return false;
+    if (!qFuzzyIsNull(m_denoiseAmount)) return false;
 
     // HSL checks
     if (!qFuzzyIsNull(m_hslRedHue) || !qFuzzyIsNull(m_hslRedSaturation) || !qFuzzyIsNull(m_hslRedLuminance)) return false;

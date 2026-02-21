@@ -96,11 +96,6 @@ Control {
                     spacing: 10
                     visible: root.viewport ? root.viewport.isDenoising : false
                     
-                    Rectangle {
-                        width: 16; height: 16; color: "transparent"
-                        border.color: Theme.accent
-                        border.width: 2; radius: 8; opacity: 0.3
-                    }
                     
                     Rectangle {
                         width: 16; height: 16; color: "transparent"

@@ -90,11 +90,13 @@ RawEngine::RawEngine(QObject* parent)
   });
 
   connect(&m_denoiseWatcher, &QFutureWatcher<QImage>::finished, this, [this]() {
-      QImage result = m_denoiseWatcher.result();
-      if (!result.isNull()) {
-          m_denoisedBuffer.resize(result.sizeInBytes());
-          std::copy(result.constBits(), result.constBits() + m_denoisedBuffer.size(), m_denoisedBuffer.begin());
-          m_hasDenoisedResult = true;
+      if (!m_abortDenoise) {
+          QImage result = m_denoiseWatcher.result();
+          if (!result.isNull()) {
+              m_denoisedBuffer.resize(result.sizeInBytes());
+              std::copy(result.constBits(), result.constBits() + m_denoisedBuffer.size(), m_denoisedBuffer.begin());
+              m_hasDenoisedResult = true;
+          }
       }
       m_isDenoising = false;
       emit isDenoisingChanged();
@@ -128,6 +130,12 @@ void RawEngine::setHalfSize(bool half) {
 
 void RawEngine::setSource(const QString& source) {
   if (m_source == source) return;
+
+  // Abort any ongoing denoising immediately
+  m_abortDenoise = true;
+  if (m_denoiseWatcher.isRunning()) {
+      m_denoiseWatcher.waitForFinished();
+  }
 
   m_source = source;
   emit sourceChanged();
@@ -327,9 +335,11 @@ void RawEngine::startAsyncDenoise() {
     }
     LibRaw::dcraw_clear_mem(img_data);
 
+    m_abortDenoise = false;
     float amount = m_denoiseAmount;
-    QFuture<QImage> future = QtConcurrent::run([img, amount]() {
-        return photon::Denoiser::denoise(img, amount);
+    std::atomic<bool>* abortPtr = &m_abortDenoise;
+    QFuture<QImage> future = QtConcurrent::run([img, amount, abortPtr]() {
+        return photon::Denoiser::denoise(img, amount, abortPtr);
     });
     m_denoiseWatcher.setFuture(future);
 }

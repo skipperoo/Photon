@@ -450,6 +450,7 @@ class RawEngine : public QObject {
   libraw_processed_image_t* m_processedImage = nullptr;
   std::vector<uint8_t> m_customBuffer;
   std::vector<uint8_t> m_denoisedBuffer;
+  std::atomic<bool> m_abortDenoise{false};
   bool m_hasDenoisedResult = false;
   bool m_isLoaded = false;
 

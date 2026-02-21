@@ -116,6 +116,7 @@ target_link_libraries(Photon
     PRIVATE ${LIBRAW_LIBRARIES}
     PRIVATE Vulkan::Vulkan
 )
+target_compile_options(Photon PRIVATE -mavx2 -mfma)
 target_include_directories(Photon PRIVATE
     src
     src/engine

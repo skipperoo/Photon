@@ -14,6 +14,7 @@ target_link_libraries(tst_RawEngine
     PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent
     PRIVATE ${LIBRAW_LIBRARIES}
 )
+target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
 
 target_include_directories(tst_RawEngine PRIVATE
     ../src/engine
@@ -32,6 +33,7 @@ target_link_libraries(tst_AppStateManager
     PRIVATE Qt6::Test Qt6::Qml
     PRIVATE Vulkan::Vulkan
 )
+target_compile_options(tst_AppStateManager PRIVATE -mavx2 -mfma)
 
 target_include_directories(tst_AppStateManager PRIVATE
     ../src

@@ -1,3 +1,4 @@
+#include <immintrin.h>
 #include "Denoiser.h"
 #include <QtConcurrent>
 #include <QRgba64>
@@ -52,8 +53,9 @@ std::vector<float> Denoiser::AtomicAccumulator::toVector() const {
     return res;
 }
 
-QImage Denoiser::denoise(const QImage& input, float intensity) {
+QImage Denoiser::denoise(const QImage& input, float intensity, std::atomic<bool>* abort) {
     if (input.isNull() || intensity <= 0.0f) return input;
+    if (abort && abort->load()) return input;
 
     int width = input.width();
     int height = input.height();
@@ -80,7 +82,8 @@ QImage Denoiser::denoise(const QImage& input, float intensity) {
     Bm3dParams params = Bm3dParams::fromIntensity(intensity / 100.0f);
     DctTables tables;
 
-    auto denoised_channels = bm3d_process_joint(channels, width, height, params, tables);
+    auto denoised_channels = bm3d_process_joint(channels, width, height, params, tables, abort);
+    if (abort && abort->load()) return input;
 
     QImage output(width, height, QImage::Format_RGBX64);
     QRgba64* out_bits = reinterpret_cast<QRgba64*>(output.bits());
@@ -96,16 +99,20 @@ QImage Denoiser::denoise(const QImage& input, float intensity) {
 
 std::vector<std::vector<float>> Denoiser::bm3d_process_joint(
     const std::vector<std::vector<float>>& noisy_channels,
-    int width, int height, const Bm3dParams& params, const DctTables& tables) {
+    int width, int height, const Bm3dParams& params, const DctTables& tables,
+    std::atomic<bool>* abort) {
     
-    auto basic_estimate = run_bm3d_step_joint(noisy_channels, noisy_channels, width, height, params, true, tables);
-    return run_bm3d_step_joint(noisy_channels, basic_estimate, width, height, params, false, tables);
+    auto basic_estimate = run_bm3d_step_joint(noisy_channels, noisy_channels, width, height, params, true, tables, abort);
+    if (abort && abort->load()) return noisy_channels;
+    
+    return run_bm3d_step_joint(noisy_channels, basic_estimate, width, height, params, false, tables, abort);
 }
 
 std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     const std::vector<std::vector<float>>& noisy,
     const std::vector<std::vector<float>>& guide,
-    int width, int height, const Bm3dParams& params, bool is_step_1, const DctTables& tables) {
+    int width, int height, const Bm3dParams& params, bool is_step_1, const DctTables& tables,
+    std::atomic<bool>* abort) {
 
     int count = width * height;
     std::vector<std::shared_ptr<AtomicAccumulator>> numerators(3);
@@ -123,6 +130,8 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     }
 
     QtConcurrent::blockingMap(ref_patches, [&](const std::pair<int, int>& patch) {
+        if (abort && abort->load()) return;
+
         int rx = patch.first;
         int ry = patch.second;
 
@@ -156,29 +165,75 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
             float weight = 1.0f;
             if (is_step_1) {
                 float threshold = params.hard_th_lambda * params.sigma;
+                __m256 v_thresh = _mm256_set1_ps(threshold);
+                __m256 v_neg_thresh = _mm256_set1_ps(-threshold);
                 int nonzero = 0;
-                for (size_t i = 0; i < guide_stack.size(); ++i) {
-                    if (i == 0 || std::abs(guide_stack[i]) >= threshold) {
-                        nonzero++;
-                    } else {
-                        guide_stack[i] = 0.0f;
-                    }
+                
+                // DC component (index 0) always kept
+                nonzero++;
+                
+                for (size_t i = 8; i < guide_stack.size(); i += 8) {
+                    __m256 v_val = _mm256_loadu_ps(&guide_stack[i]);
+                    __m256 v_gt = _mm256_cmp_ps(v_val, v_thresh, _CMP_GE_OQ);
+                    __m256 v_lt = _mm256_cmp_ps(v_val, v_neg_thresh, _CMP_LE_OQ);
+                    __m256 v_mask = _mm256_or_ps(v_gt, v_lt);
+                    __m256 v_res = _mm256_and_ps(v_val, v_mask);
+                    _mm256_storeu_ps(&guide_stack[i], v_res);
+                    
+                    // Count non-zeros
+                    int mask = _mm256_movemask_ps(v_mask);
+                    nonzero += __builtin_popcount(mask);
                 }
+                // Handle remaining elements from 1 to 7 (loop above starts at 8)
+                for (size_t i = 1; i < 8; ++i) {
+                    if (std::abs(guide_stack[i]) >= threshold) nonzero++;
+                    else guide_stack[i] = 0.0f;
+                }
+
                 weight = (nonzero > 0) ? (1.0f / nonzero) : 1.0f;
                 noisy_stack = guide_stack;
             } else {
                 float sum_sq = 0.0f;
                 float s2 = params.sigma * params.sigma;
-                for (size_t i = 0; i < noisy_stack.size(); ++i) {
-                    if (i == 0) {
-                        sum_sq += 1.0f;
-                        continue;
-                    }
+                __m256 v_s2 = _mm256_set1_ps(s2);
+                __m256 v_eps = _mm256_set1_ps(1e-5f);
+                __m256 v_sum_sq = _mm256_setzero_ps();
+
+                // DC component
+                sum_sq += 1.0f;
+
+                for (size_t i = 8; i < noisy_stack.size(); i += 8) {
+                    __m256 v_guide = _mm256_loadu_ps(&guide_stack[i]);
+                    __m256 v_noisy = _mm256_loadu_ps(&noisy_stack[i]);
+                    
+                    __m256 v_energy = _mm256_mul_ps(v_guide, v_guide);
+                    __m256 v_denom = _mm256_add_ps(_mm256_add_ps(v_energy, v_s2), v_eps);
+                    __m256 v_coef = _mm256_div_ps(v_energy, v_denom);
+                    
+                    v_noisy = _mm256_mul_ps(v_noisy, v_coef);
+                    _mm256_storeu_ps(&noisy_stack[i], v_noisy);
+                    
+                    v_sum_sq = _mm256_add_ps(v_sum_sq, _mm256_mul_ps(v_coef, v_coef));
+                }
+                
+                // Horizontal sum for Wiener weights
+                __m128 vlow = _mm256_castps256_ps128(v_sum_sq);
+                __m128 vhigh = _mm256_extractf128_ps(v_sum_sq, 1);
+                vlow = _mm_add_ps(vlow, vhigh);
+                __m128 shuf = _mm_movehdup_ps(vlow);
+                __m128 sums = _mm_add_ps(vlow, shuf);
+                shuf = _mm_movehl_ps(shuf, sums);
+                sums = _mm_add_ss(sums, shuf);
+                sum_sq += _mm_cvtss_f32(sums);
+
+                // Handle remaining elements 1-7
+                for (size_t i = 1; i < 8; ++i) {
                     float energy = guide_stack[i] * guide_stack[i];
                     float coef = energy / (energy + s2 + 1e-5f);
                     noisy_stack[i] *= coef;
                     sum_sq += coef * coef;
                 }
+
                 weight = (sum_sq > 0.0f) ? (1.0f / sum_sq) : 1.0f;
             }
 
@@ -269,47 +324,78 @@ int Denoiser::block_matching_joint(
 }
 
 float Denoiser::compute_ssd_flat(const float* img, int w, int x, int y, const float* ref_patch, float stop_thr) {
-    float dist = 0.0f;
+    __m256 sum = _mm256_setzero_ps();
     for (int dy = 0; dy < 8; ++dy) {
         int img_base = (y + dy) * w + x;
         int ref_base = dy * 8;
-        for (int dx = 0; dx < 8; ++dx) {
-            float diff = img[img_base + dx] - ref_patch[ref_base + dx];
-            dist += diff * diff;
-        }
-        if (dist > stop_thr) return dist;
+        
+        __m256 v_img = _mm256_loadu_ps(img + img_base);
+        __m256 v_ref = _mm256_loadu_ps(ref_patch + ref_base);
+        __m256 diff = _mm256_sub_ps(v_img, v_ref);
+        sum = _mm256_fmadd_ps(diff, diff, sum);
     }
+    
+    // Horizontal sum of the 8 floats in the AVX register
+    __m128 vlow = _mm256_castps256_ps128(sum);
+    __m128 vhigh = _mm256_extractf128_ps(sum, 1);
+    vlow = _mm_add_ps(vlow, vhigh);
+    __m128 shuf = _mm_movehdup_ps(vlow);
+    __m128 sums = _mm_add_ps(vlow, shuf);
+    shuf = _mm_movehl_ps(shuf, sums);
+    sums = _mm_add_ss(sums, shuf);
+    float dist = _mm_cvtss_f32(sums);
+
     return dist / 64.0f;
 }
 
 void Denoiser::extract_patch(const float* img, int w, int x, int y, float* out) {
     for (int dy = 0; dy < 8; ++dy) {
-        std::copy(img + (y + dy) * w + x, img + (y + dy) * w + x + 8, out + dy * 8);
+        __m256 v_row = _mm256_loadu_ps(img + (y + dy) * w + x);
+        _mm256_storeu_ps(out + dy * 8, v_row);
     }
 }
 
 void Denoiser::dct_1d_8(float* x, const float* coeffs) {
     float tmp[8];
     std::copy(x, x + 8, tmp);
+    __m256 v_tmp = _mm256_loadu_ps(tmp);
+
     for (int k = 0; k < 8; ++k) {
-        float s = 0.0f;
-        int row_start = k * 8;
-        for (int n = 0; n < 8; ++n) {
-            s += tmp[n] * coeffs[row_start + n];
-        }
-        x[k] = s;
+        __m256 v_coeffs = _mm256_loadu_ps(coeffs + k * 8);
+        __m256 v_prod = _mm256_mul_ps(v_tmp, v_coeffs);
+        
+        // Horizontal sum
+        __m128 vlow = _mm256_castps256_ps128(v_prod);
+        __m128 vhigh = _mm256_extractf128_ps(v_prod, 1);
+        vlow = _mm_add_ps(vlow, vhigh);
+        __m128 shuf = _mm_movehdup_ps(vlow);
+        __m128 sums = _mm_add_ps(vlow, shuf);
+        shuf = _mm_movehl_ps(shuf, sums);
+        sums = _mm_add_ss(sums, shuf);
+        x[k] = _mm_cvtss_f32(sums);
     }
 }
 
 void Denoiser::idct_1d_8(float* x, const float* coeffs) {
     float tmp[8];
     std::copy(x, x + 8, tmp);
+
     for (int n = 0; n < 8; ++n) {
-        float s = 0.0f;
-        for (int k = 0; k < 8; ++k) {
-            s += tmp[k] * coeffs[n * 8 + k];
-        }
-        x[n] = s;
+        __m256 v_tmp = _mm256_loadu_ps(tmp);
+        // We need the n-th column of the coeffs matrix (which is 8x8)
+        // Since idct_coeff[n*8 + k] is what we use, it's actually row-major access here.
+        __m256 v_coeffs = _mm256_loadu_ps(coeffs + n * 8);
+        __m256 v_prod = _mm256_mul_ps(v_tmp, v_coeffs);
+
+        // Horizontal sum
+        __m128 vlow = _mm256_castps256_ps128(v_prod);
+        __m128 vhigh = _mm256_extractf128_ps(v_prod, 1);
+        vlow = _mm_add_ps(vlow, vhigh);
+        __m128 shuf = _mm_movehdup_ps(vlow);
+        __m128 sums = _mm_add_ps(vlow, shuf);
+        shuf = _mm_movehl_ps(shuf, sums);
+        sums = _mm_add_ss(sums, shuf);
+        x[n] = _mm_cvtss_f32(sums);
     }
 }
 

@@ -11,6 +11,8 @@
 #include <memory>
 #include <vector>
 
+class QRhi;
+
 class RawEngine : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString source READ source WRITE setSource NOTIFY sourceChanged)
@@ -101,6 +103,7 @@ class RawEngine : public QObject {
 
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
     Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
+    Q_PROPERTY(bool isPanning READ isPanning WRITE setIsPanning NOTIFY isPanningChanged)
     Q_PROPERTY(bool hasDenoisedResult READ hasDenoisedResult NOTIFY denoisingFinished)
     Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled NOTIFY denoiseEnabledChanged)
     Q_PROPERTY(QSize viewportSize READ viewportSize WRITE setViewportSize NOTIFY viewportSizeChanged)
@@ -113,6 +116,8 @@ class RawEngine : public QObject {
  public:
   explicit RawEngine(QObject* parent = nullptr);
   ~RawEngine();
+
+  void setRhi(QRhi* rhi) { m_rhi = rhi; }
 
   QString source() const { return m_source; }
   void setSource(const QString& source);
@@ -277,12 +282,16 @@ class RawEngine : public QObject {
   void setDenoiseEnabled(bool enabled);
   QRectF denoisedRoi() const { return m_denoisedRoi; }
 
+  bool isPanning() const { return m_isPanning; }
+  void setIsPanning(bool panning);
+
   bool halfSize() const { return m_halfSize; }
   void setHalfSize(bool half);
 
   // Asynchronous load
   void loadRawFileAsync(const QString& path);
   Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f, const QRectF& roi = QRectF(0,0,1,1));
+  Q_INVOKABLE void clearDenoisedResult();
 
   QImage getThumbnail();
 
@@ -372,6 +381,7 @@ class RawEngine : public QObject {
   void imageLoaded();
   void isLoadingChanged();
   void isDenoisingChanged();
+  void isPanningChanged();
   void denoiseEnabledChanged();
   void viewportSizeChanged();
   void denoisingFinished();
@@ -384,6 +394,7 @@ class RawEngine : public QObject {
 
  private:
   QString m_source;
+  QRhi* m_rhi = nullptr;
   QSize m_viewportSize;
   float m_exposure = 0.0f;
   float m_contrast = 1.0f;
@@ -458,6 +469,7 @@ class RawEngine : public QObject {
 
   bool m_isLoading = false;
   bool m_isDenoising = false;
+  bool m_isPanning = false;
   bool m_halfSize = false;
   QVariantList m_editStack;
   int m_editIndex = -1;

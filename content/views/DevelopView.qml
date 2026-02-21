@@ -11,18 +11,6 @@ Control {
     property var viewport: null
     property real viewTopPadding: 0
 
-    Connections {
-        target: root.viewport
-        function onZoomChanged() {
-            if (root.viewport && root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
-                // If we are zoomed in, re-trigger a sharper denoise if not already denoising
-                if (!root.viewport.isDenoising) {
-                    root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
-                }
-            }
-        }
-    }
-
     background: Rectangle {
         color: Theme.background
         border.color: Theme.border

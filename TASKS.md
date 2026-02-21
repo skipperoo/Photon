@@ -115,9 +115,9 @@
     - [x] Optimize search radius and patch size for 60fps performance.
   - [ ] **Step 3: GPU Search Offload [IN PROGRESS]**
     - [x] Implement initial **Patch Search shaders** (SSD calculation).
-    - [ ] Implement GPU-to-CPU readback logic for search indices.
-    - [ ] Integrate GPU search results into the BM3D pipeline.
-  - [x] **Asynchronous Workflow**
+    - [ ] Implement **RHI-based offscreen pass** in `GpuSearcher`.
+    - [ ] Implement **GPU-to-CPU readback** logic for search indices.
+    - [ ] Integrate GPU search results into the BM3D pipeline.  - [x] **Asynchronous Workflow**
     - [x] Run heavy denoising in background thread.
     - [x] Implement "Applying denoise..." UI indicator with rotating loader.
     - [x] Implement automatic abort logic when switching photos.
@@ -134,6 +134,11 @@
 - [ ] **Lifecycle Management**
   - [ ] Ensure `RawEngine` destructor clean-joins all background workers.
   - [ ] Prevent segfaults on application close while denoising.
+- [ ] **Viewport Constraints & Polish**
+  - [ ] Lock panning when zoom <= 100% (center image).
+  - [ ] Constrain pan offset to image boundaries when zoomed in.
+  - [ ] Implement double-click zoom cycle (100% -> 200% -> 400% -> 100%).
+  - [ ] Fix rendering artifacts during zoom/pan with active denoising.
 
 ## Backlog / Future
 

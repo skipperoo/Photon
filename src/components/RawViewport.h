@@ -35,6 +35,7 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount NOTIFY denoiseAmountChanged)
     Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled NOTIFY denoiseEnabledChanged)
     Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
+    Q_PROPERTY(bool isPanning READ isPanning WRITE setIsPanning NOTIFY isPanningChanged)
     Q_PROPERTY(int sourceWidth READ sourceWidth NOTIFY sourceSizeChanged)
     Q_PROPERTY(int sourceHeight READ sourceHeight NOTIFY sourceSizeChanged)
 
@@ -170,6 +171,9 @@ class RawViewport : public QQuickItem {
     void setDenoiseEnabled(bool enabled);
 
     bool isDenoising() const { return m_engine.isDenoising(); }
+    bool isPanning() const { return m_engine.isPanning(); }
+    void setIsPanning(bool panning);
+
     int sourceWidth() const { return m_imageWidth; }
     int sourceHeight() const { return m_imageHeight; }
         
@@ -309,6 +313,7 @@ class RawViewport : public QQuickItem {
     void denoiseAmountChanged();
     void denoiseEnabledChanged();
     void isDenoisingChanged();
+    void isPanningChanged();
     void sourceSizeChanged();
     void imageRectChanged();
 

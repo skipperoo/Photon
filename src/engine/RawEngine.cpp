@@ -1,5 +1,6 @@
 #include "RawEngine.h"
 #include "Denoiser.h"
+#include "GpuSearcher.h"
 
 #include <QDebug>
 #include <QMutexLocker>
@@ -148,9 +149,28 @@ void RawEngine::setSource(const QString& source) {
   // Abort any ongoing denoising immediately
   m_abortDenoise = true;
   if (m_denoiseWatcher.isRunning()) {
+      m_denoiseWatcher.disconnect(); 
       m_denoiseWatcher.waitForFinished();
+      
+      // Reconnect
+      connect(&m_denoiseWatcher, &QFutureWatcher<QImage>::finished, this, [this]() {
+          if (!m_abortDenoise) {
+              QImage result = m_denoiseWatcher.result();
+              if (!result.isNull()) {
+                  QMutexLocker locker(&m_processorMutex);
+                  m_denoisedWidth = result.width();
+                  m_denoisedHeight = result.height();
+                  m_denoisedBuffer.resize(result.sizeInBytes());
+                  std::copy(result.constBits(), result.constBits() + m_denoisedBuffer.size(), m_denoisedBuffer.begin());
+                  m_hasDenoisedResult = true;
+              }
+          }
+          m_isDenoising = false;
+          emit isDenoisingChanged();
+          emit denoisingFinished();
+      });
   }
-
+  
   m_source = source;
   m_hasDenoisedResult = false;
   emit sourceChanged();
@@ -168,6 +188,17 @@ void RawEngine::setViewportSize(const QSize& size) {
     if (m_viewportSize == size) return;
     m_viewportSize = size;
     emit viewportSizeChanged();
+}
+
+void RawEngine::setIsPanning(bool panning) {
+    if (m_isPanning == panning) return;
+    m_isPanning = panning;
+    emit isPanningChanged();
+    
+    if (m_isPanning) {
+        // Immediately drop high-quality result to allow fast movement
+        clearDenoisedResult();
+    }
 }
 
 void RawEngine::setExposure(float ev) {
@@ -326,6 +357,17 @@ void RawEngine::setDenoiseEnabled(bool enabled) {
 void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
     if (!m_isLoaded || !m_denoiseEnabled || m_denoiseAmount <= 0.0f) return;
 
+    // Check if we are just requesting the same ROI again (e.g. slight mouse jitter)
+    if (m_hasDenoisedResult && !m_isDenoising && roi.isValid() && m_denoisedRoi.isValid()) {
+        // Use a small tolerance for float comparison
+        bool sameRoi = qAbs(roi.x() - m_denoisedRoi.x()) < 0.001 &&
+                       qAbs(roi.y() - m_denoisedRoi.y()) < 0.001 &&
+                       qAbs(roi.width() - m_denoisedRoi.width()) < 0.001 &&
+                       qAbs(roi.height() - m_denoisedRoi.height()) < 0.001;
+        
+        if (sameRoi && final) return; // Already have this result
+    }
+
     // Signal abort to current running task if any
     if (m_denoiseWatcher.isRunning()) {
         m_abortDenoise = true;
@@ -415,11 +457,32 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
 
     float amount = m_denoiseAmount;
     int stride = final ? 4 : 8; // Faster search for previews
+    
+    // Check if we can offload to GPU
+    if (m_rhi && !roi.isValid()) {
+        // Offload search logic... 
+        // Note: For now we maintain CPU path as it is more stable across all GPUs
+        // until we finalize the RHI readback timing.
+    }
+
     std::atomic<bool>* abortPtr = &m_abortDenoise;
     QFuture<QImage> future = QtConcurrent::run([img, amount, abortPtr, final, stride]() {
         return photon::Denoiser::denoise(img, amount, abortPtr, final, stride);
     });
     m_denoiseWatcher.setFuture(future);
+}
+
+void RawEngine::clearDenoisedResult() {
+    m_abortDenoise = true;
+    if (m_denoiseWatcher.isRunning()) {
+        m_denoiseWatcher.waitForFinished();
+    }
+    QMutexLocker locker(&m_processorMutex);
+    m_hasDenoisedResult = false;
+    m_denoisedRoi = QRectF(0, 0, 1, 1);
+    m_isDenoising = false;
+    emit isDenoisingChanged();
+    emit denoisingFinished();
 }
 
 // HSL Setters
@@ -714,15 +777,20 @@ bool RawEngine::loadRawFileSync(const QString& path) {
   QDateTime dt = QDateTime::fromSecsSinceEpoch(m_processor->imgdata.other.timestamp);
   meta["timestamp"] = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : "-";
   
-  meta["width"] = (int)m_processor->imgdata.sizes.iwidth;
-  meta["height"] = (int)m_processor->imgdata.sizes.iheight;
-
   // Map LibRaw flip to EXIF orientation tag
   int flip = m_processor->imgdata.sizes.flip;
   int orient = 1;
   if (flip == 3) orient = 3;
   else if (flip == 5) orient = 8;
   else if (flip == 6) orient = 6;
+
+  if (orient == 6 || orient == 8) {
+      meta["width"] = (int)m_processor->imgdata.sizes.iheight;
+      meta["height"] = (int)m_processor->imgdata.sizes.iwidth;
+  } else {
+      meta["width"] = (int)m_processor->imgdata.sizes.iwidth;
+      meta["height"] = (int)m_processor->imgdata.sizes.iheight;
+  }
 
   QMetaObject::invokeMethod(this, [this, meta, orient]() {
       m_metadata = meta;
@@ -799,11 +867,12 @@ QImage RawEngine::extractThumbnail(const QString& path) {
 }
 
 const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
-  if (!m_isLoaded) return nullptr;
+  if (!m_isLoaded || m_abortDenoise) return nullptr;
 
   QMutexLocker locker(&m_processorMutex);
 
-  if (m_denoiseEnabled && m_hasDenoisedResult && m_denoiseAmount > 0.0f) {
+  // If panning, always show the noisy developed image (or a proxy)
+  if (!m_isPanning && m_denoiseEnabled && m_hasDenoisedResult && m_denoiseAmount > 0.0f) {
       width = m_denoisedWidth;
       height = m_denoisedHeight;
       colors = 4;
@@ -811,7 +880,15 @@ const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
   }
   
   if (!m_processedImage) {
+      // If panning, we might want to force half-size for speed
+      bool oldHalf = m_halfSize;
+      if (m_isPanning) m_processor->imgdata.params.half_size = 1;
+
       int ret = m_processor->dcraw_process();
+      
+      // Restore original half-size param
+      m_processor->imgdata.params.half_size = oldHalf ? 1 : 0;
+
       if (ret != LIBRAW_SUCCESS) return nullptr;
 
       m_processedImage = m_processor->dcraw_make_mem_image(&ret);

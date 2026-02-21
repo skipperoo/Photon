@@ -4,7 +4,7 @@ project(Photon VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent GuiPrivate)
 find_package(Vulkan REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBRAW REQUIRED libraw)
@@ -118,7 +118,7 @@ set_target_properties(Photon PROPERTIES
 )
 
 target_link_libraries(Photon
-    PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent
+    PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
     PRIVATE ${LIBRAW_LIBRARIES}
     PRIVATE Vulkan::Vulkan
 )
@@ -128,6 +128,8 @@ target_include_directories(Photon PRIVATE
     src/engine
     src/components
     src/managers
+    /usr/include/qt6/QtGui/6.10.1
+    /usr/include/qt6/QtGui/6.10.1/QtGui
     ${LIBRAW_INCLUDE_DIRS}
 )
 

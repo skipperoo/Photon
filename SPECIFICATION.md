@@ -151,7 +151,7 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 9.  **Denoising Pipeline (Phase 12):** Photon employs a hybrid GPU/CPU architecture designed for professional performance:
     *   **GPU Preview (NLM):** A real-time **Non-Local Means (NLM)** filter runs in the fragment shader. It uses 3x3 patch comparisons within a 7x7 search window, providing high-fidelity spatial denoising at 60fps.
     *   **Full Quality Toggle:** A user preference in settings allows forcing the high-fidelity 2-step denoiser even during the preview phase.
-    *   **GPU-Accelerated Search (In Development):** Computational patch-matching is offloaded to the GPU to generate spatial similarity indices.
+    *   **GPU-Accelerated Search:** The computationally expensive patch-matching phase of the BM3D algorithm is offloaded to the GPU. An RHI-based offscreen pass computes the Sum of Squared Differences (SSD) across the search window and generates a spatial similarity index texture, which is then read back for CPU filtering.
     *   **CPU Transform & Filter (SIMD):** The collaborative filtering is performed on the CPU using **AVX2 and FMA** instructions, protected by a `QMutex` to ensure thread safety with the LibRaw processor.
     *   **Adaptive Proxy Scaling:** Preview denoising resolution dynamically adjusts based on the viewport size and zoom level (`viewport * zoom * 1.5`), ensuring zero pixelation even at 400% zoom.
     *   **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.

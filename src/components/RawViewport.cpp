@@ -41,6 +41,7 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::denoiseAmountChanged, this, [this](){ emit denoiseAmountChanged(); update(); });
   connect(&m_engine, &RawEngine::denoiseEnabledChanged, this, [this](){ emit denoiseEnabledChanged(); update(); });
   connect(&m_engine, &RawEngine::isDenoisingChanged, this, [this](){ emit isDenoisingChanged(); });
+  connect(&m_engine, &RawEngine::isPanningChanged, this, [this](){ emit isPanningChanged(); });
   connect(&m_engine, &RawEngine::denoisingFinished, this, [this](){ m_textureDirty = true; update(); });
 
   // HSL Connections
@@ -93,6 +94,10 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
 
 void RawViewport::setSource(const QString& source) {
   if (m_engine.source() == source) return;
+  m_imageWidth = 0;
+  m_imageHeight = 0;
+  m_bufferWidth = 0;
+  m_bufferHeight = 0;
   m_engine.setSource(source);
   emit sourceChanged();
 }
@@ -242,6 +247,14 @@ void RawViewport::setDenoiseEnabled(bool enabled) {
     update();
 }
 
+void RawViewport::setIsPanning(bool panning) {
+    if (m_engine.isPanning() == panning) return;
+    m_engine.setIsPanning(panning);
+    m_textureDirty = true;
+    emit isPanningChanged();
+    update();
+}
+
 // HSL Setters
 void RawViewport::setHslRedHue(float val) { m_engine.setHslRedHue(val); m_engine.requestHistogramUpdate(); }
 void RawViewport::setHslRedSaturation(float val) { m_engine.setHslRedSaturation(val); m_engine.requestHistogramUpdate(); }
@@ -284,14 +297,67 @@ void RawViewport::setCgBlending(float val) { m_engine.setCgBlending(val); m_engi
 void RawViewport::setZoom(float zoom) {
   if (qFuzzyCompare(m_zoom, zoom)) return;
   m_zoom = zoom;
+  
+  if (m_zoom <= 1.0f) {
+      m_panOffset = QPointF(0, 0);
+      m_engine.clearDenoisedResult();
+      emit panChanged();
+  } else {
+      // Re-clamp current pan to new zoom limits to prevent being stuck out of bounds
+      setPan(m_panOffset); 
+  }
+
   m_engine.setHalfSize(m_zoom <= 1.0f);
   emit zoomChanged();
   update();
 }
 
 void RawViewport::setPan(const QPointF& offset) {
-  if (m_panOffset == offset) return;
-  m_panOffset = offset;
+  // If zoomed out or fit, force center
+  if (m_zoom <= 1.0f) {
+      if (m_panOffset == QPointF(0, 0)) return;
+      m_panOffset = QPointF(0, 0);
+      m_engine.clearDenoisedResult();
+      emit panChanged();
+      update();
+      return;
+  }
+
+  // Calculate constraints
+  // Image is centered at (0,0) pan.
+  // Max pan allows the edge of the image to touch the edge of the viewport.
+  // Image size in viewport pixels:
+  qreal imgW = 0;
+  qreal imgH = 0;
+  
+  if (m_imageWidth > 0 && m_imageHeight > 0) {
+      qreal viewportAspect = width() / height();
+      qreal imageAspect = static_cast<qreal>(m_imageWidth) / static_cast<qreal>(m_imageHeight);
+      
+      if (viewportAspect > imageAspect) {
+          imgH = height() * m_zoom;
+          imgW = imgH * imageAspect;
+      } else {
+          imgW = width() * m_zoom;
+          imgH = imgW / imageAspect;
+      }
+  }
+  
+  qreal maxX = std::max(0.0, (imgW - width()) / 2.0);
+  qreal maxY = std::max(0.0, (imgH - height()) / 2.0);
+  
+  QPointF constrained = QPointF(
+      std::clamp(offset.x(), -maxX, maxX),
+      std::clamp(offset.y(), -maxY, maxY)
+  );
+
+  if (m_panOffset == constrained) return;
+  m_panOffset = constrained;
+  
+  // If we are panning, immediately revert to noisy texture for 60fps responsiveness.
+  m_engine.clearDenoisedResult();
+  m_textureDirty = true;
+  
   emit panChanged();
   update();
 }
@@ -300,7 +366,7 @@ void RawViewport::onImageLoaded() {
   m_imageDirty = true;
   m_textureDirty = true;
   
-  // Update full image dimensions from metadata to ensure correct scaling even if buffer is cropped
+  // Update full image dimensions from metadata
   QVariantMap meta = m_engine.metadata();
   if (meta.contains("width") && meta.contains("height")) {
       m_imageWidth = meta["width"].toInt();
@@ -379,23 +445,14 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     node = new QSGSimpleTextureNode();
   }
 
+  m_engine.setRhi(window()->rhi());
+
   if (m_textureDirty) {
     int width, height, colors;
     const uchar* data = m_engine.getProcessedData(width, height, colors);
 
     if (data && width > 0 && height > 0) {
-      // Logic for full image vs ROI crop
-      // We need to know if the engine is returning a crop.
-      // For now, let's assume if it's NOT the full dimensions, it's a crop.
-      // But we need the full dimensions to be correct first.
-      
-      if (!m_engine.hasDenoisedResult()) {
-          // Normal case: engine returns full developed image
-          m_imageWidth = width;
-          m_imageHeight = height;
-          emit sourceSizeChanged();
-      }
-
+      // TRACK BUFFER SIZE SEPARATELY
       m_bufferWidth = width;
       m_bufferHeight = height;
 

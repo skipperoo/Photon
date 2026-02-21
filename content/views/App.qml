@@ -141,6 +141,18 @@ Window {
                             visible: true
                         }
 
+                        // Timer to trigger denoise after interaction stops
+                        Timer {
+                            id: interactionDenoiseTimer
+                            interval: 500 // Wait 500ms after last interaction
+                            repeat: false
+                            onTriggered: {
+                                if (rawViewport.denoiseEnabled && rawViewport.denoiseAmount > 0) {
+                                    rawViewport.startAsyncDenoise(AppState.previewDenoiseFull, rawViewport.zoom, rawViewport.visibleImageRect());
+                                }
+                            }
+                        }
+
                         ShaderEffect {
                             anchors.fill: rawViewport
                             property variant source: ShaderEffectSource { 
@@ -220,24 +232,68 @@ Window {
                             anchors.fill: rawViewport
                             hoverEnabled: true
                             acceptedButtons: Qt.LeftButton
-                            scrollGestureEnabled: true
+                            scrollGestureEnabled: false
+                            preventStealing: true
                             
                             property point lastPos
+                            property point startPos
+                            property bool isDragging: false
                             
                             onWheel: (wheel) => {
-                                var factor = Math.pow(1.001, wheel.angleDelta.y)
-                                rawViewport.zoom = Math.max(0.1, Math.min(10.0, rawViewport.zoom * factor))
+                                wheel.accepted = true;
+                                // Threshold of 20 to avoid micro-scrolls during clicks
+                                if (Math.abs(wheel.angleDelta.y) >= 20) {
+                                    var factor = Math.pow(1.001, wheel.angleDelta.y)
+                                    rawViewport.zoom = Math.max(0.1, Math.min(10.0, rawViewport.zoom * factor))
+                                    interactionDenoiseTimer.restart();
+                                }
                             }
                             
                             onPressed: (mouse) => {
                                 lastPos = Qt.point(mouse.x, mouse.y)
+                                startPos = Qt.point(mouse.x, mouse.y)
+                                isDragging = false
+                            }
+                            
+                            onReleased: (mouse) => {
+                                if (rawViewport.isPanning) {
+                                    rawViewport.isPanning = false;
+                                }
+                                
+                                if (isDragging) {
+                                    interactionDenoiseTimer.restart();
+                                }
+                                isDragging = false;
+                            }
+                            
+                            onDoubleClicked: (mouse) => {
+                                // Cycle: 1.0 -> 2.0 -> 4.0 -> 1.0
+                                if (rawViewport.zoom < 1.0) rawViewport.zoom = 1.0;
+                                else if (rawViewport.zoom < 2.0) rawViewport.zoom = 2.0;
+                                else if (rawViewport.zoom < 4.0) rawViewport.zoom = 4.0;
+                                else rawViewport.zoom = 1.0;
+                                
+                                interactionDenoiseTimer.restart();
                             }
                             
                             onPositionChanged: (mouse) => {
                                 if (pressed) {
-                                    var delta = Qt.point(mouse.x - lastPos.x, mouse.y - lastPos.y)
-                                    rawViewport.pan = Qt.point(rawViewport.pan.x + delta.x, rawViewport.pan.y + delta.y)
-                                    lastPos = Qt.point(mouse.x, mouse.y)
+                                    var dx = mouse.x - startPos.x;
+                                    var dy = mouse.y - startPos.y;
+                                    var dist = Math.sqrt(dx*dx + dy*dy);
+                                    
+                                    if (dist > 10) { // 10px threshold
+                                        isDragging = true;
+                                        if (rawViewport.zoom > 1.0) {
+                                            rawViewport.isPanning = true;
+                                        }
+                                    }
+
+                                    if (isDragging && rawViewport.zoom > 1.0) {
+                                        var delta = Qt.point(mouse.x - lastPos.x, mouse.y - lastPos.y)
+                                        rawViewport.pan = Qt.point(rawViewport.pan.x + delta.x, rawViewport.pan.y + delta.y)
+                                        lastPos = Qt.point(mouse.x, mouse.y)
+                                    }
                                 }
                             }
                         }
@@ -266,15 +322,17 @@ Window {
                                     opacity: 0.6
                                 }
 
-                                                                 Slider {
-                                                                     id: zoomSlider
-                                                                     Layout.preferredWidth: 200
-                                                                     from: 0.1
-                                                                     to: 10.0
-                                                                     value: rawViewport.zoom
-                                                                     onMoved: rawViewport.zoom = value
-                                                                 }
-                                
+                                                                                                  Slider {
+                                                                                                      id: zoomSlider
+                                                                                                      Layout.preferredWidth: 200
+                                                                                                      from: 0.1
+                                                                                                      to: 10.0
+                                                                                                      value: rawViewport.zoom
+                                                                                                      onMoved: {
+                                                                                                          rawViewport.zoom = value
+                                                                                                          interactionDenoiseTimer.restart()
+                                                                                                      }
+                                                                                                  }                                
                                                                  Text {
                                                                      text: Math.round(rawViewport.zoom * 100) + "%"
                                                                      color: Theme.foreground

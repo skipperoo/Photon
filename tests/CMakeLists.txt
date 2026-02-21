@@ -18,6 +18,8 @@ target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
 
 target_include_directories(tst_RawEngine PRIVATE
     ../src/engine
+    /usr/include/qt6/QtGui/6.10.1
+    /usr/include/qt6/QtGui/6.10.1/QtGui
     ${LIBRAW_INCLUDE_DIRS}
 )
 

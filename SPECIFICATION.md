@@ -147,6 +147,11 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 6.  **HSL Panel:** An **8-band HSL system** (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta) is implemented in the fragment shader. It uses weighted influence curves to allow targeted Hue, Saturation, and Luminance adjustments without causing artifacts.
 7.  **Color Grading:** A professional **3-Way Color Grading** system is implemented, allowing independent tinting of **Shadows, Midtones, and Highlights**. It features global **Balance** and **Blending** controls to precisely manage tonal transitions.
 8.  **Dithering:** High-quality dithering is implemented using a sine-based pseudo-random noise generator. It is applied to the final RGB output at a precision of 1/255 to mask banding artifacts and ensure smooth gradients on 8-bit displays.
+9.  **Denoising Pipeline (Phase 12):** Photon employs a multi-stage denoising architecture to balance real-time responsiveness with extreme reconstruction quality:
+    *   **GPU Preview:** A real-time **Bilateral Filter** runs in the fragment shader at 60fps, providing instant feedback as the user adjusts the "Noise Reduction" slider.
+    *   **CPU High-Fidelity:** A high-quality **BM3D (Block-matching and 3D filtering)** algorithm runs in a background worker thread. It is triggered upon slider release.
+    *   **SIMD Acceleration:** The CPU denoiser is highly optimized using **AVX2 and FMA** instructions to maximize throughput.
+    *   **Asynchronous UX:** The UI remains fully interactive during denoising. A "Applying denoise..." indicator with a rotating loader provides status updates, and processes are automatically aborted if the user switches images.
 
 **Accordion Sections:**
 

@@ -87,25 +87,37 @@
   - [x] Remove floating top bar in Development view (exclusive to Library/Settings).
   - [ ] Add sidebar-based navigation for Library and Settings.
   
-  ## Phase 11: Advanced Settings & Diagnostics [IN PROGRESS]
+  ## Phase 11: Advanced Settings & Diagnostics [DONE]
   
-  - [ ] **GPU Management**
-    - [ ] Detect available Vulkan physical devices in C++.
-    - [ ] Implement GPU selection logic in `AppStateManager`.
-  - [ ] **Aesthetics & Theme**
-    - [ ] Implement Light/Dark mode toggle.
-    - [ ] Implement Accent color selection.
-    - [ ] Synchronize `Theme.qml` with persistent settings.
-  - [ ] **Cache & Maintenance**
-    - [ ] Implement "Clear Thumbnail Cache" logic.
-    - [ ] Context-aware enabling/disabling of cache maintenance.
-  - [ ] **Logging System**
-    - [ ] Implement `LogManager` C++ class.
-    - [ ] Add log file location selection to UI.
-    - [ ] Set default log location based on OS standards.
+  - [x] **GPU Management**
+    - [x] Detect available Vulkan physical devices in C++.
+    - [x] Implement robust GPU selection logic in `main.cpp` using multiple env vars.
+  - [x] **Aesthetics & Theme**
+    - [x] Implement Light/Dark mode toggle.
+    - [x] Implement Accent color selection.
+    - [x] Synchronize `Theme.qml` with persistent settings.
+  - [x] **Cache & Maintenance**
+    - [x] Implement "Clear Thumbnail Cache" logic.
+    - [x] Context-aware enabling/disabling of cache maintenance.
+  - [x] **Logging System**
+    - [x] Implement `LogManager` C++ class with log level filtering.
+    - [x] Add log file location selection to UI.
+    - [x] Set default log location based on OS standards.
   
-  ## Backlog / Future
-- [ ] **Crop & Transform**
+  ## Phase 12: Hybrid Denoising Pipeline [DONE]
+  
+  - [x] **GPU Real-time Preview**
+    - [x] Implement Bilateral Noise Reduction in fragment shader.
+    - [x] Bind "Noise Reduction" slider for 60fps instant feedback.
+  - [x] **CPU High-Fidelity Refinement**
+    - [x] Port BM3D algorithm from Rust to C++.
+    - [x] Optimize with **AVX2 and FMA** SIMD instructions.
+  - [x] **Asynchronous Workflow**
+    - [x] Run heavy denoising in background thread.
+    - [x] Implement "Applying denoise..." UI indicator with rotating loader.
+    - [x] Implement automatic abort logic when switching photos.
+  
+  ## Backlog / Future- [ ] **Crop & Transform**
   - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
   - [ ] Straighten tool and arbitrary rotation.
   - [ ] Perspective correction.

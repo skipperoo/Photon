@@ -274,10 +274,11 @@ class RawViewport : public QQuickItem {
             bool canRedo() const { return m_engine.canRedo(); }
             bool isDefault() const { return m_engine.isDefault(); }
 
+            Q_INVOKABLE QRectF visibleImageRect();
             Q_INVOKABLE QVariantMap currentSettings() const;
             Q_INVOKABLE void applySettings(const QVariantMap& settings) { m_engine.applySettings(settings); }
             Q_INVOKABLE void commitEdit() { m_engine.commitEdit(); }
-            Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f);
+            Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f, const QRectF& roi = QRectF(0,0,1,1));
             Q_INVOKABLE void undo() { m_engine.undo(); }
             Q_INVOKABLE void redo() { m_engine.redo(); }
             Q_INVOKABLE void resetToOriginal() { m_engine.resetToOriginal(); }
@@ -375,6 +376,8 @@ class RawViewport : public QQuickItem {
   bool m_textureDirty = false;
   int m_imageWidth = 0;
   int m_imageHeight = 0;
+  int m_bufferWidth = 0;
+  int m_bufferHeight = 0;
 
   QRectF calculateTargetRect();
 };

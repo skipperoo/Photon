@@ -1,4 +1,5 @@
 #include "RawViewport.h"
+#include "managers/AppStateManager.h"
 
 #include <QImage>
 #include <QSGTexture>
@@ -233,6 +234,9 @@ void RawViewport::setDenoiseAmount(float val) {
 void RawViewport::setDenoiseEnabled(bool enabled) {
     if (m_engine.denoiseEnabled() == enabled) return;
     m_engine.setDenoiseEnabled(enabled);
+    if (enabled && m_engine.denoiseAmount() > 0.0f) {
+        m_engine.startAsyncDenoise(AppStateManager::instance()->previewDenoiseFull(), m_zoom);
+    }
     m_textureDirty = true;
     emit denoiseEnabledChanged();
     update();
@@ -295,15 +299,44 @@ void RawViewport::setPan(const QPointF& offset) {
 void RawViewport::onImageLoaded() {
   m_imageDirty = true;
   m_textureDirty = true;
+  
+  // Update full image dimensions from metadata to ensure correct scaling even if buffer is cropped
+  QVariantMap meta = m_engine.metadata();
+  if (meta.contains("width") && meta.contains("height")) {
+      m_imageWidth = meta["width"].toInt();
+      m_imageHeight = meta["height"].toInt();
+      emit sourceSizeChanged();
+  }
+  
   update();  // Trigger updatePaintNode
+}
+
+QRectF RawViewport::visibleImageRect() {
+    if (m_imageWidth <= 0 || m_imageHeight <= 0) return QRectF(0, 0, 1, 1);
+    
+    QRectF view = boundingRect();
+    QRectF image = calculateTargetRect();
+    
+    // Intersection of viewport and image
+    QRectF visible = view.intersected(image);
+    
+    if (visible.isEmpty() || image.width() <= 0 || image.height() <= 0) return QRectF(0, 0, 1, 1);
+    
+    // Map to normalized image coordinates (0-1)
+    qreal x = (visible.x() - image.x()) / image.width();
+    qreal y = (visible.y() - image.y()) / image.height();
+    qreal w = visible.width() / image.width();
+    qreal h = visible.height() / image.height();
+    
+    return QRectF(x, y, w, h).normalized();
 }
 
 QVariantMap RawViewport::currentSettings() const {
     return m_engine.currentSettings();
 }
 
-void RawViewport::startAsyncDenoise(bool final, float zoom) {
-    m_engine.startAsyncDenoise(final, zoom);
+void RawViewport::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
+    m_engine.startAsyncDenoise(final, zoom, roi);
 }
 
 QRectF RawViewport::calculateTargetRect() {
@@ -351,11 +384,20 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     const uchar* data = m_engine.getProcessedData(width, height, colors);
 
     if (data && width > 0 && height > 0) {
-      if (m_imageWidth != width || m_imageHeight != height) {
+      // Logic for full image vs ROI crop
+      // We need to know if the engine is returning a crop.
+      // For now, let's assume if it's NOT the full dimensions, it's a crop.
+      // But we need the full dimensions to be correct first.
+      
+      if (!m_engine.hasDenoisedResult()) {
+          // Normal case: engine returns full developed image
           m_imageWidth = width;
           m_imageHeight = height;
           emit sourceSizeChanged();
       }
+
+      m_bufferWidth = width;
+      m_bufferHeight = height;
 
       QImage img;
       if (colors == 3) {
@@ -380,6 +422,14 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
   }
 
   QRectF rect = calculateTargetRect();
+  if (m_engine.hasDenoisedResult()) {
+      QRectF roi = m_engine.denoisedRoi();
+      rect = QRectF(rect.x() + roi.x() * rect.width(),
+                    rect.y() + roi.y() * rect.height(),
+                    roi.width() * rect.width(),
+                    roi.height() * rect.height());
+  }
+  
   if (m_imageRect != rect) {
     m_imageRect = rect;
     emit imageRectChanged();

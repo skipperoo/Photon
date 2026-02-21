@@ -275,13 +275,14 @@ class RawEngine : public QObject {
   bool hasDenoisedResult() const { return m_hasDenoisedResult; }
   bool denoiseEnabled() const { return m_denoiseEnabled; }
   void setDenoiseEnabled(bool enabled);
+  QRectF denoisedRoi() const { return m_denoisedRoi; }
 
   bool halfSize() const { return m_halfSize; }
   void setHalfSize(bool half);
 
   // Asynchronous load
   void loadRawFileAsync(const QString& path);
-  Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f);
+  Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f, const QRectF& roi = QRectF(0,0,1,1));
 
   QImage getThumbnail();
 
@@ -466,6 +467,7 @@ class RawEngine : public QObject {
   std::vector<uint8_t> m_denoisedBuffer;
   int m_denoisedWidth = 0;
   int m_denoisedHeight = 0;
+  QRectF m_denoisedRoi{0, 0, 1, 1};
   mutable QMutex m_processorMutex;
   std::atomic<bool> m_abortDenoise{false};
   bool m_hasDenoisedResult = false;

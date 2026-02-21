@@ -55,7 +55,7 @@ std::vector<float> Denoiser::AtomicAccumulator::toVector() const {
     return res;
 }
 
-QImage Denoiser::denoise(const QImage& input, float intensity, std::atomic<bool>* abort, bool step2) {
+QImage Denoiser::denoise(const QImage& input, float intensity, std::atomic<bool>* abort, bool step2, int stride) {
     if (input.isNull() || intensity <= 0.0f) return input;
     if (abort && abort->load()) return input;
 
@@ -84,7 +84,7 @@ QImage Denoiser::denoise(const QImage& input, float intensity, std::atomic<bool>
     Bm3dParams params = Bm3dParams::fromIntensity(intensity / 100.0f);
     DctTables tables;
 
-    auto denoised_channels = bm3d_process_joint(channels, width, height, params, tables, abort, step2);
+    auto denoised_channels = bm3d_process_joint(channels, width, height, params, tables, abort, step2, stride);
     if (abort && abort->load()) return input;
 
     QImage output(width, height, QImage::Format_RGBX64);
@@ -111,7 +111,7 @@ std::vector<float> extract_luma(const std::vector<std::vector<float>>& channels)
 std::vector<std::vector<float>> Denoiser::bm3d_process_joint(
     const std::vector<std::vector<float>>& noisy_channels,
     int width, int height, const Bm3dParams& params, const DctTables& tables,
-    std::atomic<bool>* abort, bool step2) {
+    std::atomic<bool>* abort, bool step2, int stride) {
     
     // Tiling strategy: process the image in TILE_SIZE blocks with overlap
     // to ensure cache locality and handle block boundaries correctly.
@@ -121,20 +121,20 @@ std::vector<std::vector<float>> Denoiser::bm3d_process_joint(
     std::vector<std::vector<float>> results(3, std::vector<float>(width * height));
     
     // Step 1: Basic Estimate
-    auto basic_estimate = run_bm3d_step_joint(noisy_channels, noisy_channels, width, height, params, true, tables, abort);
+    auto basic_estimate = run_bm3d_step_joint(noisy_channels, noisy_channels, width, height, params, true, tables, abort, stride);
     if (abort && abort->load()) return noisy_channels;
     
     if (!step2) return basic_estimate;
 
     // Step 2: Final Estimate (Wiener)
-    return run_bm3d_step_joint(noisy_channels, basic_estimate, width, height, params, false, tables, abort);
+    return run_bm3d_step_joint(noisy_channels, basic_estimate, width, height, params, false, tables, abort, stride);
 }
 
 std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     const std::vector<std::vector<float>>& noisy,
     const std::vector<std::vector<float>>& guide,
     int width, int height, const Bm3dParams& params, bool is_step_1, const DctTables& tables,
-    std::atomic<bool>* abort) {
+    std::atomic<bool>* abort, int stride) {
 
     int count = width * height;
     std::vector<std::shared_ptr<AtomicAccumulator>> numerators(3);
@@ -152,8 +152,8 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     std::vector<std::vector<float>> search_channels = { luma_buffer };
 
     std::vector<std::pair<int, int>> ref_patches;
-    for (int y = 0; y <= height - BLOCK_SIZE; y += STRIDE) {
-        for (int x = 0; x <= width - BLOCK_SIZE; x += STRIDE) {
+    for (int y = 0; y <= height - BLOCK_SIZE; y += stride) {
+        for (int x = 0; x <= width - BLOCK_SIZE; x += stride) {
             ref_patches.push_back({x, y});
         }
     }
@@ -295,6 +295,9 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
         for (int i = 0; i < count; ++i) {
             if (dens[i] > 1e-6f) {
                 results[ch][i] /= dens[i];
+            } else {
+                // Fallback to original noisy pixel if no patch covered this area with enough weight
+                results[ch][i] = noisy[ch][i];
             }
         }
     }
@@ -393,9 +396,22 @@ float Denoiser::compute_ssd_flat(const float* img, int w, int x, int y, const fl
 }
 
 void Denoiser::extract_patch(const float* img, int w, int x, int y, float* out) {
-    for (int dy = 0; dy < 8; ++dy) {
-        __m256 v_row = _mm256_loadu_ps(img + (y + dy) * w + x);
-        _mm256_storeu_ps(out + dy * 8, v_row);
+    // If we are safely inside the right boundary (at least 8 pixels from edge), use fast AVX path
+    if (x + 8 <= w) {
+        for (int dy = 0; dy < 8; ++dy) {
+            __m256 v_row = _mm256_loadu_ps(img + (y + dy) * w + x);
+            _mm256_storeu_ps(out + dy * 8, v_row);
+        }
+    } else {
+        // Safe fallback for right edge
+        for (int dy = 0; dy < 8; ++dy) {
+            int remaining = w - x;
+            std::copy(img + (y + dy) * w + x, img + (y + dy) * w + x + remaining, out + dy * 8);
+            // Pad with last pixel if needed (though the matching loop should avoid this)
+            for (int dx = remaining; dx < 8; ++dx) {
+                out[dy * 8 + dx] = out[dy * 8 + remaining - 1];
+            }
+        }
     }
 }
 

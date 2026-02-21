@@ -86,9 +86,9 @@
 - [ ] **Develop UI Polish**
   - [x] Remove floating top bar in Development view (exclusive to Library/Settings).
   - [ ] Add sidebar-based navigation for Library and Settings.
-  
+
   ## Phase 11: Advanced Settings & Diagnostics [DONE]
-  
+
   - [x] **GPU Management**
     - [x] Detect available Vulkan physical devices in C++.
     - [x] Implement robust GPU selection logic in `main.cpp` using multiple env vars.
@@ -103,9 +103,9 @@
     - [x] Implement `LogManager` C++ class with log level filtering.
     - [x] Add log file location selection to UI.
     - [x] Set default log location based on OS standards.
-  
+
   ## Phase 12: Hybrid Denoising Pipeline [IN PROGRESS]
-  
+
   - [x] **Step 1: CPU Algorithm Refinement**
     - [x] Refactor `Denoiser.cpp` to use **Luma-only Block Matching**.
     - [x] Implement **Spatial Tiling** (256x256 tiles) for cache locality.
@@ -122,20 +122,22 @@
     - [x] Implement "Applying denoise..." UI indicator with rotating loader.
     - [x] Implement automatic abort logic when switching photos.
     - [x] Implement dynamic proxy scaling based on viewport size and zoom level.
-    
-    ## Phase 13: High-Performance Denoise Control [IN PROGRESS]
-    
-    - [ ] **Explicit Execution Control**
-      - [ ] Add "Denoise" checkbox to UI.
-      - [ ] Implement immediate abort logic when unchecking.
-    - [ ] **ROI-Driven Proxy Refinement**
-      - [ ] Update zoom logic to re-render visible crop in high-fidelity first.
-      - [ ] Apply BM3D only to the high-quality visible region.
-    - [ ] **Lifecycle Management**
-      - [ ] Ensure `RawEngine` destructor clean-joins all background workers.
-      - [ ] Prevent segfaults on application close while denoising.
-    
-    ## Backlog / Future- [ ] **Crop & Transform**
+
+## Phase 13: High-Performance Denoise Control [IN PROGRESS]
+
+- [ ] **Explicit Execution Control**
+  - [ ] Add "Denoise" checkbox to UI.
+  - [ ] Implement immediate abort logic when unchecking.
+- [ ] **ROI-Driven Proxy Refinement**
+  - [ ] Update zoom logic to re-render visible crop in high-fidelity first.
+  - [ ] Apply BM3D only to the high-quality visible region.
+- [ ] **Lifecycle Management**
+  - [ ] Ensure `RawEngine` destructor clean-joins all background workers.
+  - [ ] Prevent segfaults on application close while denoising.
+
+## Backlog / Future
+
+- [ ] **Crop & Transform**
   - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
   - [ ] Straighten tool and arbitrary rotation.
   - [ ] Perspective correction.

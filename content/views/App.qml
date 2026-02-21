@@ -266,17 +266,23 @@ Window {
                                     opacity: 0.6
                                 }
 
-                                Slider {
-                                    id: zoomSlider
-                                    Layout.preferredWidth: 200
-                                    from: 0.1
-                                    to: 10.0
-                                    value: rawViewport.zoom
-                                    onMoved: rawViewport.zoom = value
-                                }
-
-                                Rectangle { width: 1; height: 20; color: Theme.border; Layout.leftMargin: 8; Layout.rightMargin: 8 }
-
+                                                                 Slider {
+                                                                     id: zoomSlider
+                                                                     Layout.preferredWidth: 200
+                                                                     from: 0.1
+                                                                     to: 10.0
+                                                                     value: rawViewport.zoom
+                                                                     onMoved: rawViewport.zoom = value
+                                                                 }
+                                
+                                                                 Text {
+                                                                     text: Math.round(rawViewport.zoom * 100) + "%"
+                                                                     color: Theme.foreground
+                                                                     font: Theme.fontSmall
+                                                                     Layout.preferredWidth: 40
+                                                                 }
+                                
+                                                                 Rectangle { width: 1; height: 20; color: Theme.border; Layout.leftMargin: 8; Layout.rightMargin: 8 }
                                 T.Button {
                                     id: undoBtn
                                     icon.source: "qrc:/Main/assets/icons/undo.svg"

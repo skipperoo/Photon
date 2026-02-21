@@ -26,13 +26,12 @@ struct Bm3dParams {
 
 class Denoiser {
 public:
-    static QImage denoise(const QImage& input, float intensity, std::atomic<bool>* abort = nullptr, bool step2 = true);
+    static QImage denoise(const QImage& input, float intensity, std::atomic<bool>* abort = nullptr, bool step2 = true, int stride = 6);
 
 private:
     static constexpr int BLOCK_SIZE = 8;
     static constexpr int BLOCK_AREA = 64;
     static constexpr int MAX_GROUP_SIZE = 16;
-    static constexpr int STRIDE = 6;
     static constexpr int SEARCH_WINDOW = 19;
 
     struct DctTables {
@@ -55,13 +54,13 @@ private:
     static std::vector<std::vector<float>> bm3d_process_joint(
         const std::vector<std::vector<float>>& noisy_channels,
         int width, int height, const Bm3dParams& params, const DctTables& tables,
-        std::atomic<bool>* abort, bool step2);
+        std::atomic<bool>* abort, bool step2, int stride);
 
     static std::vector<std::vector<float>> run_bm3d_step_joint(
         const std::vector<std::vector<float>>& noisy,
         const std::vector<std::vector<float>>& guide,
         int width, int height, const Bm3dParams& params, bool is_step_1, const DctTables& tables,
-        std::atomic<bool>* abort);
+        std::atomic<bool>* abort, int stride);
 
     static int block_matching_joint(
         const std::vector<std::vector<float>>& channels,

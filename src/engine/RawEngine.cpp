@@ -66,6 +66,7 @@ static void apply_region_tint_cpp(float& r, float& g, float& b, float hue, float
 
 RawEngine::RawEngine(QObject* parent)
     : QObject(parent), m_processor(std::make_unique<LibRaw>()) {
+  m_denoiseEnabled = true;
   updateProcessingParams();
 
   // Initialize histogram bins
@@ -109,6 +110,11 @@ RawEngine::RawEngine(QObject* parent)
 }
 
 RawEngine::~RawEngine() {
+  // Disconnect signals first to ensure no callbacks run during destruction
+  m_loadWatcher.disconnect();
+  m_denoiseWatcher.disconnect();
+
+  m_abortDenoise = true;
   m_loadWatcher.waitForFinished();
   m_denoiseWatcher.waitForFinished();
   m_histogramFuture.waitForFinished();
@@ -317,17 +323,21 @@ void RawEngine::setDenoiseEnabled(bool enabled) {
     }
 }
 
-void RawEngine::startAsyncDenoise(bool final, float zoom) {
+void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
     if (!m_isLoaded || !m_denoiseEnabled || m_denoiseAmount <= 0.0f) return;
 
     // Signal abort to current running task if any
-    m_abortDenoise = true;
     if (m_denoiseWatcher.isRunning()) {
+        m_abortDenoise = true;
         m_denoiseWatcher.waitForFinished();
     }
+    
+    // Reset abort flag for the NEW task
+    m_abortDenoise = false;
 
     m_isDenoising = true;
     m_hasDenoisedResult = false;
+    m_denoisedRoi = roi;
     emit isDenoisingChanged();
 
     QImage img;
@@ -359,20 +369,41 @@ void RawEngine::startAsyncDenoise(bool final, float zoom) {
         LibRaw::dcraw_clear_mem(img_data);
     }
 
-    // Apply Proxy Scaling: Dynamic resolution based on zoom
-    if (!final && !m_viewportSize.isEmpty()) {
-        QSize targetSize = img.size();
+    // --- ROI Logic ---
+    if (!roi.isEmpty() && roi.isValid() && (roi.width() < 0.99 || roi.height() < 0.99)) {
+        int x = (int)(roi.x() * img.width());
+        int y = (int)(roi.y() * img.height());
+        int w = (int)(roi.width() * img.width());
+        int h = (int)(roi.height() * img.height());
         
-        // Dynamic scaling: If zoomed in (> 1.0), we need more detail in the proxy.
-        // We calculate the required resolution to fill the viewport at the current zoom.
-        float detailMultiplier = std::max(1.5f, zoom);
-        QSize proxyLimit = m_viewportSize * detailMultiplier;
+        // Ensure 8-pixel alignment for BM3D blocks
+        x = (x / 8) * 8;
+        y = (y / 8) * 8;
+        w = ((w + 7) / 8) * 8;
+        h = ((h + 7) / 8) * 8;
+
+        x = qBound(0, x, img.width() - 8);
+        y = qBound(0, y, img.height() - 8);
+        w = qBound(8, w, img.width() - x);
+        h = qBound(8, h, img.height() - y);
         
-        // Ensure we don't exceed the original image size
-        targetSize.scale(proxyLimit, Qt::KeepAspectRatio);
-        
-        if (targetSize.width() < img.width()) {
-            img = img.scaled(targetSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        img = img.copy(x, y, w, h);
+        m_denoisedRoi = QRectF((qreal)x / m_processor->imgdata.sizes.iwidth, 
+                               (qreal)y / m_processor->imgdata.sizes.iheight, 
+                               (qreal)w / m_processor->imgdata.sizes.iwidth, 
+                               (qreal)h / m_processor->imgdata.sizes.iheight);
+    } else {
+        m_denoisedRoi = QRectF(0, 0, 1, 1);
+        if (!final && !m_viewportSize.isEmpty()) {
+            // Full-image preview: use proxy scaling
+            QSize targetSize = img.size();
+            // Be more aggressive: 2.0x base multiplier + zoom factor
+            float detailMultiplier = std::max(2.0f, zoom * 1.5f);
+            QSize proxyLimit = m_viewportSize * detailMultiplier;
+            targetSize.scale(proxyLimit, Qt::KeepAspectRatio);
+            if (targetSize.width() < img.width()) {
+                img = img.scaled(targetSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            }
         }
     }
 
@@ -382,11 +413,11 @@ void RawEngine::startAsyncDenoise(bool final, float zoom) {
         return;
     }
 
-    m_abortDenoise = false;
     float amount = m_denoiseAmount;
+    int stride = final ? 4 : 8; // Faster search for previews
     std::atomic<bool>* abortPtr = &m_abortDenoise;
-    QFuture<QImage> future = QtConcurrent::run([img, amount, abortPtr, final]() {
-        return photon::Denoiser::denoise(img, amount, abortPtr, final);
+    QFuture<QImage> future = QtConcurrent::run([img, amount, abortPtr, final, stride]() {
+        return photon::Denoiser::denoise(img, amount, abortPtr, final, stride);
     });
     m_denoiseWatcher.setFuture(future);
 }
@@ -682,6 +713,9 @@ bool RawEngine::loadRawFileSync(const QString& path) {
   
   QDateTime dt = QDateTime::fromSecsSinceEpoch(m_processor->imgdata.other.timestamp);
   meta["timestamp"] = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : "-";
+  
+  meta["width"] = (int)m_processor->imgdata.sizes.iwidth;
+  meta["height"] = (int)m_processor->imgdata.sizes.iheight;
 
   // Map LibRaw flip to EXIF orientation tag
   int flip = m_processor->imgdata.sizes.flip;

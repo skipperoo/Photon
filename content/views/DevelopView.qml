@@ -14,10 +14,10 @@ Control {
     Connections {
         target: root.viewport
         function onZoomChanged() {
-            if (root.viewport && root.viewport.denoiseAmount > 0) {
+            if (root.viewport && root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
                 // If we are zoomed in, re-trigger a sharper denoise if not already denoising
                 if (!root.viewport.isDenoising) {
-                    root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom);
+                    root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
                 }
             }
         }
@@ -413,7 +413,7 @@ Control {
                                 if(root.viewport) {
                                     root.viewport.denoiseAmount = parent.localDenoise;
                                     if (parent.localDenoise > 0 && root.viewport.denoiseEnabled) {
-                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull || true, root.viewport.zoom);
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
                                     }
                                     root.viewport.commitEdit();
                                 }

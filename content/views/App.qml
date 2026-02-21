@@ -169,6 +169,8 @@ Window {
                             property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
                             property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
                             property color backgroundColor: Theme.background
+                            property real denoiseAmount: rawViewport.denoiseAmount
+                            property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
                             property int orientation: rawViewport.orientation
 
                             // HSL Panel

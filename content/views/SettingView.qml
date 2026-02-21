@@ -66,6 +66,26 @@ Control {
                     }
 
                     ColumnLayout {
+                        spacing: 8
+                        Layout.fillWidth: true
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { text: "Full Quality Denoise Preview"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
+                            Switch {
+                                checked: AppState.previewDenoiseFull
+                                onToggled: AppState.setPreviewDenoiseFull(checked)
+                            }
+                        }
+                        Text {
+                            text: "If enabled, uses the high-fidelity 2-step denoiser for previews. Slower but higher quality."
+                            font: Theme.fontSmall
+                            color: Theme.mutedFg
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    ColumnLayout {
                         spacing: 12
                         Layout.fillWidth: true
                         Text { text: "Maintenance"; font: Theme.fontRegular; color: Theme.mutedFg }

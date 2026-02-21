@@ -39,6 +39,7 @@ class AppStateManager : public QObject {
                  accentColorChanged)
   Q_PROPERTY(QString logLocation READ logLocation WRITE setLogLocation NOTIFY
                  logLocationChanged)
+  Q_PROPERTY(bool previewDenoiseFull READ previewDenoiseFull WRITE setPreviewDenoiseFull NOTIFY previewDenoiseFullChanged)
   Q_PROPERTY(QString logLevel READ logLevel WRITE setLogLevel NOTIFY
                  logLevelChanged)
   Q_PROPERTY(int cacheSizeGB READ cacheSizeGB WRITE setCacheSizeGB NOTIFY
@@ -68,6 +69,7 @@ class AppStateManager : public QObject {
   QStringList availableGpus() const { return m_availableGpus; }
   bool isDarkMode() const { return m_isDarkMode; }
   QString accentColor() const { return m_accentColor; }
+  bool previewDenoiseFull() const { return m_previewDenoiseFull; }
   QString logLocation() const;
   QString logLevel() const;
   int cacheSizeGB() const { return m_cacheSizeGB; }
@@ -86,6 +88,7 @@ class AppStateManager : public QObject {
   void setPreferredGpu(const QString& gpu);
   void setIsDarkMode(bool dark);
   void setAccentColor(const QString& color);
+  void setPreviewDenoiseFull(bool full);
   void setLogLocation(const QString& location);
   void setLogLevel(const QString& level);
   void setCacheSizeGB(int size);
@@ -100,6 +103,7 @@ class AppStateManager : public QObject {
   void availableGpusChanged();
   void isDarkModeChanged();
   void accentColorChanged();
+  void previewDenoiseFullChanged();
   void logLocationChanged();
   void logLevelChanged();
   void cacheSizeGBChanged();
@@ -117,6 +121,7 @@ class AppStateManager : public QObject {
   QStringList m_availableGpus;
   bool m_isDarkMode = true;
   QString m_accentColor = "#3b82f6"; // Default Blue
+  bool m_previewDenoiseFull = false;
   int m_cacheSizeGB = 10;
 
   QSettings m_settings;
@@ -126,4 +131,5 @@ class AppStateManager : public QObject {
   static constexpr const char* KEY_CACHE_SIZE = "performance/cacheSizeGB";
   static constexpr const char* KEY_DARK_MODE = "ui/darkMode";
   static constexpr const char* KEY_ACCENT_COLOR = "ui/accentColor";
+  static constexpr const char* KEY_PREVIEW_DENOISE_FULL = "performance/previewDenoiseFull";
 };

@@ -11,6 +11,18 @@ Control {
     property var viewport: null
     property real viewTopPadding: 0
 
+    Connections {
+        target: root.viewport
+        function onZoomChanged() {
+            if (root.viewport && root.viewport.denoiseAmount > 0) {
+                // If we are zoomed in, re-trigger a sharper denoise if not already denoising
+                if (!root.viewport.isDenoising) {
+                    root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom);
+                }
+            }
+        }
+    }
+
     background: Rectangle {
         color: Theme.background
         border.color: Theme.border
@@ -373,15 +385,36 @@ Control {
                         property real localDenoise: root.viewport ? root.viewport.denoiseAmount : 0.0
 
                         ControlGroup { title: "Sharpening"; value: 0; from: 0; to: 100 }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { 
+                                text: "Denoise"
+                                font: Theme.fontRegular
+                                color: Theme.foreground
+                                Layout.fillWidth: true
+                            }
+                            CheckBox {
+                                checked: root.viewport ? root.viewport.denoiseEnabled : false
+                                onToggled: if(root.viewport) root.viewport.denoiseEnabled = checked
+                            }
+                        }
+
                         ControlGroup { 
                             title: "Noise Reduction"; 
                             value: parent.localDenoise; 
                             from: 0; to: 100; 
-                            enabled: root.viewport ? !root.viewport.isDenoising : true
-                            onMoved: (v) => { parent.localDenoise = v }; 
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => { 
+                                parent.localDenoise = v;
+                            } 
                             onReleased: {
                                 if(root.viewport) {
                                     root.viewport.denoiseAmount = parent.localDenoise;
+                                    if (parent.localDenoise > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull || true, root.viewport.zoom);
+                                    }
                                     root.viewport.commitEdit();
                                 }
                             }

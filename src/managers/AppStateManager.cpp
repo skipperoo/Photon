@@ -66,6 +66,7 @@ void AppStateManager::loadSettings() {
   m_cacheSizeGB = m_settings.value(KEY_CACHE_SIZE, 10).toInt();
   m_isDarkMode = m_settings.value(KEY_DARK_MODE, true).toBool();
   m_accentColor = m_settings.value(KEY_ACCENT_COLOR, "#3b82f6").toString();
+  m_previewDenoiseFull = m_settings.value(KEY_PREVIEW_DENOISE_FULL, false).toBool();
   QString level = m_settings.value("diagnostics/logLevel", "INFO").toString();
   LogManager::instance()->setMinLogLevel(level);
 
@@ -83,6 +84,7 @@ void AppStateManager::saveSettings() {
   m_settings.setValue(KEY_CACHE_SIZE, m_cacheSizeGB);
   m_settings.setValue(KEY_DARK_MODE, m_isDarkMode);
   m_settings.setValue(KEY_ACCENT_COLOR, m_accentColor);
+  m_settings.setValue(KEY_PREVIEW_DENOISE_FULL, m_previewDenoiseFull);
   m_settings.sync();
 }
 
@@ -181,6 +183,14 @@ void AppStateManager::setAccentColor(const QString& color) {
   if (m_accentColor != color) {
     m_accentColor = color;
     emit accentColorChanged();
+    saveSettings();
+  }
+}
+
+void AppStateManager::setPreviewDenoiseFull(bool full) {
+  if (m_previewDenoiseFull != full) {
+    m_previewDenoiseFull = full;
+    emit previewDenoiseFullChanged();
     saveSettings();
   }
 }

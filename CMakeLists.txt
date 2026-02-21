@@ -17,6 +17,8 @@ qt_add_executable(Photon
     src/engine/RawEngine.h
     src/engine/Denoiser.cpp
     src/engine/Denoiser.h
+    src/engine/GpuSearcher.cpp
+    src/engine/GpuSearcher.h
     src/components/RawViewport.cpp
     src/components/RawViewport.h
     src/managers/AppStateManager.cpp
@@ -44,6 +46,8 @@ qt6_add_shaders(Photon "raw_shaders"
     FILES
         src/components/RawViewport.vert
         src/components/RawViewport.frag
+        src/components/PatchSearch.vert
+        src/components/PatchSearch.frag
 )
 
 qt_add_qml_module(Photon
@@ -57,6 +61,8 @@ qt_add_qml_module(Photon
         src/engine/RawEngine.h
         src/engine/Denoiser.cpp
         src/engine/Denoiser.h
+        src/engine/GpuSearcher.cpp
+        src/engine/GpuSearcher.h
         src/managers/AppStateManager.cpp
         src/managers/AppStateManager.h
         src/managers/ThumbnailProvider.cpp

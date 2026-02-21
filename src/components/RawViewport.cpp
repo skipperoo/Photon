@@ -9,6 +9,9 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   setFlag(ItemHasContents, true);
   setAcceptedMouseButtons(Qt::LeftButton);
 
+  connect(this, &QQuickItem::widthChanged, this, [this]() { m_engine.setViewportSize(QSize(width(), height())); });
+  connect(this, &QQuickItem::heightChanged, this, [this]() { m_engine.setViewportSize(QSize(width(), height())); });
+
   connect(&m_engine, &RawEngine::imageLoaded, this, &RawViewport::onImageLoaded);
   connect(&m_engine, &RawEngine::sourceChanged, this, [this](){ emit sourceChanged(); update(); });
   
@@ -35,6 +38,7 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::vignetteRoundnessChanged, this, [this](){ emit vignetteRoundnessChanged(); update(); });
   connect(&m_engine, &RawEngine::vignetteFeatherChanged, this, [this](){ emit vignetteFeatherChanged(); update(); });
   connect(&m_engine, &RawEngine::denoiseAmountChanged, this, [this](){ emit denoiseAmountChanged(); update(); });
+  connect(&m_engine, &RawEngine::denoiseEnabledChanged, this, [this](){ emit denoiseEnabledChanged(); update(); });
   connect(&m_engine, &RawEngine::isDenoisingChanged, this, [this](){ emit isDenoisingChanged(); });
   connect(&m_engine, &RawEngine::denoisingFinished, this, [this](){ m_textureDirty = true; update(); });
 
@@ -213,10 +217,25 @@ void RawViewport::setVignetteFeather(float val) {
 
 void RawViewport::setDenoiseAmount(float val) {
   if (qFuzzyCompare(m_engine.denoiseAmount(), val)) return;
+  
+  // If we currently have a finalized denoised result displayed, we must switch back to the noisy texture
+  // so the user can see the real-time GPU bilateral filter while dragging.
+  // We only do this ONCE (when hasDenoisedResult is true).
+  if (m_engine.hasDenoisedResult()) {
+      m_textureDirty = true;
+  }
+
   m_engine.setDenoiseAmount(val);
-  m_textureDirty = true;
   emit denoiseAmountChanged();
   update();
+}
+
+void RawViewport::setDenoiseEnabled(bool enabled) {
+    if (m_engine.denoiseEnabled() == enabled) return;
+    m_engine.setDenoiseEnabled(enabled);
+    m_textureDirty = true;
+    emit denoiseEnabledChanged();
+    update();
 }
 
 // HSL Setters
@@ -283,6 +302,10 @@ QVariantMap RawViewport::currentSettings() const {
     return m_engine.currentSettings();
 }
 
+void RawViewport::startAsyncDenoise(bool final, float zoom) {
+    m_engine.startAsyncDenoise(final, zoom);
+}
+
 QRectF RawViewport::calculateTargetRect() {
   if (m_imageWidth <= 0 || m_imageHeight <= 0) {
     return boundingRect();
@@ -328,8 +351,11 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     const uchar* data = m_engine.getProcessedData(width, height, colors);
 
     if (data && width > 0 && height > 0) {
-      m_imageWidth = width;
-      m_imageHeight = height;
+      if (m_imageWidth != width || m_imageHeight != height) {
+          m_imageWidth = width;
+          m_imageHeight = height;
+          emit sourceSizeChanged();
+      }
 
       QImage img;
       if (colors == 3) {

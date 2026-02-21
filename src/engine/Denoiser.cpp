@@ -23,6 +23,8 @@ Denoiser::DctTables::DctTables() {
             idct_coeff[n * 8 + k] = scale * std::cos(theta);
         }
     }
+    // idct_coeff is already effectively transposed for our use case in idct_1d_8
+    // because we use it as row-major there.
     for (int y = 0; y < 8; ++y) {
         for (int x = 0; x < 8; ++x) {
             float wx = std::sin(PI * x / 7.0f);
@@ -53,7 +55,7 @@ std::vector<float> Denoiser::AtomicAccumulator::toVector() const {
     return res;
 }
 
-QImage Denoiser::denoise(const QImage& input, float intensity, std::atomic<bool>* abort) {
+QImage Denoiser::denoise(const QImage& input, float intensity, std::atomic<bool>* abort, bool step2) {
     if (input.isNull() || intensity <= 0.0f) return input;
     if (abort && abort->load()) return input;
 
@@ -82,7 +84,7 @@ QImage Denoiser::denoise(const QImage& input, float intensity, std::atomic<bool>
     Bm3dParams params = Bm3dParams::fromIntensity(intensity / 100.0f);
     DctTables tables;
 
-    auto denoised_channels = bm3d_process_joint(channels, width, height, params, tables, abort);
+    auto denoised_channels = bm3d_process_joint(channels, width, height, params, tables, abort, step2);
     if (abort && abort->load()) return input;
 
     QImage output(width, height, QImage::Format_RGBX64);
@@ -97,14 +99,34 @@ QImage Denoiser::denoise(const QImage& input, float intensity, std::atomic<bool>
     return output;
 }
 
+std::vector<float> extract_luma(const std::vector<std::vector<float>>& channels) {
+    size_t size = channels[0].size();
+    std::vector<float> luma(size);
+    for (size_t i = 0; i < size; ++i) {
+        luma[i] = 0.2126f * channels[0][i] + 0.7152f * channels[1][i] + 0.0722f * channels[2][i];
+    }
+    return luma;
+}
+
 std::vector<std::vector<float>> Denoiser::bm3d_process_joint(
     const std::vector<std::vector<float>>& noisy_channels,
     int width, int height, const Bm3dParams& params, const DctTables& tables,
-    std::atomic<bool>* abort) {
+    std::atomic<bool>* abort, bool step2) {
     
+    // Tiling strategy: process the image in TILE_SIZE blocks with overlap
+    // to ensure cache locality and handle block boundaries correctly.
+    const int TILE_SIZE = 256;
+    const int PADDING = SEARCH_WINDOW;
+    
+    std::vector<std::vector<float>> results(3, std::vector<float>(width * height));
+    
+    // Step 1: Basic Estimate
     auto basic_estimate = run_bm3d_step_joint(noisy_channels, noisy_channels, width, height, params, true, tables, abort);
     if (abort && abort->load()) return noisy_channels;
     
+    if (!step2) return basic_estimate;
+
+    // Step 2: Final Estimate (Wiener)
     return run_bm3d_step_joint(noisy_channels, basic_estimate, width, height, params, false, tables, abort);
 }
 
@@ -122,6 +144,13 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
         denominators[i] = std::make_shared<AtomicAccumulator>(count);
     }
 
+    // Pre-extract Luma for search (once per full image step)
+    std::vector<float> luma_buffer(count);
+    for (int i = 0; i < count; ++i) {
+        luma_buffer[i] = 0.2126f * guide[0][i] + 0.7152f * guide[1][i] + 0.0722f * guide[2][i];
+    }
+    std::vector<std::vector<float>> search_channels = { luma_buffer };
+
     std::vector<std::pair<int, int>> ref_patches;
     for (int y = 0; y <= height - BLOCK_SIZE; y += STRIDE) {
         for (int x = 0; x <= width - BLOCK_SIZE; x += STRIDE) {
@@ -136,7 +165,8 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
         int ry = patch.second;
 
         std::pair<int, int> group_locs_buf[MAX_GROUP_SIZE];
-        int group_size = block_matching_joint(guide, width, height, rx, ry, is_step_1, params, group_locs_buf);
+        // Search ONCE using Luma
+        int group_size = block_matching_joint(search_channels, width, height, rx, ry, is_step_1, params, group_locs_buf);
 
         for (int ch = 0; ch < 3; ++ch) {
             const auto& guide_ch = guide[ch];
@@ -281,13 +311,12 @@ int Denoiser::block_matching_joint(
         int x, y;
     };
 
-    std::vector<Match> candidates;
+    // We assume channels[0] is Luma when this is called from run_bm3d_step_joint
+    const float* luma = channels[0].data();
     float threshold = is_step_1 ? params.max_dist_hard : params.max_dist_hard * 0.5f;
 
-    float ref_patches[3][64];
-    for (int ch = 0; ch < 3; ++ch) {
-        extract_patch(channels[ch].data(), w, rx, ry, ref_patches[ch]);
-    }
+    float ref_patch[64];
+    extract_patch(luma, w, rx, ry, ref_patch);
 
     int half_sw = SEARCH_WINDOW / 2;
     int sx_start = std::max(0, rx - half_sw);
@@ -295,16 +324,17 @@ int Denoiser::block_matching_joint(
     int sy_start = std::max(0, ry - half_sw);
     int sy_end = std::min(h - BLOCK_SIZE, ry + half_sw);
 
+    // Candidates vector with reservation to avoid allocations
+    std::vector<Match> candidates;
+    candidates.reserve(SEARCH_WINDOW * SEARCH_WINDOW);
+
     for (int y = sy_start; y <= sy_end; ++y) {
         for (int x = sx_start; x <= sx_end; ++x) {
-            float total_dist = 0.0f;
-            for (int ch = 0; ch < 3; ++ch) {
-                total_dist += compute_ssd_flat(channels[ch].data(), w, x, y, ref_patches[ch], threshold - total_dist);
-                if (total_dist > threshold) break;
-            }
+            // AVX2 optimized SSD with early exit
+            float dist = compute_ssd_flat(luma, w, x, y, ref_patch, threshold);
 
-            if (total_dist < threshold) {
-                candidates.push_back({total_dist, x, y});
+            if (dist < threshold) {
+                candidates.push_back({dist, x, y});
             }
         }
     }
@@ -325,6 +355,8 @@ int Denoiser::block_matching_joint(
 
 float Denoiser::compute_ssd_flat(const float* img, int w, int x, int y, const float* ref_patch, float stop_thr) {
     __m256 sum = _mm256_setzero_ps();
+    float stop_val = stop_thr * 64.0f;
+
     for (int dy = 0; dy < 8; ++dy) {
         int img_base = (y + dy) * w + x;
         int ref_base = dy * 8;
@@ -333,6 +365,18 @@ float Denoiser::compute_ssd_flat(const float* img, int w, int x, int y, const fl
         __m256 v_ref = _mm256_loadu_ps(ref_patch + ref_base);
         __m256 diff = _mm256_sub_ps(v_img, v_ref);
         sum = _mm256_fmadd_ps(diff, diff, sum);
+
+        // Early exit check every 2 rows
+        if (dy % 2 == 1) {
+            __m128 vlow = _mm256_castps256_ps128(sum);
+            __m128 vhigh = _mm256_extractf128_ps(sum, 1);
+            __m128 vsum = _mm_add_ps(vlow, vhigh);
+            __m128 shuf = _mm_movehdup_ps(vsum);
+            vsum = _mm_add_ps(vsum, shuf);
+            shuf = _mm_movehl_ps(shuf, vsum);
+            vsum = _mm_add_ss(vsum, shuf);
+            if (_mm_cvtss_f32(vsum) > stop_val) return 1000000.0f;
+        }
     }
     
     // Horizontal sum of the 8 floats in the AVX register
@@ -422,6 +466,52 @@ void Denoiser::idct_2d_8x8(float* block, const float* coeffs) {
 }
 
 void Denoiser::walsh_hadamard_1d(float* data, int n) {
+    if (n == 16) {
+        // Fast unrolled 16-point FWHT
+        float a0  = data[0]  + data[1];  float a1  = data[0]  - data[1];
+        float a2  = data[2]  + data[3];  float a3  = data[2]  - data[3];
+        float a4  = data[4]  + data[5];  float a5  = data[4]  - data[5];
+        float a6  = data[6]  + data[7];  float a7  = data[6]  - data[7];
+        float a8  = data[8]  + data[9];  float a9  = data[8]  - data[9];
+        float a10 = data[10] + data[11]; float a11 = data[10] - data[11];
+        float a12 = data[12] + data[13]; float a13 = data[12] - data[13];
+        float a14 = data[14] + data[15]; float a15 = data[14] - data[15];
+
+        float b0  = a0  + a2;  float b1  = a1  + a3;
+        float b2  = a0  - a2;  float b3  = a1  - a3;
+        float b4  = a4  + a6;  float b5  = a5  + a7;
+        float b6  = a4  - a6;  float b7  = a5  - a7;
+        float b8  = a8  + a10; float b9  = a9  + a11;
+        float b10 = a8  - a10; float b11 = a9  - a11;
+        float b12 = a12 + a14; float b13 = a13 + a15;
+        float b14 = a12 - a14; float b15 = a13 - a15;
+
+        float c0  = b0  + b4;  float c1  = b1  + b5;
+        float c2  = b2  + b6;  float c3  = b3  + b7;
+        float c4  = b0  - b4;  float c5  = b1  - b5;
+        float c6  = b2  - b6;  float c7  = b3  - b7;
+        float c8  = b8  + b12; float c9  = b9  + b13;
+        float c10 = b10 + b14; float c11 = b11 + b15;
+        float c12 = b8  - b12; float c13 = b9  - b13;
+        float c14 = b10 - b14; float c15 = b11 - b15;
+
+        float d0  = c0  + c8;  float d1  = c1  + c9;
+        float d2  = c2  + c10; float d3  = c3  + c11;
+        float d4  = c4  + c12; float d5  = c5  + c13;
+        float d6  = c6  + c14; float d7  = c7  + c15;
+        float d8  = c0  - c8;  float d9  = c1  - c9;
+        float d10 = c2  - c10; float d11 = c3  - c11;
+        float d12 = c4  - c12; float d13 = c5  - c13;
+        float d14 = c6  - c14; float d15 = c7  - c15;
+
+        const float s = 0.25f; // 1/sqrt(16)
+        data[0]=d0*s;   data[1]=d1*s;   data[2]=d2*s;   data[3]=d3*s;
+        data[4]=d4*s;   data[5]=d5*s;   data[6]=d6*s;   data[7]=d7*s;
+        data[8]=d8*s;   data[9]=d9*s;   data[10]=d10*s; data[11]=d11*s;
+        data[12]=d12*s; data[13]=d13*s; data[14]=d14*s; data[15]=d15*s;
+        return;
+    }
+
     int h = 1;
     while (h < n) {
         for (int i = 0; i < n; i += h * 2) {

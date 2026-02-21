@@ -66,6 +66,7 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 Photon provides advanced control over performance and aesthetics:
 
 1.  **GPU Selection:**
+    *   **Finding:** On Linux/NVIDIA systems, forcing the GPU requires setting `QSG_RHI_DEVICE_INDEX`, `QT_VULKAN_DEVICE_INDEX`, and `MESA_VK_DEVICE_SELECT` environment variables *before* the graphics driver initializes. For NVIDIA Prime, `__NV_PRIME_RENDER_OFFLOAD=1` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` are mandatory.
     *   Dynamically detects available Vulkan-compatible physical devices.
     *   Allows users to select a specific GPU for RHI rendering.
     *   Changes may require an application restart.
@@ -147,11 +148,16 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 6.  **HSL Panel:** An **8-band HSL system** (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta) is implemented in the fragment shader. It uses weighted influence curves to allow targeted Hue, Saturation, and Luminance adjustments without causing artifacts.
 7.  **Color Grading:** A professional **3-Way Color Grading** system is implemented, allowing independent tinting of **Shadows, Midtones, and Highlights**. It features global **Balance** and **Blending** controls to precisely manage tonal transitions.
 8.  **Dithering:** High-quality dithering is implemented using a sine-based pseudo-random noise generator. It is applied to the final RGB output at a precision of 1/255 to mask banding artifacts and ensure smooth gradients on 8-bit displays.
-9.  **Denoising Pipeline (Phase 12):** Photon employs a multi-stage denoising architecture to balance real-time responsiveness with extreme reconstruction quality:
-    *   **GPU Preview:** A real-time **Bilateral Filter** runs in the fragment shader at 60fps, providing instant feedback as the user adjusts the "Noise Reduction" slider.
-    *   **CPU High-Fidelity:** A high-quality **BM3D (Block-matching and 3D filtering)** algorithm runs in a background worker thread. It is triggered upon slider release.
-    *   **SIMD Acceleration:** The CPU denoiser is highly optimized using **AVX2 and FMA** instructions to maximize throughput.
-    *   **Asynchronous UX:** The UI remains fully interactive during denoising. A "Applying denoise..." indicator with a rotating loader provides status updates, and processes are automatically aborted if the user switches images.
+9.  **Denoising Pipeline (Phase 12):** Photon employs a hybrid GPU/CPU architecture designed for professional performance:
+    *   **GPU Preview (NLM):** A real-time **Non-Local Means (NLM)** filter runs in the fragment shader. It uses 3x3 patch comparisons within a 7x7 search window, providing high-fidelity spatial denoising at 60fps.
+    *   **Full Quality Toggle:** A user preference in settings allows forcing the high-fidelity 2-step denoiser even during the preview phase.
+    *   **GPU-Accelerated Search (In Development):** Computational patch-matching is offloaded to the GPU to generate spatial similarity indices.
+    *   **CPU Transform & Filter (SIMD):** The collaborative filtering is performed on the CPU using **AVX2 and FMA** instructions, protected by a `QMutex` to ensure thread safety with the LibRaw processor.
+    *   **Adaptive Proxy Scaling:** Preview denoising resolution dynamically adjusts based on the viewport size and zoom level (`viewport * zoom * 1.5`), ensuring zero pixelation even at 400% zoom.
+    *   **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.
+    *   **ROI-Driven Refinement (Phase 13):** When zoomed in, the engine prioritizes high-quality re-rendering of the visible Region of Interest (ROI) before triggering the background denoiser on that specific area, ensuring maximum sharpness and speed.
+    *   **Explicit Activation:** Denoising must be explicitly enabled via a checkbox. Disabling it immediately halts any background processing.
+    *   **Lifecycle Safety:** All background threads are strictly joined or aborted upon application exit to prevent segmentation faults.
 
 **Accordion Sections:**
 

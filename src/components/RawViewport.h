@@ -33,7 +33,10 @@ class RawViewport : public QQuickItem {
     Q_PROPERTY(float vignetteRoundness READ vignetteRoundness WRITE setVignetteRoundness NOTIFY vignetteRoundnessChanged)
     Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE setVignetteFeather NOTIFY vignetteFeatherChanged)
     Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount NOTIFY denoiseAmountChanged)
+    Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled NOTIFY denoiseEnabledChanged)
     Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
+    Q_PROPERTY(int sourceWidth READ sourceWidth NOTIFY sourceSizeChanged)
+    Q_PROPERTY(int sourceHeight READ sourceHeight NOTIFY sourceSizeChanged)
 
     // HSL Panel Properties
     Q_PROPERTY(float hslRedHue READ hslRedHue WRITE setHslRedHue NOTIFY hslRedHueChanged)
@@ -163,7 +166,12 @@ class RawViewport : public QQuickItem {
     float denoiseAmount() const { return m_engine.denoiseAmount(); }
     void setDenoiseAmount(float val);
 
+    bool denoiseEnabled() const { return m_engine.denoiseEnabled(); }
+    void setDenoiseEnabled(bool enabled);
+
     bool isDenoising() const { return m_engine.isDenoising(); }
+    int sourceWidth() const { return m_imageWidth; }
+    int sourceHeight() const { return m_imageHeight; }
         
     // HSL Getters & Setters
             float hslRedHue() const { return m_engine.hslRedHue(); }
@@ -269,6 +277,7 @@ class RawViewport : public QQuickItem {
             Q_INVOKABLE QVariantMap currentSettings() const;
             Q_INVOKABLE void applySettings(const QVariantMap& settings) { m_engine.applySettings(settings); }
             Q_INVOKABLE void commitEdit() { m_engine.commitEdit(); }
+            Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f);
             Q_INVOKABLE void undo() { m_engine.undo(); }
             Q_INVOKABLE void redo() { m_engine.redo(); }
             Q_INVOKABLE void resetToOriginal() { m_engine.resetToOriginal(); }
@@ -297,7 +306,9 @@ class RawViewport : public QQuickItem {
     void vignetteRoundnessChanged();
     void vignetteFeatherChanged();
     void denoiseAmountChanged();
+    void denoiseEnabledChanged();
     void isDenoisingChanged();
+    void sourceSizeChanged();
     void imageRectChanged();
 
     // HSL Signals

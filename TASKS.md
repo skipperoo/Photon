@@ -104,20 +104,38 @@
     - [x] Add log file location selection to UI.
     - [x] Set default log location based on OS standards.
   
-  ## Phase 12: Hybrid Denoising Pipeline [DONE]
+  ## Phase 12: Hybrid Denoising Pipeline [IN PROGRESS]
   
-  - [x] **GPU Real-time Preview**
-    - [x] Implement Bilateral Noise Reduction in fragment shader.
-    - [x] Bind "Noise Reduction" slider for 60fps instant feedback.
-  - [x] **CPU High-Fidelity Refinement**
-    - [x] Port BM3D algorithm from Rust to C++.
-    - [x] Optimize with **AVX2 and FMA** SIMD instructions.
+  - [x] **Step 1: CPU Algorithm Refinement**
+    - [x] Refactor `Denoiser.cpp` to use **Luma-only Block Matching**.
+    - [x] Implement **Spatial Tiling** (256x256 tiles) for cache locality.
+    - [x] Implement fully unrolled 16-point Walsh-Hadamard transform.
+  - [x] **Step 2: Advanced GPU Preview (NLM)**
+    - [x] Implement **Non-Local Means (NLM)** shader in `RawViewport.frag`.
+    - [x] Optimize search radius and patch size for 60fps performance.
+  - [ ] **Step 3: GPU Search Offload [IN PROGRESS]**
+    - [x] Implement initial **Patch Search shaders** (SSD calculation).
+    - [ ] Implement GPU-to-CPU readback logic for search indices.
+    - [ ] Integrate GPU search results into the BM3D pipeline.
   - [x] **Asynchronous Workflow**
     - [x] Run heavy denoising in background thread.
     - [x] Implement "Applying denoise..." UI indicator with rotating loader.
     - [x] Implement automatic abort logic when switching photos.
-  
-  ## Backlog / Future- [ ] **Crop & Transform**
+    - [x] Implement dynamic proxy scaling based on viewport size and zoom level.
+    
+    ## Phase 13: High-Performance Denoise Control [IN PROGRESS]
+    
+    - [ ] **Explicit Execution Control**
+      - [ ] Add "Denoise" checkbox to UI.
+      - [ ] Implement immediate abort logic when unchecking.
+    - [ ] **ROI-Driven Proxy Refinement**
+      - [ ] Update zoom logic to re-render visible crop in high-fidelity first.
+      - [ ] Apply BM3D only to the high-quality visible region.
+    - [ ] **Lifecycle Management**
+      - [ ] Ensure `RawEngine` destructor clean-joins all background workers.
+      - [ ] Prevent segfaults on application close while denoising.
+    
+    ## Backlog / Future- [ ] **Crop & Transform**
   - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
   - [ ] Straighten tool and arbitrary rotation.
   - [ ] Perspective correction.

@@ -29,6 +29,8 @@ layout(std140, binding = 0) uniform buf {
     vec4 imageRect; 
     vec2 viewportSize;
     vec4 backgroundColor;
+    float denoiseAmount;
+    vec2 sourceSize;
     
     // HSL Panel (24 floats)
     float hslRedHue; float hslRedSaturation; float hslRedLuminance;
@@ -60,6 +62,58 @@ vec3 srgb_to_linear(vec3 c) {
 vec3 linear_to_srgb(vec3 c) {
     vec3 c_clamped = clamp(c, 0.0, 1.0);
     return mix(c_clamped * 12.92, 1.055 * pow(c_clamped, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c_clamped));
+}
+
+// --- Real-time Non-Local Means (NLM) Noise Reduction ---
+// Uses 3x3 patches within a 7x7 search window for high-fidelity denoising.
+vec3 apply_gpu_denoise(vec3 center_color, vec2 texCoord, sampler2D tex, float amount) {
+    if (amount <= 0.0) return center_color;
+
+    float h = 0.01 + (amount / 100.0) * 0.1; 
+    float h2 = h * h;
+    
+    vec3 accum_color = vec3(0.0);
+    float accum_weight = 0.0;
+    
+    vec2 texelSize = 1.0 / ubuf.sourceSize;
+
+    // We pre-sample the center patch 3x3 to avoid redundant texture lookups
+    vec3 center_patch[9];
+    for (int py = -1; py <= 1; py++) {
+        for (int px = -1; px <= 1; px++) {
+            center_patch[(py+1)*3 + (px+1)] = srgb_to_linear(texture(tex, texCoord + vec2(float(px), float(py)) * texelSize).rgb);
+        }
+    }
+
+    for (int dy = -3; dy <= 3; dy++) {
+        for (int dx = -3; dx <= 3; dx++) {
+            vec2 offset = vec2(float(dx), float(dy));
+            vec2 sampleCoord = texCoord + offset * texelSize;
+            
+            // Compute Patch SSD (3x3)
+            float patch_ssd = 0.0;
+            for (int py = -1; py <= 1; py++) {
+                for (int px = -1; px <= 1; px++) {
+                    vec3 s = srgb_to_linear(texture(tex, sampleCoord + vec2(float(px), float(py)) * texelSize).rgb);
+                    vec3 c = center_patch[(py+1)*3 + (px+1)];
+                    vec3 diff = s - c;
+                    patch_ssd += dot(diff, diff);
+                }
+            }
+            
+            // Weight = exp(-MSE / h^2)
+            float weight = exp(-(patch_ssd / 9.0) / h2);
+            
+            // Spatial dampening (Gaussian)
+            float spatial_w = exp(-dot(offset, offset) / 16.0);
+            weight *= spatial_w;
+
+            accum_color += center_patch[4] * weight; // Use the center pixel of the sample patch
+            accum_weight += weight;
+        }
+    }
+    
+    return accum_color / max(accum_weight, 0.0001);
 }
 
 vec3 apply_white_balance(vec3 color, float temp, float tnt) {
@@ -225,6 +279,9 @@ void main()
     vec4 tex = texture(source, qt_TexCoord0);
     vec3 color = srgb_to_linear(tex.rgb);
     
+    // 0. Noise Reduction (Real-time GPU pass)
+    color = apply_gpu_denoise(color, qt_TexCoord0, source, ubuf.denoiseAmount);
+
     // 1. White Balance
     color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0);
 

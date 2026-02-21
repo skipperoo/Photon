@@ -101,6 +101,9 @@ class RawEngine : public QObject {
 
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
     Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
+    Q_PROPERTY(bool hasDenoisedResult READ hasDenoisedResult NOTIFY denoisingFinished)
+    Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled NOTIFY denoiseEnabledChanged)
+    Q_PROPERTY(QSize viewportSize READ viewportSize WRITE setViewportSize NOTIFY viewportSizeChanged)
   Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
   Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
@@ -113,6 +116,9 @@ class RawEngine : public QObject {
 
   QString source() const { return m_source; }
   void setSource(const QString& source);
+
+  QSize viewportSize() const { return m_viewportSize; }
+  void setViewportSize(const QSize& size);
 
   float exposure() const { return m_exposure; }
   void setExposure(float ev);
@@ -266,12 +272,16 @@ class RawEngine : public QObject {
 
   bool isLoading() const { return m_isLoading; }
   bool isDenoising() const { return m_isDenoising; }
+  bool hasDenoisedResult() const { return m_hasDenoisedResult; }
+  bool denoiseEnabled() const { return m_denoiseEnabled; }
+  void setDenoiseEnabled(bool enabled);
 
   bool halfSize() const { return m_halfSize; }
   void setHalfSize(bool half);
 
   // Asynchronous load
   void loadRawFileAsync(const QString& path);
+  Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f);
 
   QImage getThumbnail();
 
@@ -361,6 +371,8 @@ class RawEngine : public QObject {
   void imageLoaded();
   void isLoadingChanged();
   void isDenoisingChanged();
+  void denoiseEnabledChanged();
+  void viewportSizeChanged();
   void denoisingFinished();
   void halfSizeChanged();
   void editStackChanged();
@@ -371,6 +383,7 @@ class RawEngine : public QObject {
 
  private:
   QString m_source;
+  QSize m_viewportSize;
   float m_exposure = 0.0f;
   float m_contrast = 1.0f;
   float m_highlights = 0.0f;
@@ -390,6 +403,7 @@ class RawEngine : public QObject {
   float m_vignetteRoundness = 0.0f;
   float m_vignetteFeather = 0.5f;
   float m_denoiseAmount = 0.0f;
+  bool m_denoiseEnabled = false;
 
   // HSL Member Variables
   float m_hslRedHue = 0.0f;
@@ -450,6 +464,9 @@ class RawEngine : public QObject {
   libraw_processed_image_t* m_processedImage = nullptr;
   std::vector<uint8_t> m_customBuffer;
   std::vector<uint8_t> m_denoisedBuffer;
+  int m_denoisedWidth = 0;
+  int m_denoisedHeight = 0;
+  mutable QMutex m_processorMutex;
   std::atomic<bool> m_abortDenoise{false};
   bool m_hasDenoisedResult = false;
   bool m_isLoaded = false;
@@ -460,6 +477,5 @@ class RawEngine : public QObject {
 
   void clearProcessedImage();
   void updateProcessingParams();
-  void startAsyncDenoise();
   bool loadRawFileSync(const QString& path);
 };

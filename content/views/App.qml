@@ -65,7 +65,8 @@ Window {
     Item {
         anchors.fill: parent
 
-        // Hover area to show topbar in (non-Develop) views
+        // Hover area to show topbar in Develop view (if we want it there, but currently topbar is hidden in Develop)
+        // For now, we disable the hover functionality as requested for Library/Settings.
         MouseArea {
             id: topbarHoverArea
             anchors.top: parent.top
@@ -73,7 +74,10 @@ Window {
             width: viewportContainer.width
             height: 100
             hoverEnabled: true
-            enabled: AppState.currentView !== AppState.ViewState.Develop
+            // Only enabled in Develop view if we want hover-to-show there, 
+            // but the topbar is explicitly hidden in Develop view (visible: ... check).
+            // So we disable this entirely for now to follow the "removing hover functionality" request.
+            enabled: false 
             onEntered: window.showTopbar = true
             onExited: {
                 if (!topbarMouseArea.containsMouse) {

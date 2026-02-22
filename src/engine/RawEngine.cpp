@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMutexLocker>
+#include <QRgba64>
 #include <algorithm>
 #include <cmath>
 
@@ -503,17 +504,44 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   float amount = m_denoiseAmount;
   int stride = final ? 4 : 8;  // Faster search for previews
 
+  std::vector<photon::GpuSearcher::SearchResult> gpuMatches;
   // Check if we can offload to GPU
+  // Only offload for full image search (roi not valid) to keep logic simple for
+  // now
   if (m_rhi && !roi.isValid()) {
-    // Offload search logic...
-    // Note: For now we maintain CPU path as it is more stable across all GPUs
-    // until we finalize the RHI readback timing.
+    if (!m_gpuSearcher) {
+      m_gpuSearcher = std::make_unique<photon::GpuSearcher>(m_rhi);
+    }
+
+    // Extract luma for GPU search
+    int w = img.width();
+    int h = img.height();
+    std::vector<float> luma(w * h);
+    if (img.format() == QImage::Format_RGBA64 ||
+        img.format() == QImage::Format_RGBX64) {
+      const QRgba64* bits = reinterpret_cast<const QRgba64*>(img.constBits());
+      for (int i = 0; i < w * h; ++i) {
+        luma[i] = (0.2126f * bits[i].red() + 0.7152f * bits[i].green() +
+                   0.0722f * bits[i].blue()) /
+                  257.0f;
+      }
+    } else {
+      QImage converted = img.convertToFormat(QImage::Format_RGB888);
+      const uchar* bits = converted.constBits();
+      for (int i = 0; i < w * h; ++i) {
+        luma[i] = 0.2126f * bits[i * 3] + 0.7152f * bits[i * 3 + 1] +
+                  0.0722f * bits[i * 3 + 2];
+      }
+    }
+
+    gpuMatches = m_gpuSearcher->runSearch(luma.data(), w, h, 19);
   }
 
   std::atomic<bool>* abortPtr = &m_abortDenoise;
   QFuture<QImage> future =
-      QtConcurrent::run([img, amount, abortPtr, final, stride]() {
-        return photon::Denoiser::denoise(img, amount, abortPtr, final, stride);
+      QtConcurrent::run([img, amount, abortPtr, final, stride, gpuMatches]() {
+        return photon::Denoiser::denoise(img, amount, abortPtr, final, stride,
+                                         gpuMatches);
       });
   m_denoiseWatcher.setFuture(future);
 }

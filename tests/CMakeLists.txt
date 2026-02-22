@@ -8,10 +8,12 @@ add_executable(tst_RawEngine
     ../src/engine/RawEngine.h
     ../src/engine/Denoiser.cpp
     ../src/engine/Denoiser.h
+    ../src/engine/GpuSearcher.cpp
+    ../src/engine/GpuSearcher.h
 )
 
 target_link_libraries(tst_RawEngine
-    PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent
+    PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate
     PRIVATE ${LIBRAW_LIBRARIES}
 )
 target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
@@ -20,6 +22,8 @@ target_include_directories(tst_RawEngine PRIVATE
     ../src/engine
     /usr/include/qt6/QtGui/6.10.1
     /usr/include/qt6/QtGui/6.10.1/QtGui
+    /usr/include/qt6/QtCore/6.10.1
+    /usr/include/qt6/QtCore/6.10.1/QtCore
     ${LIBRAW_INCLUDE_DIRS}
 )
 

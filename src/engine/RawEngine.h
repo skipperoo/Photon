@@ -6,33 +6,42 @@
 #include <QImage>
 #include <QObject>
 #include <QString>
-#include <QtConcurrent>
 #include <QVariantList>
+#include <QtConcurrent>
 #include <memory>
 #include <vector>
 
 class QRhi;
+namespace photon {
+class GpuSearcher;
+struct SearchResult;
+}  // namespace photon
 
 class RawEngine : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString source READ source WRITE setSource NOTIFY sourceChanged)
   Q_PROPERTY(
       float exposure READ exposure WRITE setExposure NOTIFY exposureChanged)
-  Q_PROPERTY(float contrast READ contrast WRITE setContrast NOTIFY contrastChanged)
-  Q_PROPERTY(float highlights READ highlights WRITE setHighlights NOTIFY highlightsChanged)
+  Q_PROPERTY(
+      float contrast READ contrast WRITE setContrast NOTIFY contrastChanged)
+  Q_PROPERTY(float highlights READ highlights WRITE setHighlights NOTIFY
+                 highlightsChanged)
   Q_PROPERTY(float shadows READ shadows WRITE setShadows NOTIFY shadowsChanged)
   Q_PROPERTY(float whites READ whites WRITE setWhites NOTIFY whitesChanged)
   Q_PROPERTY(float blacks READ blacks WRITE setBlacks NOTIFY blacksChanged)
-  Q_PROPERTY(float vibrance READ vibrance WRITE setVibrance NOTIFY vibranceChanged)
-  Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY saturationChanged)
-  Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY temperatureChanged)
+  Q_PROPERTY(
+      float vibrance READ vibrance WRITE setVibrance NOTIFY vibranceChanged)
+  Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY
+                 saturationChanged)
+  Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
+                 temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
   Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE
                  setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
   Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY
                  grainAmountChanged)
-  Q_PROPERTY(float grainSize READ grainSize WRITE setGrainSize NOTIFY
-                 grainSizeChanged)
+  Q_PROPERTY(
+      float grainSize READ grainSize WRITE setGrainSize NOTIFY grainSizeChanged)
   Q_PROPERTY(float grainRoughness READ grainRoughness WRITE setGrainRoughness
                  NOTIFY grainRoughnessChanged)
   Q_PROPERTY(float vignetteAmount READ vignetteAmount WRITE setVignetteAmount
@@ -41,73 +50,118 @@ class RawEngine : public QObject {
                  setVignetteMidpoint NOTIFY vignetteMidpointChanged)
   Q_PROPERTY(float vignetteRoundness READ vignetteRoundness WRITE
                  setVignetteRoundness NOTIFY vignetteRoundnessChanged)
-    Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE setVignetteFeather
-                   NOTIFY vignetteFeatherChanged)
-    Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount NOTIFY denoiseAmountChanged)
-  
-    // HSL Panel Properties
-    Q_PROPERTY(float hslRedHue READ hslRedHue WRITE setHslRedHue NOTIFY hslRedHueChanged)
-    Q_PROPERTY(float hslRedSaturation READ hslRedSaturation WRITE setHslRedSaturation NOTIFY hslRedSaturationChanged)
-    Q_PROPERTY(float hslRedLuminance READ hslRedLuminance WRITE setHslRedLuminance NOTIFY hslRedLuminanceChanged)
-    
-    Q_PROPERTY(float hslOrangeHue READ hslOrangeHue WRITE setHslOrangeHue NOTIFY hslOrangeHueChanged)
-    Q_PROPERTY(float hslOrangeSaturation READ hslOrangeSaturation WRITE setHslOrangeSaturation NOTIFY hslOrangeSaturationChanged)
-    Q_PROPERTY(float hslOrangeLuminance READ hslOrangeLuminance WRITE setHslOrangeLuminance NOTIFY hslOrangeLuminanceChanged)
-    
-    Q_PROPERTY(float hslYellowHue READ hslYellowHue WRITE setHslYellowHue NOTIFY hslYellowHueChanged)
-    Q_PROPERTY(float hslYellowSaturation READ hslYellowSaturation WRITE setHslYellowSaturation NOTIFY hslYellowSaturationChanged)
-    Q_PROPERTY(float hslYellowLuminance READ hslYellowLuminance WRITE setHslYellowLuminance NOTIFY hslYellowLuminanceChanged)
-    
-    Q_PROPERTY(float hslGreenHue READ hslGreenHue WRITE setHslGreenHue NOTIFY hslGreenHueChanged)
-    Q_PROPERTY(float hslGreenSaturation READ hslGreenSaturation WRITE setHslGreenSaturation NOTIFY hslGreenSaturationChanged)
-    Q_PROPERTY(float hslGreenLuminance READ hslGreenLuminance WRITE setHslGreenLuminance NOTIFY hslGreenLuminanceChanged)
-    
-    Q_PROPERTY(float hslAquaHue READ hslAquaHue WRITE setHslAquaHue NOTIFY hslAquaHueChanged)
-    Q_PROPERTY(float hslAquaSaturation READ hslAquaSaturation WRITE setHslAquaSaturation NOTIFY hslAquaSaturationChanged)
-    Q_PROPERTY(float hslAquaLuminance READ hslAquaLuminance WRITE setHslAquaLuminance NOTIFY hslAquaLuminanceChanged)
-    
-    Q_PROPERTY(float hslBlueHue READ hslBlueHue WRITE setHslBlueHue NOTIFY hslBlueHueChanged)
-    Q_PROPERTY(float hslBlueSaturation READ hslBlueSaturation WRITE setHslBlueSaturation NOTIFY hslBlueSaturationChanged)
-    Q_PROPERTY(float hslBlueLuminance READ hslBlueLuminance WRITE setHslBlueLuminance NOTIFY hslBlueLuminanceChanged)
-    
-    Q_PROPERTY(float hslPurpleHue READ hslPurpleHue WRITE setHslPurpleHue NOTIFY hslPurpleHueChanged)
-    Q_PROPERTY(float hslPurpleSaturation READ hslPurpleSaturation WRITE setHslPurpleSaturation NOTIFY hslPurpleSaturationChanged)
-    Q_PROPERTY(float hslPurpleLuminance READ hslPurpleLuminance WRITE setHslPurpleLuminance NOTIFY hslPurpleLuminanceChanged)
-    
-    Q_PROPERTY(float hslMagentaHue READ hslMagentaHue WRITE setHslMagentaHue NOTIFY hslMagentaHueChanged)
-    Q_PROPERTY(float hslMagentaSaturation READ hslMagentaSaturation WRITE setHslMagentaSaturation NOTIFY hslMagentaSaturationChanged)
-    Q_PROPERTY(float hslMagentaLuminance READ hslMagentaLuminance WRITE setHslMagentaLuminance NOTIFY hslMagentaLuminanceChanged)
-  
-    // Color Grading Properties
-    Q_PROPERTY(float cgShadowsHue READ cgShadowsHue WRITE setCgShadowsHue NOTIFY cgShadowsHueChanged)
-    Q_PROPERTY(float cgShadowsSaturation READ cgShadowsSaturation WRITE setCgShadowsSaturation NOTIFY cgShadowsSaturationChanged)
-    Q_PROPERTY(float cgShadowsLuminance READ cgShadowsLuminance WRITE setCgShadowsLuminance NOTIFY cgShadowsLuminanceChanged)
-    
-    Q_PROPERTY(float cgMidtonesHue READ cgMidtonesHue WRITE setCgMidtonesHue NOTIFY cgMidtonesHueChanged)
-    Q_PROPERTY(float cgMidtonesSaturation READ cgMidtonesSaturation WRITE setCgMidtonesSaturation NOTIFY cgMidtonesSaturationChanged)
-    Q_PROPERTY(float cgMidtonesLuminance READ cgMidtonesLuminance WRITE setCgMidtonesLuminance NOTIFY cgMidtonesLuminanceChanged)
-    
-    Q_PROPERTY(float cgHighlightsHue READ cgHighlightsHue WRITE setCgHighlightsHue NOTIFY cgHighlightsHueChanged)
-    Q_PROPERTY(float cgHighlightsSaturation READ cgHighlightsSaturation WRITE setCgHighlightsSaturation NOTIFY cgHighlightsSaturationChanged)
-    Q_PROPERTY(float cgHighlightsLuminance READ cgHighlightsLuminance WRITE setCgHighlightsLuminance NOTIFY cgHighlightsLuminanceChanged)
-    
-    Q_PROPERTY(float cgBalance READ cgBalance WRITE setCgBalance NOTIFY cgBalanceChanged)
-    Q_PROPERTY(float cgBlending READ cgBlending WRITE setCgBlending NOTIFY cgBlendingChanged)
+  Q_PROPERTY(float vignetteFeather READ vignetteFeather WRITE setVignetteFeather
+                 NOTIFY vignetteFeatherChanged)
+  Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount
+                 NOTIFY denoiseAmountChanged)
 
-    Q_PROPERTY(QVariantList histogramRed READ histogramRed NOTIFY histogramChanged)
-    Q_PROPERTY(QVariantList histogramGreen READ histogramGreen NOTIFY histogramChanged)
-    Q_PROPERTY(QVariantList histogramBlue READ histogramBlue NOTIFY histogramChanged)
-    Q_PROPERTY(QVariantList histogramLuma READ histogramLuma NOTIFY histogramChanged)
-    Q_PROPERTY(QVariantMap metadata READ metadata NOTIFY metadataChanged)
-    Q_PROPERTY(int orientation READ orientation NOTIFY orientationChanged)
+  // HSL Panel Properties
+  Q_PROPERTY(
+      float hslRedHue READ hslRedHue WRITE setHslRedHue NOTIFY hslRedHueChanged)
+  Q_PROPERTY(float hslRedSaturation READ hslRedSaturation WRITE
+                 setHslRedSaturation NOTIFY hslRedSaturationChanged)
+  Q_PROPERTY(float hslRedLuminance READ hslRedLuminance WRITE setHslRedLuminance
+                 NOTIFY hslRedLuminanceChanged)
 
-    Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
-    Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
-    Q_PROPERTY(bool isPanning READ isPanning WRITE setIsPanning NOTIFY isPanningChanged)
-    Q_PROPERTY(bool hasDenoisedResult READ hasDenoisedResult NOTIFY denoisingFinished)
-    Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled NOTIFY denoiseEnabledChanged)
-    Q_PROPERTY(QSize viewportSize READ viewportSize WRITE setViewportSize NOTIFY viewportSizeChanged)
-  Q_PROPERTY(bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
+  Q_PROPERTY(float hslOrangeHue READ hslOrangeHue WRITE setHslOrangeHue NOTIFY
+                 hslOrangeHueChanged)
+  Q_PROPERTY(float hslOrangeSaturation READ hslOrangeSaturation WRITE
+                 setHslOrangeSaturation NOTIFY hslOrangeSaturationChanged)
+  Q_PROPERTY(float hslOrangeLuminance READ hslOrangeLuminance WRITE
+                 setHslOrangeLuminance NOTIFY hslOrangeLuminanceChanged)
+
+  Q_PROPERTY(float hslYellowHue READ hslYellowHue WRITE setHslYellowHue NOTIFY
+                 hslYellowHueChanged)
+  Q_PROPERTY(float hslYellowSaturation READ hslYellowSaturation WRITE
+                 setHslYellowSaturation NOTIFY hslYellowSaturationChanged)
+  Q_PROPERTY(float hslYellowLuminance READ hslYellowLuminance WRITE
+                 setHslYellowLuminance NOTIFY hslYellowLuminanceChanged)
+
+  Q_PROPERTY(float hslGreenHue READ hslGreenHue WRITE setHslGreenHue NOTIFY
+                 hslGreenHueChanged)
+  Q_PROPERTY(float hslGreenSaturation READ hslGreenSaturation WRITE
+                 setHslGreenSaturation NOTIFY hslGreenSaturationChanged)
+  Q_PROPERTY(float hslGreenLuminance READ hslGreenLuminance WRITE
+                 setHslGreenLuminance NOTIFY hslGreenLuminanceChanged)
+
+  Q_PROPERTY(float hslAquaHue READ hslAquaHue WRITE setHslAquaHue NOTIFY
+                 hslAquaHueChanged)
+  Q_PROPERTY(float hslAquaSaturation READ hslAquaSaturation WRITE
+                 setHslAquaSaturation NOTIFY hslAquaSaturationChanged)
+  Q_PROPERTY(float hslAquaLuminance READ hslAquaLuminance WRITE
+                 setHslAquaLuminance NOTIFY hslAquaLuminanceChanged)
+
+  Q_PROPERTY(float hslBlueHue READ hslBlueHue WRITE setHslBlueHue NOTIFY
+                 hslBlueHueChanged)
+  Q_PROPERTY(float hslBlueSaturation READ hslBlueSaturation WRITE
+                 setHslBlueSaturation NOTIFY hslBlueSaturationChanged)
+  Q_PROPERTY(float hslBlueLuminance READ hslBlueLuminance WRITE
+                 setHslBlueLuminance NOTIFY hslBlueLuminanceChanged)
+
+  Q_PROPERTY(float hslPurpleHue READ hslPurpleHue WRITE setHslPurpleHue NOTIFY
+                 hslPurpleHueChanged)
+  Q_PROPERTY(float hslPurpleSaturation READ hslPurpleSaturation WRITE
+                 setHslPurpleSaturation NOTIFY hslPurpleSaturationChanged)
+  Q_PROPERTY(float hslPurpleLuminance READ hslPurpleLuminance WRITE
+                 setHslPurpleLuminance NOTIFY hslPurpleLuminanceChanged)
+
+  Q_PROPERTY(float hslMagentaHue READ hslMagentaHue WRITE setHslMagentaHue
+                 NOTIFY hslMagentaHueChanged)
+  Q_PROPERTY(float hslMagentaSaturation READ hslMagentaSaturation WRITE
+                 setHslMagentaSaturation NOTIFY hslMagentaSaturationChanged)
+  Q_PROPERTY(float hslMagentaLuminance READ hslMagentaLuminance WRITE
+                 setHslMagentaLuminance NOTIFY hslMagentaLuminanceChanged)
+
+  // Color Grading Properties
+  Q_PROPERTY(float cgShadowsHue READ cgShadowsHue WRITE setCgShadowsHue NOTIFY
+                 cgShadowsHueChanged)
+  Q_PROPERTY(float cgShadowsSaturation READ cgShadowsSaturation WRITE
+                 setCgShadowsSaturation NOTIFY cgShadowsSaturationChanged)
+  Q_PROPERTY(float cgShadowsLuminance READ cgShadowsLuminance WRITE
+                 setCgShadowsLuminance NOTIFY cgShadowsLuminanceChanged)
+
+  Q_PROPERTY(float cgMidtonesHue READ cgMidtonesHue WRITE setCgMidtonesHue
+                 NOTIFY cgMidtonesHueChanged)
+  Q_PROPERTY(float cgMidtonesSaturation READ cgMidtonesSaturation WRITE
+                 setCgMidtonesSaturation NOTIFY cgMidtonesSaturationChanged)
+  Q_PROPERTY(float cgMidtonesLuminance READ cgMidtonesLuminance WRITE
+                 setCgMidtonesLuminance NOTIFY cgMidtonesLuminanceChanged)
+
+  Q_PROPERTY(float cgHighlightsHue READ cgHighlightsHue WRITE setCgHighlightsHue
+                 NOTIFY cgHighlightsHueChanged)
+  Q_PROPERTY(float cgHighlightsSaturation READ cgHighlightsSaturation WRITE
+                 setCgHighlightsSaturation NOTIFY cgHighlightsSaturationChanged)
+  Q_PROPERTY(float cgHighlightsLuminance READ cgHighlightsLuminance WRITE
+                 setCgHighlightsLuminance NOTIFY cgHighlightsLuminanceChanged)
+
+  Q_PROPERTY(
+      float cgBalance READ cgBalance WRITE setCgBalance NOTIFY cgBalanceChanged)
+  Q_PROPERTY(float cgBlending READ cgBlending WRITE setCgBlending NOTIFY
+                 cgBlendingChanged)
+
+  Q_PROPERTY(
+      QVariantList histogramRed READ histogramRed NOTIFY histogramChanged)
+  Q_PROPERTY(
+      QVariantList histogramGreen READ histogramGreen NOTIFY histogramChanged)
+  Q_PROPERTY(
+      QVariantList histogramBlue READ histogramBlue NOTIFY histogramChanged)
+  Q_PROPERTY(
+      QVariantList histogramLuma READ histogramLuma NOTIFY histogramChanged)
+  Q_PROPERTY(QVariantMap metadata READ metadata NOTIFY metadataChanged)
+  Q_PROPERTY(int orientation READ orientation NOTIFY orientationChanged)
+
+  Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+  Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
+  Q_PROPERTY(
+      bool isPanning READ isPanning WRITE setIsPanning NOTIFY isPanningChanged)
+  Q_PROPERTY(
+      bool hasDenoisedResult READ hasDenoisedResult NOTIFY denoisingFinished)
+  Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled
+                 NOTIFY denoiseEnabledChanged)
+  Q_PROPERTY(QSize viewportSize READ viewportSize WRITE setViewportSize NOTIFY
+                 viewportSizeChanged)
+  Q_PROPERTY(
+      bool halfSize READ halfSize WRITE setHalfSize NOTIFY halfSizeChanged)
   Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
   Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
@@ -290,7 +344,8 @@ class RawEngine : public QObject {
 
   // Asynchronous load
   void loadRawFileAsync(const QString& path);
-  Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f, const QRectF& roi = QRectF(0,0,1,1));
+  Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f,
+                                     const QRectF& roi = QRectF(0, 0, 1, 1));
   Q_INVOKABLE void clearDenoisedResult();
 
   QImage getThumbnail();
@@ -303,7 +358,7 @@ class RawEngine : public QObject {
 
   // Persistence
   void loadEdits();
-  void commitEdit(); 
+  void commitEdit();
   void undo();
   void redo();
   void resetToOriginal();
@@ -461,7 +516,7 @@ class RawEngine : public QObject {
   QVariantList m_histGreen;
   QVariantList m_histBlue;
   QVariantList m_histLuma;
-  QImage m_downsampledImage; // Used for fast histogram computation
+  QImage m_downsampledImage;  // Used for fast histogram computation
   bool m_histogramUpdatePending = false;
   bool m_histogramNeedsUpdate = false;
   QVariantMap m_metadata;
@@ -474,6 +529,7 @@ class RawEngine : public QObject {
   QVariantList m_editStack;
   int m_editIndex = -1;
   std::unique_ptr<LibRaw> m_processor;
+  std::unique_ptr<photon::GpuSearcher> m_gpuSearcher;
   libraw_processed_image_t* m_processedImage = nullptr;
   std::vector<uint8_t> m_customBuffer;
   std::vector<uint8_t> m_denoisedBuffer;

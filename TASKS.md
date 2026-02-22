@@ -113,11 +113,13 @@
   - [x] **Step 2: Advanced GPU Preview (NLM)**
     - [x] Implement **Non-Local Means (NLM)** shader in `RawViewport.frag`.
     - [x] Optimize search radius and patch size for 60fps performance.
-  - [ ] **Step 3: GPU Search Offload [IN PROGRESS]**
-    - [x] Implement initial **Patch Search shaders** (SSD calculation).
-    - [ ] Implement **RHI-based offscreen pass** in `GpuSearcher`.
-    - [ ] Implement **GPU-to-CPU readback** logic for search indices.
-    - [ ] Integrate GPU search results into the BM3D pipeline.  - [x] **Asynchronous Workflow**
+- [x] **Step 3: GPU Search Offload [DONE]**
+  - [x] Implement initial **Patch Search shaders** (3x3 patch SSD).
+  - [x] Refactor `GpuSearcher` to handle **RHI readback** (blocking worker thread).
+  - [x] Implement **GPU-to-CPU transfer** of search indices and SSD values.
+  - [x] Integrate GPU search results into the **BM3D aggregation phase** in `Denoiser.cpp` as a search seed.
+  - [x] Implement **CPU fallback** (handled automatically by checking RHI availability).
+- [x] **Asynchronous Workflow**
     - [x] Run heavy denoising in background thread.
     - [x] Implement "Applying denoise..." UI indicator with rotating loader.
     - [x] Implement automatic abort logic when switching photos.

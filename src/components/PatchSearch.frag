@@ -15,14 +15,8 @@ void main() {
     vec2 texelSize = 1.0 / ubuf.sourceSize;
     vec2 center = qt_TexCoord0;
     
-    // Simple version for Step 3: Find the 1 BEST match in a neighborhood
-    // and encode it into RGBA. 
-    // In a production BM3D we'd need more, but let's start by offloading the search.
-    
     float min_ssd = 1000000.0;
     vec2 best_offset = vec2(0.0);
-    
-    float center_luma = texture(lumaTexture, center).r;
     
     int radius = ubuf.searchWindow / 2;
     for (int dy = -radius; dy <= radius; dy++) {
@@ -30,10 +24,18 @@ void main() {
             if (dx == 0 && dy == 0) continue;
             
             vec2 offset = vec2(float(dx), float(dy));
-            float sample_luma = texture(lumaTexture, center + offset * texelSize).r;
             
-            float diff = sample_luma - center_luma;
-            float ssd = diff * diff;
+            // 3x3 Patch SSD
+            float ssd = 0.0;
+            for (int py = -1; py <= 1; py++) {
+                for (int px = -1; px <= 1; px++) {
+                    vec2 p_offset = vec2(float(px), float(py));
+                    float center_sample = texture(lumaTexture, center + p_offset * texelSize).r;
+                    float candidate_sample = texture(lumaTexture, center + (offset + p_offset) * texelSize).r;
+                    float diff = candidate_sample - center_sample;
+                    ssd += diff * diff;
+                }
+            }
             
             if (ssd < min_ssd) {
                 min_ssd = ssd;
@@ -43,6 +45,5 @@ void main() {
     }
     
     // Encode offset (-128 to 127) into 0-1 range
-    // We add 128 and divide by 255
     fragColor = vec4((best_offset.x + 128.0) / 255.0, (best_offset.y + 128.0) / 255.0, min_ssd, 1.0);
 }

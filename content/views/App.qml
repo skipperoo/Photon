@@ -153,6 +153,18 @@ Window {
                             }
                         }
 
+                        // Timer to delay double-click zoom (allows detecting if user wants to pan instead)
+                        Timer {
+                            id: doubleClickZoomTimer
+                            interval: 250
+                            repeat: false
+                            property real targetZoom: 1.0
+                            onTriggered: {
+                                rawViewport.zoom = targetZoom
+                                interactionDenoiseTimer.restart()
+                            }
+                        }
+
                         ShaderEffect {
                             anchors.fill: rawViewport
                             property variant source: ShaderEffectSource { 
@@ -241,9 +253,14 @@ Window {
                             
                             onWheel: (wheel) => {
                                 wheel.accepted = true;
-                                // Threshold of 20 to avoid micro-scrolls during clicks
-                                if (Math.abs(wheel.angleDelta.y) >= 20) {
-                                    var factor = Math.pow(1.001, wheel.angleDelta.y)
+                                
+                                var delta = wheel.angleDelta.y;
+                                if (delta === 0) delta = wheel.pixelDelta.y * 5; // Scale pixelDelta appropriately
+                                
+                                // Apply smooth zoom factor
+                                if (delta !== 0) {
+                                    // Use a smaller base for touchpad precision if needed
+                                    var factor = Math.pow(1.001, delta)
                                     rawViewport.zoom = Math.max(0.1, Math.min(10.0, rawViewport.zoom * factor))
                                     interactionDenoiseTimer.restart();
                                 }
@@ -268,12 +285,13 @@ Window {
                             
                             onDoubleClicked: (mouse) => {
                                 // Cycle: 1.0 -> 2.0 -> 4.0 -> 1.0
-                                if (rawViewport.zoom < 1.0) rawViewport.zoom = 1.0;
-                                else if (rawViewport.zoom < 2.0) rawViewport.zoom = 2.0;
-                                else if (rawViewport.zoom < 4.0) rawViewport.zoom = 4.0;
-                                else rawViewport.zoom = 1.0;
+                                // Delay zoom to allow detecting if user wants to pan instead
+                                if (rawViewport.zoom < 1.0) doubleClickZoomTimer.targetZoom = 1.0;
+                                else if (rawViewport.zoom < 2.0) doubleClickZoomTimer.targetZoom = 2.0;
+                                else if (rawViewport.zoom < 4.0) doubleClickZoomTimer.targetZoom = 4.0;
+                                else doubleClickZoomTimer.targetZoom = 1.0;
                                 
-                                interactionDenoiseTimer.restart();
+                                doubleClickZoomTimer.restart()
                             }
                             
                             onPositionChanged: (mouse) => {
@@ -281,6 +299,11 @@ Window {
                                     var dx = mouse.x - startPos.x;
                                     var dy = mouse.y - startPos.y;
                                     var dist = Math.sqrt(dx*dx + dy*dy);
+                                    
+                                    // Cancel double-click zoom if user starts moving (they want to pan)
+                                    if (dist > 5) {
+                                        doubleClickZoomTimer.stop()
+                                    }
                                     
                                     if (dist > 10) { // 10px threshold
                                         isDragging = true;

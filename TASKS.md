@@ -134,10 +134,12 @@
 - [ ] **Lifecycle Management**
   - [ ] Ensure `RawEngine` destructor clean-joins all background workers.
   - [ ] Prevent segfaults on application close while denoising.
-- [ ] **Viewport Constraints & Polish**
-  - [ ] Lock panning when zoom <= 100% (center image).
-  - [ ] Constrain pan offset to image boundaries when zoomed in.
-  - [ ] Implement double-click zoom cycle (100% -> 200% -> 400% -> 100%).
+- [x] **Viewport Constraints & Polish**
+  - [x] Lock panning when zoom <= 100% (center image).
+  - [x] Constrain pan offset to image boundaries when zoomed in.
+  - [x] Implement double-click zoom cycle (100% -> 200% -> 400% -> 100%).
+  - [x] Fix pan/zoom interaction bug where double-click zoom triggered during pan.
+  - [x] Fix "Zoom Increases" bug during panning (Race condition in ROI calculation).
   - [ ] Fix rendering artifacts during zoom/pan with active denoising.
 
 ## Backlog / Future

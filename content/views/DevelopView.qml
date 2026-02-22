@@ -77,6 +77,48 @@ Control {
                     Text { text: root.viewport && root.viewport.metadata.focalLength ? root.viewport.metadata.focalLength : "-"; font: Theme.fontSmall; color: Theme.foreground }
                 }
             }
+          }
+          
+          // Background Denoise Indicator
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.margins: 12
+            spacing: 10
+            // Empty placeholder to prevent the rows below from moving up and down
+            Rectangle {
+                width: 16; height: 16; color: "transparent"
+                visible: root.viewport ? !root.viewport.isDenoising : true
+            }
+
+
+            Text {
+                visible: root.viewport ? root.viewport.isDenoising : false
+                text: "Applying denoise..."
+                color: Theme.foreground
+                font: Theme.fontSmall
+            }
+
+            Rectangle {
+                width: 16; height: 16; color: "transparent"
+                radius: 8
+
+                visible: root.viewport ? root.viewport.isDenoising : false
+                Canvas {
+                    anchors.fill: parent
+                    onPaint: {
+                        var ctx = getContext("2d");
+                        ctx.reset();
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = Theme.foreground;
+                        ctx.beginPath();
+                        ctx.arc(8, 8, 7, 0, Math.PI / 2);
+                        ctx.stroke();
+                    }
+                }
+                RotationAnimation on rotation {
+                    from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.parent.visible
+                }
+            }
         }
 
         ScrollView {
@@ -88,41 +130,6 @@ Control {
             ColumnLayout {
                 width: parent.width
                 spacing: 0
-
-                // Background Denoise Indicator
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.margins: 12
-                    spacing: 10
-                    visible: root.viewport ? root.viewport.isDenoising : false
-                    
-                    
-                    Rectangle {
-                        width: 16; height: 16; color: "transparent"
-                        radius: 8
-                        Canvas {
-                            anchors.fill: parent
-                            onPaint: {
-                                var ctx = getContext("2d");
-                                ctx.reset();
-                                ctx.lineWidth = 2;
-                                ctx.strokeStyle = Theme.foreground;
-                                ctx.beginPath();
-                                ctx.arc(8, 8, 7, 0, Math.PI / 2);
-                                ctx.stroke();
-                            }
-                        }
-                        RotationAnimation on rotation {
-                            from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.parent.visible
-                        }
-                    }
-
-                    Text {
-                        text: "Applying denoise..."
-                        color: Theme.foreground
-                        font: Theme.fontSmall
-                    }
-                }
 
                 // --- Light Section ---
                 Collapsible {
@@ -380,11 +387,11 @@ Control {
                                 text: "Denoise"
                                 font: Theme.fontRegular
                                 color: Theme.foreground
-                                Layout.fillWidth: true
+                                Layout.fillWidth: false
                             }
                             CheckBox {
                                 checked: root.viewport ? root.viewport.denoiseEnabled : false
-                                onToggled: if(root.viewport) root.viewport.denoiseEnabled = checked
+                                onToggled: if(root.viewport) { root.viewport.denoiseEnabled = checked; root.viewport.commitEdit(); }
                             }
                         }
 

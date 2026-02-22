@@ -157,7 +157,11 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
     *   **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.
     *   **ROI-Driven Refinement (Phase 13):** When zoomed in, the engine prioritizes high-quality re-rendering of the visible Region of Interest (ROI) before triggering the background denoiser on that specific area, ensuring maximum sharpness and speed.
     *   **Explicit Activation:** Denoising must be explicitly enabled via a checkbox. Disabling it immediately halts any background processing.
-    *   **Lifecycle Safety:** All background threads are strictly joined or aborted upon application exit to prevent segmentation faults.
+    *   **Lifecycle Safety:** To prevent segmentation faults during application teardown, Photon implements a strict ownership and cleanup hierarchy:
+        *   **Thread Joining:** All background workers (LibRaw, BM3D Denoiser, Thumbnail generator) use dedicated thread pools that are explicitly joined in their respective destructors.
+        *   **Deterministic Teardown:** Singletons (`LogManager`, `AppStateManager`) are parented to the `QGuiApplication` instance and reset their internal static pointers to `nullptr` upon destruction to prevent dangling pointer access during final process cleanup.
+        *   **GPU Resource Release:** `RawViewport` implements the `releaseResources()` protocol to ensure all RHI-allocated textures and buffers are freed on the render thread while the graphics context is still valid.
+        *   **Instance Scoping:** The `QVulkanInstance` is managed as a local variable in `main()` to ensure it persists until all QML-related teardown is complete but is destroyed before the application exits.
 
 **Accordion Sections:**
 

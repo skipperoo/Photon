@@ -363,6 +363,7 @@ class RawEngine : public QObject {
   void redo();
   void resetToOriginal();
   void applySettings(const QVariantMap& settings);
+  void releaseGpuResources();
 
   QVariantList editStack() const { return m_editStack; }
   bool canUndo() const { return m_editIndex > 0; }

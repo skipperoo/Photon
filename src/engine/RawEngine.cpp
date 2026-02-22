@@ -131,7 +131,14 @@ RawEngine::~RawEngine() {
   m_loadWatcher.waitForFinished();
   m_denoiseWatcher.waitForFinished();
   m_histogramFuture.waitForFinished();
+
+  releaseGpuResources();
   clearProcessedImage();
+}
+
+void RawEngine::releaseGpuResources() {
+  QMutexLocker locker(&m_processorMutex);
+  m_gpuSearcher.reset();
 }
 
 void RawEngine::updateProcessingParams() {

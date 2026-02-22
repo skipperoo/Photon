@@ -117,8 +117,8 @@ void ThumbnailProvider::generateThumbnailAsync(const QString& imagePath) {
     return;
   }
 
-  // Run thumbnail generation in a separate thread
-  QFuture<void> future = QtConcurrent::run([this, imagePath]() {
+  // Run thumbnail generation in a separate thread pool managed by this object
+  QFuture<void> future = QtConcurrent::run(m_threadPool, [this, imagePath]() {
     QImage thumbnail = generateThumbnail(imagePath);
     if (!thumbnail.isNull()) {
       saveThumbnailToCache(imagePath, thumbnail);

@@ -788,3 +788,5 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
   node->setRect(rect);
   return node;
 }
+
+void RawViewport::releaseResources() { m_engine.releaseGpuResources(); }

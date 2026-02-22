@@ -133,9 +133,9 @@
 - [ ] **ROI-Driven Proxy Refinement**
   - [ ] Update zoom logic to re-render visible crop in high-fidelity first.
   - [ ] Apply BM3D only to the high-quality visible region.
-- [ ] **Lifecycle Management**
-  - [ ] Ensure `RawEngine` destructor clean-joins all background workers.
-  - [ ] Prevent segfaults on application close while denoising.
+- [x] **Lifecycle Management**
+  - [x] Ensure `RawEngine` destructor clean-joins all background workers.
+  - [x] Prevent segfaults on application close while denoising (Fixed race in `ThumbnailProvider` and RHI resource cleanup).
 - [x] **Viewport Constraints & Polish**
   - [x] Lock panning when zoom <= 100% (center image).
   - [x] Constrain pan offset to image boundaries when zoomed in.

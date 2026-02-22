@@ -1,9 +1,11 @@
 #include "AppStateManager.h"
-#include "LogManager.h"
+
+#include <vulkan/vulkan.h>
 
 #include <QDebug>
 #include <QDir>
-#include <vulkan/vulkan.h>
+
+#include "LogManager.h"
 
 using namespace photon;
 
@@ -17,7 +19,7 @@ AppStateManager::AppStateManager(const QString& appName, QObject* parent)
   loadSettings();
 }
 
-AppStateManager::~AppStateManager() = default;
+AppStateManager::~AppStateManager() { s_instance = nullptr; }
 
 AppStateManager* AppStateManager::instance(const QString& appName) {
   if (!s_instance) {
@@ -66,7 +68,8 @@ void AppStateManager::loadSettings() {
   m_cacheSizeGB = m_settings.value(KEY_CACHE_SIZE, 10).toInt();
   m_isDarkMode = m_settings.value(KEY_DARK_MODE, true).toBool();
   m_accentColor = m_settings.value(KEY_ACCENT_COLOR, "#3b82f6").toString();
-  m_previewDenoiseFull = m_settings.value(KEY_PREVIEW_DENOISE_FULL, false).toBool();
+  m_previewDenoiseFull =
+      m_settings.value(KEY_PREVIEW_DENOISE_FULL, false).toBool();
   QString level = m_settings.value("diagnostics/logLevel", "INFO").toString();
   LogManager::instance()->setMinLogLevel(level);
 
@@ -110,7 +113,8 @@ void AppStateManager::clearThumbnailCache() {
   if (thumbDir.exists()) {
     thumbDir.removeRecursively();
     thumbDir.mkpath(".");
-    LogManager::instance()->log("Thumbnail cache cleared for " + m_currentFolder);
+    LogManager::instance()->log("Thumbnail cache cleared for " +
+                                m_currentFolder);
   }
 }
 
@@ -167,7 +171,8 @@ void AppStateManager::setPreferredGpu(const QString& gpu) {
     m_preferredGpu = gpu;
     emit preferredGpuChanged();
     saveSettings();
-    LogManager::instance()->log("Preferred GPU changed to " + gpu + ". Restart may be required.");
+    LogManager::instance()->log("Preferred GPU changed to " + gpu +
+                                ". Restart may be required.");
   }
 }
 
@@ -202,8 +207,9 @@ QString AppStateManager::logLocation() const {
 void AppStateManager::setLogLocation(const QString& location) {
   LogManager::instance()->setLogLocation(location);
   emit logLocationChanged();
-  // We don't save log location in m_settings here as LogManager handles its own persistence if needed, 
-  // but let's be consistent and save it if we want it to persist across sessions via Photon settings.
+  // We don't save log location in m_settings here as LogManager handles its own
+  // persistence if needed, but let's be consistent and save it if we want it to
+  // persist across sessions via Photon settings.
   m_settings.setValue("diagnostics/logLocation", location);
   m_settings.sync();
 }

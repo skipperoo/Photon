@@ -11,7 +11,9 @@ namespace photon {
 GpuSearcher::GpuSearcher(QRhi* rhi, QObject* parent)
     : QObject(parent), m_rhi(rhi) {}
 
-GpuSearcher::~GpuSearcher() = default;
+GpuSearcher::~GpuSearcher() {
+  // Resources are smart pointers, they will be destroyed now
+}
 
 void GpuSearcher::initResources(int w, int h) {
   if (m_lumaTex && m_lumaTex->pixelSize() == QSize(w, h)) return;

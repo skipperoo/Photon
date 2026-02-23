@@ -754,7 +754,7 @@ Window {
         Rectangle {
             id: topbar
             width: parent.width - 32
-            height: 56
+            height: 64
             anchors.top: parent.top
             anchors.topMargin: window.showTopbar ? 16 : -height - 20
             anchors.horizontalCenter: parent.horizontalCenter
@@ -799,9 +799,13 @@ Window {
                 RowLayout {
                     spacing: 12
                     Rectangle {
-                        width: 28; height: 28; radius: 6
-                        color: Theme.foreground
-                        Text { anchors.centerIn: parent; text: "P"; color: Theme.background; font.bold: true }
+                        width: 32; height: 32; radius: 6
+                        // color: Theme.foreground
+                        Image {
+                            source: "qrc:/Main/assets/icons/photon.png"
+                            anchors.fill: parent
+                        }
+                        // Text { anchors.centerIn: parent; text: "P"; color: Theme.background; font.bold: true }
                     }
                     Text {
                         text: "PHOTON"

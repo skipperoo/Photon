@@ -107,6 +107,7 @@ qt_add_qml_module(Photon
         content/components/ExportPanel.qml
         content/theme/Theme.qml
     RESOURCES
+        assets/icons/photon.png
         assets/icons/search.svg
         assets/icons/hand.svg
         assets/icons/zoom-in.svg

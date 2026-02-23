@@ -54,6 +54,7 @@ class RawEngine : public QObject {
                  NOTIFY vignetteFeatherChanged)
   Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount
                  NOTIFY denoiseAmountChanged)
+  Q_PROPERTY(int rating READ rating WRITE setRating NOTIFY ratingChanged)
 
   // HSL Panel Properties
   Q_PROPERTY(
@@ -236,6 +237,9 @@ class RawEngine : public QObject {
   float denoiseAmount() const { return m_denoiseAmount; }
   void setDenoiseAmount(float val);
 
+  int rating() const { return m_rating; }
+  void setRating(int val);
+
   // HSL Getters & Setters
   float hslRedHue() const { return m_hslRedHue; }
   void setHslRedHue(float val);
@@ -391,6 +395,7 @@ class RawEngine : public QObject {
   void vignetteRoundnessChanged();
   void vignetteFeatherChanged();
   void denoiseAmountChanged();
+  void ratingChanged();
 
   // HSL Signals
   void hslRedHueChanged();
@@ -472,6 +477,7 @@ class RawEngine : public QObject {
   float m_vignetteFeather = 0.5f;
   float m_denoiseAmount = 0.0f;
   bool m_denoiseEnabled = false;
+  int m_rating = 0;
 
   // HSL Member Variables
   float m_hslRedHue = 0.0f;

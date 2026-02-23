@@ -344,8 +344,14 @@ void RawEngine::setVignetteFeather(float val) {
 void RawEngine::setDenoiseAmount(float val) {
   if (qFuzzyCompare(m_denoiseAmount, val)) return;
   m_denoiseAmount = val;
-  m_hasDenoisedResult = false;  // Invalidate previous BM3D result
   emit denoiseAmountChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setRating(int val) {
+  if (m_rating == val) return;
+  m_rating = val;
+  emit ratingChanged();
   emit isDefaultChanged();
 }
 
@@ -1282,6 +1288,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["vignetteFeather"] = e->vignetteFeather();
   obj["denoiseAmount"] = e->denoiseAmount();
   obj["denoiseEnabled"] = e->denoiseEnabled();
+  obj["rating"] = e->rating();
 
   obj["hslRedHue"] = e->hslRedHue();
   obj["hslRedSaturation"] = e->hslRedSaturation();
@@ -1356,6 +1363,7 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setDenoiseAmount(obj["denoiseAmount"].toDouble());
   if (obj.contains("denoiseEnabled"))
     e->setDenoiseEnabled(obj["denoiseEnabled"].toBool());
+  if (obj.contains("rating")) e->setRating(obj["rating"].toInt());
 
   if (obj.contains("hslRedHue")) e->setHslRedHue(obj["hslRedHue"].toDouble());
   if (obj.contains("hslRedSaturation"))
@@ -1449,6 +1457,7 @@ static void resetToDefaults(RawEngine* e) {
   e->setVignetteFeather(50.0f);
   e->setDenoiseAmount(0.0f);
   e->setDenoiseEnabled(false);
+  e->setRating(0);
 
   e->setHslRedHue(0.0f);
   e->setHslRedSaturation(0.0f);
@@ -1631,6 +1640,7 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_vignetteAmount)) return false;
   if (!qFuzzyIsNull(m_denoiseAmount)) return false;
   if (m_denoiseEnabled) return false;
+  if (m_rating != 0) return false;
 
   // HSL checks
   if (!qFuzzyIsNull(m_hslRedHue) || !qFuzzyIsNull(m_hslRedSaturation) ||

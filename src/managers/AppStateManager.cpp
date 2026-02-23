@@ -4,6 +4,9 @@
 
 #include <QDebug>
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include "LogManager.h"
 
@@ -163,7 +166,122 @@ void AppStateManager::setCurrentImage(const QString& image) {
   if (m_currentImage != image) {
     m_currentImage = image;
     emit currentImageChanged();
+
+    // Auto-select if nothing is selected or if current selection was just the
+    // old current image
+    if (m_selectedImages.isEmpty() || (m_selectedImages.size() <= 1)) {
+      m_selectedImages.clear();
+      m_selectedImages.append(image);
+      emit selectedImagesChanged();
+    }
   }
+}
+
+void AppStateManager::toggleSelection(const QString& path) {
+  qDebug() << "C++: toggleSelection for:" << path;
+  if (m_selectedImages.contains(path)) {
+    m_selectedImages.removeAll(path);
+  } else {
+    m_selectedImages.append(path);
+  }
+  qDebug() << "C++: Total selected:" << m_selectedImages.size();
+  emit selectedImagesChanged();
+}
+
+void AppStateManager::selectRange(const QString& path,
+                                  const QStringList& allPaths) {
+  if (allPaths.isEmpty()) return;
+
+  int firstIdx = -1;
+  if (!m_selectedImages.isEmpty()) {
+    firstIdx = allPaths.indexOf(m_selectedImages.first());
+  } else if (!m_currentImage.isEmpty()) {
+    firstIdx = allPaths.indexOf(m_currentImage);
+  }
+
+  int lastIdx = allPaths.indexOf(path);
+
+  if (firstIdx == -1 || lastIdx == -1) {
+    toggleSelection(path);
+    return;
+  }
+
+  int start = std::min(firstIdx, lastIdx);
+  int end = std::max(firstIdx, lastIdx);
+
+  m_selectedImages.clear();
+  for (int i = start; i <= end; ++i) {
+    m_selectedImages.append(allPaths[i]);
+  }
+  emit selectedImagesChanged();
+}
+
+void AppStateManager::selectAll(const QStringList& allPaths) {
+  m_selectedImages = allPaths;
+  emit selectedImagesChanged();
+}
+
+void AppStateManager::clearSelection() {
+  if (!m_selectedImages.isEmpty()) {
+    m_selectedImages.clear();
+    emit selectedImagesChanged();
+  }
+}
+
+bool AppStateManager::isSelected(const QString& path) const {
+  return m_selectedImages.contains(path);
+}
+
+void AppStateManager::setRatingForSelected(int rating) {
+  qDebug() << "C++: setRatingForSelected called with rating:" << rating;
+  if (m_selectedImages.isEmpty()) {
+    qDebug() << "C++: No images selected!";
+    return;
+  }
+
+  qDebug() << "C++: Updating" << m_selectedImages.size() << "images";
+
+  for (const QString& path : m_selectedImages) {
+    qDebug() << "C++: Updating rating for:" << path;
+    // Update sidecar file
+    QFileInfo fileInfo(path);
+    QString editsDir = fileInfo.absolutePath() + "/.PhotonData/edits";
+    QDir().mkpath(editsDir);
+    QString editsPath = editsDir + "/" + fileInfo.fileName() + ".json";
+
+    QJsonArray arr;
+    if (QFile::exists(editsPath)) {
+      QFile file(editsPath);
+      if (file.open(QIODevice::ReadOnly)) {
+        arr = QJsonDocument::fromJson(file.readAll()).array();
+      }
+    }
+
+    QJsonObject lastState;
+    if (!arr.isEmpty()) {
+      lastState = arr.last().toObject();
+    }
+
+    // Only update if rating changed
+    if (lastState.contains("rating") && lastState["rating"].toInt() == rating) {
+      continue;
+    }
+
+    lastState["rating"] = rating;
+
+    if (arr.isEmpty()) {
+      arr.append(lastState);
+    } else {
+      arr.replace(arr.size() - 1, lastState);
+    }
+
+    QFile file(editsPath);
+    if (file.open(QIODevice::WriteOnly)) {
+      file.write(QJsonDocument(arr).toJson());
+    }
+  }
+
+  emit ratingUpdated();
 }
 
 void AppStateManager::setPreferredGpu(const QString& gpu) {

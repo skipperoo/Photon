@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import Main
 
 Button {
@@ -9,21 +10,40 @@ Button {
     property bool variantOutline: false
     property bool variantDestructive: false
 
-    contentItem: Text {
-        text: control.text
-        font: Theme.fontMedium
-        color: {
-            if (control.variantDestructive) return "#ffffff"
-            if (control.variantOutline) return Theme.foreground
-            return Theme.primaryFg
+    contentItem: RowLayout {
+        spacing: 8
+        Image {
+            id: iconItem
+            source: control.icon.source
+            Layout.preferredWidth: control.icon.width > 0 ? control.icon.width : 16
+            Layout.preferredHeight: control.icon.height > 0 ? control.icon.height : 16
+            visible: control.icon.source.toString() !== ""
+            fillMode: Image.PreserveAspectFit
+            
+            layer.enabled: true
+            layer.effect: ShaderEffect {
+                property color color: control.icon.color
+                fragmentShader: "qrc:/Main/shaders/ColorMask.frag.qsb"
+            }
         }
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+        Text {
+            text: control.text
+            font: Theme.fontMedium
+            color: {
+                if (control.variantDestructive) return "#ffffff"
+                if (control.variantOutline) return Theme.foreground
+                return Theme.primaryFg
+            }
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            visible: control.display !== AbstractButton.IconOnly && control.text !== ""
+            Layout.fillWidth: true
+        }
     }
 
     background: Rectangle {
-        implicitWidth: 100
+        implicitWidth: control.display === AbstractButton.IconOnly ? 40 : 100
         implicitHeight: 40
         radius: Theme.radius
         border.width: control.variantOutline ? 1 : 0

@@ -4,6 +4,9 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 FileScanner::FileScanner(QObject* parent) : QObject(parent) {
   // Initialize supported RAW file extensions
@@ -33,6 +36,23 @@ QVariantList FileScanner::scanForRawFiles(const QString& folderPath) const {
       fileMap["name"] = fileInfo.fileName();
       fileMap["size"] = fileInfo.size();
       fileMap["modified"] = fileInfo.lastModified();
+
+      // Read rating from sidecar if it exists
+      int rating = 0;
+      QString sidecarPath = fileInfo.absolutePath() + "/.PhotonData/edits/" +
+                            fileInfo.fileName() + ".json";
+      QFile sidecarFile(sidecarPath);
+      if (sidecarFile.open(QIODevice::ReadOnly)) {
+        QJsonDocument doc = QJsonDocument::fromJson(sidecarFile.readAll());
+        QJsonArray arr = doc.array();
+        if (!arr.isEmpty()) {
+          QJsonObject lastState = arr.last().toObject();
+          if (lastState.contains("rating")) {
+            rating = lastState["rating"].toInt();
+          }
+        }
+      }
+      fileMap["rating"] = rating;
 
       rawFiles.append(fileMap);
     }

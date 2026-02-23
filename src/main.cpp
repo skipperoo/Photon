@@ -13,6 +13,7 @@
 
 #include "components/RawViewport.h"
 #include "managers/AppStateManager.h"
+#include "managers/ExportManager.h"
 #include "managers/FileScanner.h"
 #include "managers/LogManager.h"
 #include "managers/PresetManager.h"
@@ -138,6 +139,7 @@ int main(int argc, char* argv[]) {
   // Create managers
   ThumbnailProvider* thumbProvider = new ThumbnailProvider(&app);
   PresetManager* presetManager = new PresetManager(&app);
+  photon::ExportManager* exportManager = new photon::ExportManager(&app);
 
   // Register singletons early and set parents to ensure they are destroyed with
   // the app
@@ -158,6 +160,9 @@ int main(int argc, char* argv[]) {
 
   // Register PresetManager singleton
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
+
+  // Register ExportManager singleton
+  qmlRegisterSingletonInstance("Main", 1, 0, "ExportManager", exportManager);
 
   // Register RawViewport component
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");

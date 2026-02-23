@@ -144,6 +144,32 @@
   - [x] Fix "Zoom Increases" bug during panning (Race condition in ROI calculation).
   - [ ] Fix rendering artifacts during zoom/pan with active denoising.
 
+## Phase 14: Multi-Selection & Asset Management [DONE]
+
+- [x] **Multi-Selection System**
+  - [x] Implement `SelectionModel` in `AppStateManager` (C++).
+  - [x] Support `toggleSelection`, `selectRange`, and `selectAll` logic.
+  - [x] Update `LibraryView` and `Filmstrip` to visualize multi-selection.
+- [x] **Rating & Metadata**
+  - [x] Add `rating` (0-5) to `RawEngine` state and JSON sidecars.
+  - [x] Implement global keyboard shortcuts (0-5) for rating assignment.
+  - [x] Support batch rating for all selected images.
+- [x] **Library Filtering**
+  - [x] Implement filter bar in `LibraryView` (Star rating).
+  - [x] Add filtering logic to C++ sidecar loading.
+
+## Phase 15: High-Quality Export [IN PROGRESS]
+
+- [ ] **Export Engine (C++)**
+  - [x] Implement `ExportManager` for background batch processing.
+  - [x] Implement `ImageDeveloper` for high-quality CPU-based RAW development (16-bit pipeline).
+  - [x] Implement JPEG export with quality settings.
+  - [ ] Implement TIFF export (8-bit/16-bit) (Planned).
+- [x] **Export UI**
+  - [x] Create `ExportPanel.qml` with destination and format options.
+  - [x] Implement progress tracking for batch exports (Done/Total).
+  - [x] Integrate Export tab into Sidebar.
+
 ## Backlog / Future
 
 - [ ] **Crop & Transform**

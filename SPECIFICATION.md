@@ -127,13 +127,40 @@ The right panel is divided into two parts: a **Tool Stack** (320px) and a **Sect
     - **Crop** (Crop icon): Aspect ratio and rotation tools.
     - **Lens** (Telescope icon): Lens correction and distortion management.
     - **Presets** (Bookmark icon): User-saved adjustment states.
-    - **Export** (Download icon): Save processed images to disk (JPEG/TIFF).
+    - **Export** (Download icon): High-quality export options (JPEG/TIFF).
     - **Library** (Books icon): One-click jump back to grid mode.
     - **Settings** (Gear icon): Application preferences.
 
 2.  **Tool Stack (Dynamic Panel):**
     - A `StackLayout` that displays the selected mode's controls.
     - **Histogram:** (Pinned at the top of the stack). Professional real-time visualization of RGB and Luma distribution.
+
+### Multi-Selection & Asset Management (Phase 14)
+
+Photon supports professional asset management workflows:
+
+1.  **Selection Logic:**
+    - **Single Click:** Selects an image and clears previous selection (unless Ctrl/Shift held).
+    - **Ctrl + Click:** Toggles selection of an individual image.
+    - **Shift + Click:** Selects a range of images from the last selected to the current.
+    - **Ctrl + A:** Selects all visible images in the current view.
+2.  **Rating:**
+    - Images can be assigned a rating from 0 to 5 stars.
+    - Ratings are stored in the `.PhotonData/edits/` JSON sidecar.
+    - Key 0-5 assigns rating to ALL currently selected images.
+3.  **Filtering:**
+    - The Library View features a filter strip to show only images matching a specific rating (e.g., ">= 3 stars").
+
+### High-Quality Export (Phase 15)
+
+Non-destructive edits are applied during the export process:
+
+1.  **Engine:** A dedicated `ExportManager` handles background processing without blocking the UI.
+2.  **Pipeline:** RAW -> Apply Kelvin WB -> Linear Exposure -> Processing Stack -> AgX Tonemapping -> Dithering -> Format Conversion.
+3.  **Formats:**
+    - **JPEG:** 8-bit, configurable quality (1-100).
+    - **TIFF:** 8-bit or 16-bit for maximum archival quality.
+4.  **Batching:** Multiple selected images can be exported in parallel using a worker thread pool.
 
 ### GPU Processing Pipeline (Phase 5)
 

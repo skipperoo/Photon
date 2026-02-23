@@ -19,6 +19,8 @@ qt_add_executable(Photon
     src/engine/Denoiser.h
     src/engine/GpuSearcher.cpp
     src/engine/GpuSearcher.h
+    src/engine/ImageDeveloper.cpp
+    src/engine/ImageDeveloper.h
     src/components/RawViewport.cpp
     src/components/RawViewport.h
     src/managers/AppStateManager.cpp
@@ -33,6 +35,8 @@ qt_add_executable(Photon
     src/managers/PresetManager.h
     src/managers/LogManager.cpp
     src/managers/LogManager.h
+    src/managers/ExportManager.cpp
+    src/managers/ExportManager.h
 )
 
 # Mark Theme.qml as a singleton (must be before qt_add_qml_module)
@@ -48,6 +52,7 @@ qt6_add_shaders(Photon "raw_shaders"
         src/components/RawViewport.frag
         src/components/PatchSearch.vert
         src/components/PatchSearch.frag
+        src/components/ColorMask.frag
 )
 
 qt_add_qml_module(Photon
@@ -63,6 +68,8 @@ qt_add_qml_module(Photon
         src/engine/Denoiser.h
         src/engine/GpuSearcher.cpp
         src/engine/GpuSearcher.h
+        src/engine/ImageDeveloper.cpp
+        src/engine/ImageDeveloper.h
         src/managers/AppStateManager.cpp
         src/managers/AppStateManager.h
         src/managers/ThumbnailProvider.cpp
@@ -75,6 +82,8 @@ qt_add_qml_module(Photon
         src/managers/PresetManager.h
         src/managers/LogManager.cpp
         src/managers/LogManager.h
+        src/managers/ExportManager.cpp
+        src/managers/ExportManager.h
     QML_FILES
         content/views/App.qml
         content/views/WelcomeView.qml
@@ -90,6 +99,7 @@ qt_add_qml_module(Photon
         content/components/Histogram.qml
         content/components/PresetPanel.qml
         content/components/MetadataPanel.qml
+        content/components/ExportPanel.qml
         content/theme/Theme.qml
     RESOURCES
         assets/icons/search.svg
@@ -108,6 +118,7 @@ qt_add_qml_module(Photon
         assets/icons/gear.svg
         assets/icons/trash.svg
         assets/icons/download.svg
+        assets/icons/folder.svg
 )
 
 set_target_properties(Photon PROPERTIES

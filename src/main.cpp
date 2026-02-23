@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
   // Enable RHI info and Vulkan logging
   qputenv("QSG_INFO", "1");
   qputenv("QSG_RHI_DEBUG", "1");
-  qputenv("QT_LOGGING_RULES", "qt.vulkan=true");
+  // qputenv("QT_LOGGING_RULES", "qt.vulkan=true");
   qputenv("QSG_RHI_BACKEND", "vulkan");
 
   // Set basic app info early for QSettings

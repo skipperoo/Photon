@@ -81,30 +81,22 @@ QImage ThumbnailProvider::generateThumbnail(const QString& imagePath) const {
 }
 
 QImage ThumbnailProvider::getThumbnail(const QString& imagePath) {
-  fprintf(stderr, "[THUMB] getThumbnail START: %s (thread: %p)\n",
-          imagePath.toLocal8Bit().data(), QThread::currentThread());
-
   {
     QMutexLocker locker(&m_cacheMutex);
     // First check if we have it in memory cache
-    if (m_thumbnailCache.contains(imagePath)) {
-      fprintf(stderr, "[THUMB] getThumbnail: cache hit\n");
+    if (m_thumbnailCache.contains(imagePath)) 
       return m_thumbnailCache[imagePath];
-    }
   }
 
   // Then check if we have it in disk cache
-  fprintf(stderr, "[THUMB] getThumbnail: checking disk cache\n");
   QImage cachedThumb = loadThumbnailFromCache(imagePath);
   if (!cachedThumb.isNull()) {
     QMutexLocker locker(&m_cacheMutex);
     m_thumbnailCache[imagePath] = cachedThumb;
-    fprintf(stderr, "[THUMB] getThumbnail: disk cache hit\n");
     return cachedThumb;
   }
 
   // Generate thumbnail if not found in cache
-  fprintf(stderr, "[THUMB] getThumbnail: generating new thumbnail\n");
   QImage thumbnail = generateThumbnail(imagePath);
   if (!thumbnail.isNull()) {
     // Save to cache for future use
@@ -113,8 +105,6 @@ QImage ThumbnailProvider::getThumbnail(const QString& imagePath) {
     m_thumbnailCache[imagePath] = thumbnail;
   }
 
-  fprintf(stderr, "[THUMB] getThumbnail END: %s\n",
-          imagePath.toLocal8Bit().data());
   return thumbnail;
 }
 

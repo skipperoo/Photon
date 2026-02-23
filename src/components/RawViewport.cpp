@@ -293,11 +293,17 @@ void RawViewport::setSource(const QString& source) {
     return;
   }
 
+  // Clear all image state immediately to prevent showing old image
   m_imageWidth = 0;
   m_imageHeight = 0;
   m_bufferWidth = 0;
   m_bufferHeight = 0;
-  m_textureDirty = true;  // Mark texture as dirty to clear old image
+  m_showingPreview = false;
+  m_textureDirty = true;
+
+  // Force immediate clear of the texture node
+  // This ensures the old image is removed before the new one loads
+  update();
 
   fprintf(stderr, "[VIEWPORT] setSource: calling m_engine.setSource\n");
   m_engine.setSource(source);
@@ -308,6 +314,8 @@ void RawViewport::setSource(const QString& source) {
 
   fprintf(stderr, "[VIEWPORT] setSource END\n");
 }
+
+
 
 void RawViewport::setExposure(float ev) {
   if (qFuzzyCompare(m_engine.exposure(), ev)) return;
@@ -756,7 +764,6 @@ QRectF RawViewport::calculateTargetRect() {
   return QRectF(x, y, targetWidth, targetHeight);
 }
 
-
 QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
   QSGSimpleTextureNode* node = static_cast<QSGSimpleTextureNode*>(oldNode);
 
@@ -765,9 +772,14 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     int width, height, colors;
     const uchar* data = m_engine.getProcessedData(width, height, colors);
 
-    if (data && width > 0 && height > 0) {
+    // Check if we have full-resolution processed data (RAW is ready)
+    bool hasFullResData = (data && width > 0 && height > 0);
+
+    if (hasFullResData) {
+      // Full resolution RAW data is ready - use it
       m_bufferWidth = width;
       m_bufferHeight = height;
+      m_showingPreview = false;
 
       if (colors == 3) {
         imgToRender = QImage(width, height, QImage::Format_RGBX64);
@@ -782,17 +794,21 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
       }
 
     } else if (m_engine.isLoading()) {
+      // RAW is still loading - check for preview
       QImage previewImg = m_engine.previewImage();
       if (!previewImg.isNull()) {
+        // We have a preview image - show it
         imgToRender = previewImg.copy();
         m_bufferWidth = imgToRender.width();
         m_bufferHeight = imgToRender.height();
+        m_showingPreview = true;
 
         if (m_imageWidth == 0 || m_imageHeight == 0) {
           m_imageWidth = imgToRender.width();
           m_imageHeight = imgToRender.height();
         }
       }
+      // If no preview yet, imgToRender remains null (shows nothing/loading)
     }
 
     // --- APPLY THE RENDER STATE ---
@@ -805,16 +821,23 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
       }
 
       QSGTexture* newTexture = window()->createTextureFromImage(imgToRender);
-      
-      // Because ownsTexture is true, this SAFELY and automatically 
+
+      // Because ownsTexture is true, this SAFELY and automatically
       // deletes the old texture. No manual deletion needed!
-      node->setTexture(newTexture); 
+      node->setTexture(newTexture);
 
     } else {
-      // Clear flags BEFORE returning so we don't get stuck in a dirty loop
+      // No image data available yet (loading in progress, no preview ready)
+      // Clear the node to show nothing/background until data is ready
+      // This prevents showing the old image when switching photos
       m_textureDirty = false;
       m_imageDirty = false;
-      return nullptr; 
+
+      // Delete old node if exists to clear the display
+      if (node) {
+        delete node;
+      }
+      return nullptr;
     }
 
     m_textureDirty = false;
@@ -835,9 +858,10 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
   // --- THREAD-SAFE SIGNAL EMISSION ---
   if (m_imageRect != rect) {
     m_imageRect = rect;
-    QMetaObject::invokeMethod(this, [this]() { emit imageRectChanged(); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(
+        this, [this]() { emit imageRectChanged(); }, Qt::QueuedConnection);
   }
-  
+
   node->setRect(rect);
 
   return node;

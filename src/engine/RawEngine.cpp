@@ -212,6 +212,13 @@ void RawEngine::setSource(const QString& source) {
     clearProcessedImage();
   }
 
+  // Clear preview image from previous photo to prevent showing it
+  // while the new photo's preview loads
+  if (!m_previewImage.isNull()) {
+    m_previewImage = QImage();
+    emit previewImageChanged();
+  }
+
   // 2. Signal abort for any background processing
   m_abortDenoise = true;
   m_currentLoadId++;

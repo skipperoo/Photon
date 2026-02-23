@@ -162,16 +162,29 @@ Non-destructive edits are applied during the export process:
     *   **TIFF:** 8-bit or 16-bit for maximum archival quality.
 4.  **Batching:** Multiple selected images can be exported in parallel using a worker thread pool.
 
-### Responsive Preview System (Phase 16)
+### Responsive Preview System (Phase 16-17)
 
 To ensure zero-latency feedback when switching photos, Photon implements a background proxy system:
 
-1.  **Background Precomputation:** Upon opening a folder, a `PreviewManager` scans all images and begins generating 1080p JPEG proxies in `.PhotonData/cache/previews/`.
-2.  **Instant Loading:** When a photo is selected, the UI immediately displays the cached JPEG proxy (if available) while the `RawEngine` develops the full-resolution RAW in the background.
-3.  **Hybrid Rendering:** Once the RAW development is complete, the viewport seamlessly swaps the proxy for the real GPU-processed image.
-4.  **Smart Invalidation:** Previews are automatically regenerated when:
-    *   Edits are committed to an image.
-    *   The sidecar JSON timestamp is newer than the cached preview.
+1. **Background Precomputation:** Upon opening a folder, a `PreviewManager` scans all images and begins generating 1080p JPEG proxies in `.PhotonData/cache/previews/`.
+2. **Instant Loading:** When a photo is selected, the UI immediately displays the cached JPEG proxy (if available) while the `RawEngine` develops the full-resolution RAW in the background.
+3. **Hybrid Rendering:** Once the RAW development is complete, the viewport seamlessly swaps the proxy for the real GPU-processed image.
+4. **Smart Invalidation:** Previews are automatically regenerated when:
+   * Edits are committed to an image.
+   * The sidecar JSON timestamp is newer than the cached preview.
+
+#### Async Preview Loading with Image Swap (Phase 17)
+
+The preview system has been refined to eliminate visual glitches when switching photos:
+
+1. **Immediate Clear:** When switching to a new photo, the viewport immediately clears the previous image display. This prevents the old image from being visible above the new one during the loading transition.
+2. **Async Loading Flow:**
+   * Photo selection triggers immediate display clear.
+   * Preview JPEG loads asynchronously and displays as soon as available.
+   * Full-resolution RAW develops in background.
+   * Seamless swap from preview to full-res when RAW is ready (no flash or glitch).
+3. **State Tracking:** The viewport tracks whether it's currently showing a preview (`m_showingPreview`) vs. the full-resolution image, ensuring proper aspect ratio and dimension handling throughout the transition.
+4. **Loading Indicator:** While no preview is available, the viewport shows a blank/loading state rather than the previous image.
 
 ### GPU Processing Pipeline (Phase 5)
 

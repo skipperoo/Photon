@@ -150,11 +150,23 @@
   - [x] Implement `PreviewManager` for background 1080p proxy generation.
   - [x] Support intelligent cache invalidation based on sidecar timestamps.
   - [x] Integrate `ImageDeveloper` for applying edits to background previews.
-- [x] **UI Integration**
+  - [x] **UI Integration**
   - [x] Update `RawViewport` to support "Proxy-First" loading.
   - [x] Implement seamless cross-fade/swap between JPEG proxy and developed RAW.
   - [x] Trigger background refresh when edits are committed in Develop view.
   - [x] Add arrow key navigation for filmstrip.
+
+## Phase 17: Async Preview Loading & Image Swap Fix [DONE]
+
+- [x] **Fix Preview Display Glitch**
+  - [x] Clear preview image immediately when switching photos in `RawEngine::setSource`.
+  - [x] Update `RawViewport::setSource` to force immediate clear of texture node.
+  - [x] Modify `RawViewport::updatePaintNode` to return nullptr when no current image data available.
+  - [x] Add `m_showingPreview` flag to track preview vs full-res state.
+- [x] **Async Preview Loading**
+  - [x] Preview loads instantly from cache while RAW develops in background.
+  - [x] Seamless swap from preview to full-resolution when RAW is ready.
+  - [x] Show loading state (blank/empty) when no preview available for current image.
 
 ## Backlog / Future
 

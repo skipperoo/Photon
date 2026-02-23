@@ -451,6 +451,7 @@ class RawViewport : public QQuickItem {
   QRectF m_imageRect;
   bool m_imageDirty = false;
   bool m_textureDirty = false;
+  bool m_showingPreview = false;
   int m_imageWidth = 0;
   int m_imageHeight = 0;
   int m_bufferWidth = 0;

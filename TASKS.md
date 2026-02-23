@@ -140,35 +140,22 @@
   - [x] Lock panning when zoom <= 100% (center image).
   - [x] Constrain pan offset to image boundaries when zoomed in.
   - [x] Implement double-click zoom cycle (100% -> 200% -> 400% -> 100%).
-  - [x] Fix pan/zoom interaction bug where double-click zoom triggered during pan.
+- [x] Fix pan/zoom interaction bug where double-click zoom triggered during pan.
 - [x] Fix "Zoom Increases" bug during panning (Race condition in ROI calculation).
-  - [ ] Fix rendering artifacts during zoom/pan with active denoising.
+- [ ] Fix rendering artifacts during zoom/pan with active denoising.
 
-## Phase 16: Responsive Preview System [DONE]
+## Phase 18: Preview Rendering Optimization [DONE]
 
-- [x] **Preview Engine (C++)**
-  - [x] Implement `PreviewManager` for background 1080p proxy generation.
-  - [x] Support intelligent cache invalidation based on sidecar timestamps.
-  - [x] Integrate `ImageDeveloper` for applying edits to background previews.
-  - [x] **UI Integration**
-  - [x] Update `RawViewport` to support "Proxy-First" loading.
-  - [x] Implement seamless cross-fade/swap between JPEG proxy and developed RAW.
-  - [x] Trigger background refresh when edits are committed in Develop view.
-  - [x] Add arrow key navigation for filmstrip.
-
-## Phase 17: Async Preview Loading & Image Swap Fix [DONE]
-
-- [x] **Fix Preview Display Glitch**
-  - [x] Clear preview image immediately when switching photos in `RawEngine::setSource`.
-  - [x] Update `RawViewport::setSource` to force immediate clear of texture node.
-  - [x] Modify `RawViewport::updatePaintNode` to return nullptr when no current image data available.
-  - [x] Add `m_showingPreview` flag to track preview vs full-res state.
-- [x] **Async Preview Loading**
-  - [x] Preview loads instantly from cache while RAW develops in background.
-  - [x] Seamless swap from preview to full-resolution when RAW is ready.
-  - [x] Show loading state (blank/empty) when no preview available for current image.
+- [x] **Property Exposure**
+  - [x] Expose `showingPreview` boolean property in `RawViewport` (C++).
+- [x] **Shader Bypass Logic**
+  - [x] Add `float isPreview` to uniform block in `RawViewport.frag`.
+  - [x] Implement conditional branch in `main()` to bypass RAW pipeline when `isPreview > 0.5`.
+- [x] **UI Integration**
+  - [x] Update `ShaderEffect` in `App.qml` to pass `rawViewport.showingPreview` to the shader.
 
 ## Backlog / Future
+
 
 - [ ] **Crop & Transform**
   - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).

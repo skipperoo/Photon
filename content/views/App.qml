@@ -248,6 +248,7 @@ Window {
                             property color backgroundColor: Theme.background
                             property real denoiseAmount: rawViewport.denoiseAmount
                             property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                            property real isPreview: rawViewport.showingPreview ? 1.0 : 0.0
                             property int orientation: rawViewport.orientation
 
                             // HSL Panel

@@ -315,8 +315,6 @@ void RawViewport::setSource(const QString& source) {
   fprintf(stderr, "[VIEWPORT] setSource END\n");
 }
 
-
-
 void RawViewport::setExposure(float ev) {
   if (qFuzzyCompare(m_engine.exposure(), ev)) return;
   m_engine.setExposure(ev);
@@ -779,7 +777,12 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
       // Full resolution RAW data is ready - use it
       m_bufferWidth = width;
       m_bufferHeight = height;
-      m_showingPreview = false;
+      if (m_showingPreview) {
+        m_showingPreview = false;
+        QMetaObject::invokeMethod(
+            this, [this]() { emit showingPreviewChanged(); },
+            Qt::QueuedConnection);
+      }
 
       if (colors == 3) {
         imgToRender = QImage(width, height, QImage::Format_RGBX64);
@@ -801,7 +804,12 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
         imgToRender = previewImg.copy();
         m_bufferWidth = imgToRender.width();
         m_bufferHeight = imgToRender.height();
-        m_showingPreview = true;
+        if (!m_showingPreview) {
+          m_showingPreview = true;
+          QMetaObject::invokeMethod(
+              this, [this]() { emit showingPreviewChanged(); },
+              Qt::QueuedConnection);
+        }
 
         if (m_imageWidth == 0 || m_imageHeight == 0) {
           m_imageWidth = imgToRender.width();

@@ -31,6 +31,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 backgroundColor;
     float denoiseAmount;
     vec2 sourceSize;
+    float isPreview;
     
     // HSL Panel (24 floats)
     float hslRedHue; float hslRedSaturation; float hslRedLuminance;
@@ -277,6 +278,12 @@ void main()
     vec2 imgCoord = (pixelPos - ubuf.imageRect.xy) / ubuf.imageRect.zw;
 
     vec4 tex = texture(source, qt_TexCoord0);
+
+    if (ubuf.isPreview > 0.5) {
+        fragColor = vec4(tex.rgb, tex.a) * ubuf.qt_Opacity;
+        return;
+    }
+
     vec3 color = srgb_to_linear(tex.rgb);
     
     // 0. Noise Reduction (Real-time GPU pass)

@@ -248,6 +248,12 @@ void RawEngine::setSource(const QString& source) {
   m_contrast = 1.0f;
   m_hasDenoisedResult = false;
 
+  // Reset denoising state to prevent spinner showing when switching photos
+  if (m_isDenoising) {
+    m_isDenoising = false;
+    emit isDenoisingChanged();
+  }
+
   // Load sidecar edits
   loadEdits();
 

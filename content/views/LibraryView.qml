@@ -122,7 +122,7 @@ Control {
                 Popup {
                     id: filterPopup
                     y: filterButton.height + 5
-                    width: 300
+                    width: 330
                     padding: 12
                     background: Rectangle {
                         color: Theme.secondary
@@ -155,10 +155,10 @@ Control {
                                 Repeater {
                                     model: 6
                                     Button {
-                                        text: index === 0 ? "Off" : index + "★"
-                                        Layout.preferredWidth: 35
+                                        text: index === 0 ? "Off" : "★"
+                                        Layout.preferredWidth: 40
                                         Layout.preferredHeight: 40
-                                        variantOutline: root.ratingFilter !== index
+                                        variantOutline: (index === 0 && root.ratingFilter > 0) || root.ratingFilter < index
                                         onClicked: {
                                             root.ratingFilter = index
                                             root.refreshFiles()

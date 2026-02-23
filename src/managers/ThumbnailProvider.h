@@ -4,6 +4,7 @@
 #include <QFutureWatcher>
 #include <QHash>
 #include <QImage>
+#include <QMutex>
 #include <QObject>
 #include <QString>
 #include <QThreadPool>
@@ -34,5 +35,6 @@ class ThumbnailProvider : public QObject {
   QImage generateThumbnail(const QString& imagePath) const;
 
   QHash<QString, QImage> m_thumbnailCache;
+  mutable QMutex m_cacheMutex;
   QThreadPool* m_threadPool;
 };

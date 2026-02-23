@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QJSEngine>
+#include <QMutex>
 #include <QObject>
 #include <QQmlEngine>
 #include <QSettings>
@@ -140,6 +141,7 @@ class AppStateManager : public QObject {
   int m_cacheSizeGB = 10;
 
   QSettings m_settings;
+  mutable QMutex m_mutex;
 
   static constexpr const char* KEY_LAST_FOLDER = "workspace/lastOpenedFolder";
   static constexpr const char* KEY_PREFERRED_GPU = "performance/preferredGpu";

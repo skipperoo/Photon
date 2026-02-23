@@ -36,6 +36,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 ## 📜 Development Conventions
 - **GIT POLICY:** NEVER merge changes or perform git operations (commit, push, checkout) unless explicitly asked by the user.
 - **STRICT SAFETY RULE:** ALWAYS build and manually RUN the application (`./build/Photon`) to verify runtime stability and UI correctness BEFORE merging any changes into the `develop` branch. Unit tests alone are insufficient for UI/Graphics verification.
+- **STRICT CODE INTEGRITY:** NEVER remove chunks of code and replace them with ellipses (`...`) or any other placeholder. ALWAYS provide the full, complete content when using the `write` tool or accurate, context-rich strings when using the `edit` tool. Failure to do so breaks the build and loses functionality.
 - **C++ Style:** Follows `.clang-format` (Google/Qt style). Use `m_member` for private variables and `PascalCase` for classes.
 - **QML Style:** Use the `Theme` singleton for all styling (colors, spacing). Avoid hardcoding values.
 - **Memory:** Strict RAII with `std::unique_ptr` for backend resources; parent-child ownership for `QObject` hierarchies.

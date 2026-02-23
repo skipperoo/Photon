@@ -79,45 +79,80 @@ Control {
             }
           }
           
-          // Background Denoise Indicator
+          // Background Loading & Denoise Indicators
         RowLayout {
             Layout.fillWidth: true
             Layout.margins: 12
             spacing: 10
-            // Empty placeholder to prevent the rows below from moving up and down
-            Rectangle {
-                width: 16; height: 16; color: "transparent"
-                visible: root.viewport ? !root.viewport.isDenoising : true
-            }
+            
+            // Loading Indicator
+            RowLayout {
+                spacing: 6
+                visible: root.viewport ? root.viewport.isLoading : false
+                
+                Text {
+                    text: "Loading RAW..."
+                    color: Theme.foreground
+                    font: Theme.fontSmall
+                }
 
-
-            Text {
-                visible: root.viewport ? root.viewport.isDenoising : false
-                text: "Applying denoise..."
-                color: Theme.foreground
-                font: Theme.fontSmall
-            }
-
-            Rectangle {
-                width: 16; height: 16; color: "transparent"
-                radius: 8
-
-                visible: root.viewport ? root.viewport.isDenoising : false
-                Canvas {
-                    anchors.fill: parent
-                    onPaint: {
-                        var ctx = getContext("2d");
-                        ctx.reset();
-                        ctx.lineWidth = 2;
-                        ctx.strokeStyle = Theme.foreground;
-                        ctx.beginPath();
-                        ctx.arc(8, 8, 7, 0, Math.PI / 2);
-                        ctx.stroke();
+                Rectangle {
+                    width: 14; height: 14; color: "transparent"
+                    radius: 7
+                    Canvas {
+                        anchors.fill: parent
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            ctx.lineWidth = 1.5;
+                            ctx.strokeStyle = Theme.foreground;
+                            ctx.beginPath();
+                            ctx.arc(7, 7, 6, 0, Math.PI / 2);
+                            ctx.stroke();
+                        }
+                    }
+                    RotationAnimation on rotation {
+                        from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.parent.visible
                     }
                 }
-                RotationAnimation on rotation {
-                    from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.parent.visible
+            }
+
+            // Denoise Indicator
+            RowLayout {
+                spacing: 6
+                visible: root.viewport ? root.viewport.isDenoising : false
+                
+                Text {
+                    text: "Applying denoise..."
+                    color: Theme.foreground
+                    font: Theme.fontSmall
                 }
+
+                Rectangle {
+                    width: 14; height: 14; color: "transparent"
+                    radius: 7
+                    Canvas {
+                        anchors.fill: parent
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            ctx.lineWidth = 1.5;
+                            ctx.strokeStyle = Theme.foreground;
+                            ctx.beginPath();
+                            ctx.arc(7, 7, 6, 0, Math.PI / 2);
+                            ctx.stroke();
+                        }
+                    }
+                    RotationAnimation on rotation {
+                        from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.parent.visible
+                    }
+                }
+            }
+
+            // Empty placeholder to maintain layout height when nothing is happening
+            Item {
+                Layout.preferredHeight: 16
+                visible: root.viewport ? (!root.viewport.isDenoising && !root.viewport.isLoading) : true
             }
         }
 

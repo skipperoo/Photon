@@ -63,30 +63,50 @@ QString PreviewManager::getPreviewPath(const QString& rawPath) const {
 void PreviewManager::startFolderScan(const QString& folderPath) {
   if (folderPath.isEmpty()) return;
 
-  m_abort = false;
+  cancelAll();  // Cancel any existing scan before starting a new one
+
+  {
+    QMutexLocker locker(&m_mutex);
+    m_abort = false;
+  }
+
   FileScanner scanner;
   auto files = scanner.scanForRawFiles(folderPath);
 
-  m_total = files.size();
-  m_done = 0;
-  m_isProcessing = true;
-  emit isProcessingChanged();
-  emit progressChanged();
+  {
+    QMutexLocker locker(&m_mutex);
+    m_total = files.size();
+    m_done = 0;
+    m_isProcessing = true;
+    emit isProcessingChanged();
+    emit progressChanged();
+  }
 
   for (const auto& fileVar : files) {
     QVariantMap fileMap = fileVar.toMap();
     QString path = fileMap["path"].toString();
-    QtConcurrent::run(m_threadPool, [this, path]() {
-      if (m_abort) return;
+    m_threadPool->start([this, path]() {
+      {
+        QMutexLocker locker(&m_mutex);
+        if (m_abort) return;
+      }
+
       if (!isPreviewValid(path)) {
         processItem(path);
       }
 
       QMetaObject::invokeMethod(this, [this]() {
-        m_done++;
-        emit progressChanged();
-        if (m_done >= m_total) {
-          m_isProcessing = false;
+        bool finished = false;
+        {
+          QMutexLocker locker(&m_mutex);
+          m_done++;
+          emit progressChanged();
+          if (m_done >= m_total) {
+            m_isProcessing = false;
+            finished = true;
+          }
+        }
+        if (finished) {
           emit isProcessingChanged();
         }
       });
@@ -95,19 +115,35 @@ void PreviewManager::startFolderScan(const QString& folderPath) {
 }
 
 void PreviewManager::refreshPreview(const QString& rawPath) {
-  QtConcurrent::run(m_threadPool, [this, rawPath]() { processItem(rawPath); });
+  m_threadPool->start([this, rawPath]() { processItem(rawPath); });
 }
 
 void PreviewManager::cancelAll() {
-  m_abort = true;
+  {
+    QMutexLocker locker(&m_mutex);
+    m_abort = true;
+  }
   m_threadPool->clear();
   m_threadPool->waitForDone();
-  m_isProcessing = false;
+  {
+    QMutexLocker locker(&m_mutex);
+    m_isProcessing = false;
+  }
   emit isProcessingChanged();
 }
 
 void PreviewManager::processItem(const QString& rawPath) {
-  if (m_abort) return;
+  fprintf(stderr, "[PREVIEW] processItem START: %s\n",
+          rawPath.toLocal8Bit().data());
+
+  {
+    QMutexLocker locker(&m_mutex);
+    if (m_abort) {
+      fprintf(stderr, "[PREVIEW] processItem ABORTED: %s\n",
+              rawPath.toLocal8Bit().data());
+      return;
+    }
+  }
 
   QFileInfo fileInfo(rawPath);
   QString cachePath = getCachePath(rawPath);
@@ -117,6 +153,8 @@ void PreviewManager::processItem(const QString& rawPath) {
                       fileInfo.fileName() + ".json";
   QJsonObject lastState;
   if (QFile::exists(editsPath)) {
+    fprintf(stderr, "[PREVIEW] Loading sidecar: %s\n",
+            editsPath.toLocal8Bit().data());
     QFile file(editsPath);
     if (file.open(QIODevice::ReadOnly)) {
       QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
@@ -128,6 +166,8 @@ void PreviewManager::processItem(const QString& rawPath) {
   }
 
   // 2. Load RAW via LibRaw (Fast mode)
+  fprintf(stderr, "[PREVIEW] Opening RAW file: %s\n",
+          rawPath.toLocal8Bit().data());
   LibRaw processor;
   processor.imgdata.params.output_bps = 16;
   processor.imgdata.params.use_camera_wb = 1;
@@ -135,27 +175,42 @@ void PreviewManager::processItem(const QString& rawPath) {
   processor.imgdata.params.half_size = 1;  // 1080p is enough, half_size is fast
 
   if (processor.open_file(rawPath.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
+    fprintf(stderr, "[PREVIEW] Unpacking RAW: %s\n",
+            rawPath.toLocal8Bit().data());
     if (processor.unpack() == LIBRAW_SUCCESS) {
+      fprintf(stderr, "[PREVIEW] Processing RAW: %s\n",
+              rawPath.toLocal8Bit().data());
       if (processor.dcraw_process() == LIBRAW_SUCCESS) {
         int ret = 0;
         libraw_processed_image_t* mem = processor.dcraw_make_mem_image(&ret);
         if (mem && mem->type == LIBRAW_IMAGE_BITMAP) {
+          fprintf(stderr, "[PREVIEW] Developing image: %s (%dx%d)\n",
+                  rawPath.toLocal8Bit().data(), mem->width, mem->height);
           // 3. Develop Image with Edits
           QImage result = ImageDeveloper::develop(
               reinterpret_cast<const ushort*>(mem->data), mem->width,
               mem->height, lastState);
 
+          fprintf(stderr, "[PREVIEW] Develop complete, result null: %d\n",
+                  result.isNull());
           if (!result.isNull()) {
             // Scale to 1080p if larger
             if (result.width() > 1920 || result.height() > 1080) {
+              fprintf(stderr, "[PREVIEW] Scaling down from %dx%d\n",
+                      result.width(), result.height());
               result = result.scaled(1920, 1080, Qt::KeepAspectRatio,
                                      Qt::SmoothTransformation);
             }
 
             // 4. Save to Disk
             QDir().mkpath(QFileInfo(cachePath).absolutePath());
+            fprintf(stderr, "[PREVIEW] Saving to: %s\n",
+                    cachePath.toLocal8Bit().data());
             if (result.save(cachePath, "JPG", 90)) {
-              emit previewReady(rawPath, cachePath);
+              fprintf(stderr, "[PREVIEW] Save successful, emitting signal\n");
+              QMetaObject::invokeMethod(this, [this, rawPath, cachePath]() {
+                emit previewReady(rawPath, cachePath);
+              });
             }
           }
           LibRaw::dcraw_clear_mem(mem);
@@ -163,6 +218,8 @@ void PreviewManager::processItem(const QString& rawPath) {
       }
     }
   }
+  fprintf(stderr, "[PREVIEW] processItem END: %s\n",
+          rawPath.toLocal8Bit().data());
 }
 
 }  // namespace photon

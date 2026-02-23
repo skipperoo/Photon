@@ -108,18 +108,37 @@ RawEngine::RawEngine(QObject* parent)
     m_histLuma.append(0.0f);
   }
 
-  connect(&m_loadWatcher, &QFutureWatcher<bool>::finished, this, [this]() {
-    m_isLoading = false;
-    emit isLoadingChanged();
-    if (m_loadWatcher.result()) {
-      m_isLoaded = true;
-      m_hasDenoisedResult = false;
-      requestHistogramUpdate();
-      if (m_denoiseAmount > 0.0f) {
-        startAsyncDenoise();
-      }
-      emit imageLoaded();
+  connect(&m_loadWatcher, &QFutureWatcher<LoadResult>::finished, this,
+          [this]() {
+            auto res = m_loadWatcher.result();
+            if (res.id != m_currentLoadId) return;
+
+            m_isLoading = false;
+            emit isLoadingChanged();
+            if (res.success) {
+              m_isLoaded = true;
+              m_hasDenoisedResult = false;
+              requestHistogramUpdate();
+              if (m_denoiseAmount > 0.0f) {
+                startAsyncDenoise();
+              }
+              emit imageLoaded();
+            }
+          });
+
+  connect(&m_previewWatcher, &QFutureWatcher<QImage>::finished, this, [this]() {
+    fprintf(stderr, "[RAW] previewWatcher callback START (thread: %p)\n",
+            QThread::currentThread());
+    if (m_previewWatcher.isCanceled()) {
+      fprintf(stderr, "[RAW] previewWatcher: canceled\n");
+      return;
     }
+    QImage result = m_previewWatcher.result();
+    fprintf(stderr, "[RAW] previewWatcher: result null=%d, size=%dx%d\n",
+            result.isNull(), result.width(), result.height());
+    m_previewImage = result;
+    emit previewImageChanged();
+    fprintf(stderr, "[RAW] previewWatcher callback END\n");
   });
 
   // Listen for background previews
@@ -130,6 +149,9 @@ RawEngine::RawEngine(QObject* parent)
               if (rawPath == m_source) {
                 m_previewPath = cachePath;
                 emit previewPathChanged();
+
+                m_previewWatcher.setFuture(QtConcurrent::run(
+                    [path = cachePath]() { return QImage(path); }));
               }
             });
   }
@@ -176,45 +198,57 @@ void RawEngine::setHalfSize(bool half) {
 }
 
 void RawEngine::setSource(const QString& source) {
-  if (m_source == source) return;
+  fprintf(stderr, "[RAW] setSource START: %s\n", source.toLocal8Bit().data());
 
-  // 1. Immediately invalidate current state on main thread to avoid showing old
-  // photo
-  m_isLoaded = false;
-  m_hasDenoisedResult = false;
-  m_isDenoising = false;
+  // 1. Abort any ongoing denoise tasks
   m_abortDenoise = true;
 
-  {
-    QMutexLocker locker(&m_processorMutex);
+  if (m_source == source) {
+    fprintf(stderr, "[RAW] setSource: same source, skipping\n");
+    return;
+  }
+
+  if (m_isLoaded) {
     clearProcessedImage();
   }
 
-  // 2. Clear denoise watcher connection to avoid any late signals from previous
-  // source
-  m_denoiseWatcher.disconnect();
-
-  if (m_denoiseWatcher.isRunning()) {
-    m_denoiseWatcher.waitForFinished();
-  }
+  // 2. Signal abort for any background processing
+  m_abortDenoise = true;
+  m_currentLoadId++;
 
   m_source = source;
   emit sourceChanged();
 
   // Try to get existing preview immediately
+  fprintf(stderr, "[RAW] setSource: getting preview path\n");
   if (photon::PreviewManager::instance()) {
     m_previewPath =
         photon::PreviewManager::instance()->getPreviewPath(m_source);
     emit previewPathChanged();
+
+    if (!m_previewPath.isEmpty()) {
+      fprintf(stderr, "[RAW] setSource: starting preview image load: %s\n",
+              m_previewPath.toLocal8Bit().data());
+      m_previewWatcher.setFuture(
+          QtConcurrent::run([path = m_previewPath]() { return QImage(path); }));
+    }
   }
 
   m_histogramUpdatePending = false;
   m_metadata.clear();
   m_orientation = 1;
-  emit metadataChanged();
-  emit orientationChanged();
-  loadRawFileAsync(m_source);
+  m_exposure = 0.0f;
+  m_contrast = 1.0f;
+  m_hasDenoisedResult = false;
+
+  // Load sidecar edits
   loadEdits();
+
+  // Start async loading
+  fprintf(stderr, "[RAW] setSource: starting async load\n");
+  loadRawFileAsync(source);
+
+  fprintf(stderr, "[RAW] setSource END\n");
 }
 
 void RawEngine::setViewportSize(const QSize& size) {
@@ -1080,19 +1114,20 @@ void RawEngine::clearProcessedImage() {
 }
 
 void RawEngine::loadRawFileAsync(const QString& path) {
-  if (m_loadWatcher.isRunning()) {
-    m_loadWatcher.waitForFinished();
-  }
-
   m_isLoading = true;
   emit isLoadingChanged();
 
-  QFuture<bool> future =
-      QtConcurrent::run([this, path]() { return loadRawFileSync(path); });
+  int loadId = m_currentLoadId;
+  QFuture<LoadResult> future = QtConcurrent::run([this, path, loadId]() {
+    QMutexLocker locker(&m_processorMutex);
+    if (loadId != m_currentLoadId) return LoadResult{false, loadId};
+    bool ok = loadRawFileSync(path, loadId);
+    return LoadResult{ok, loadId};
+  });
   m_loadWatcher.setFuture(future);
 }
 
-bool RawEngine::loadRawFileSync(const QString& path) {
+bool RawEngine::loadRawFileSync(const QString& path, int loadId) {
   m_isLoaded = false;
   clearProcessedImage();
 
@@ -1103,12 +1138,16 @@ bool RawEngine::loadRawFileSync(const QString& path) {
     return false;
   }
 
+  if (loadId != m_currentLoadId) return false;
+
   ret = m_processor->unpack();
   if (ret != LIBRAW_SUCCESS) {
     emit errorOccurred(
         QString("Failed to unpack: %1").arg(LibRaw::strerror(ret)));
     return false;
   }
+
+  if (loadId != m_currentLoadId) return false;
 
   // Extract EXIF Metadata
   QVariantMap meta;
@@ -1168,7 +1207,8 @@ bool RawEngine::loadRawFileSync(const QString& path) {
 
   QMetaObject::invokeMethod(
       this,
-      [this, meta, orient]() {
+      [this, meta, orient, loadId]() {
+        if (loadId != m_currentLoadId) return;
         m_metadata = meta;
         m_orientation = orient;
         emit metadataChanged();

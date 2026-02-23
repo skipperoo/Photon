@@ -1,6 +1,7 @@
 #include "LogManager.h"
 
 #include <QDebug>
+#include <QMutexLocker>
 
 namespace photon {
 
@@ -66,6 +67,7 @@ void LogManager::openLogFile() {
 }
 
 void LogManager::log(const QString& message, const QString& level) {
+  QMutexLocker locker(&m_logMutex);
   if (levelToInt(level) < levelToInt(m_minLogLevel)) return;
   if (!m_logFile.isOpen()) return;
 

@@ -111,8 +111,10 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
           [this]() { emit isDenoisingChanged(); });
   connect(&m_engine, &RawEngine::isLoadingChanged, this,
           [this]() { emit isLoadingChanged(); });
-  connect(&m_engine, &RawEngine::previewPathChanged, this, [this]() {
-    emit previewPathChanged();
+  connect(&m_engine, &RawEngine::previewPathChanged, this,
+          [this]() { emit previewPathChanged(); });
+  connect(&m_engine, &RawEngine::previewImageChanged, this, [this]() {
+    emit previewImageChanged();
     m_textureDirty = true;
     update();
   });
@@ -283,15 +285,28 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
 }
 
 void RawViewport::setSource(const QString& source) {
-  if (m_engine.source() == source) return;
+  fprintf(stderr, "[VIEWPORT] setSource START: %s\n",
+          source.toLocal8Bit().data());
+
+  if (m_engine.source() == source) {
+    fprintf(stderr, "[VIEWPORT] setSource: same source, skipping\n");
+    return;
+  }
+
   m_imageWidth = 0;
   m_imageHeight = 0;
   m_bufferWidth = 0;
   m_bufferHeight = 0;
   m_textureDirty = true;  // Mark texture as dirty to clear old image
+
+  fprintf(stderr, "[VIEWPORT] setSource: calling m_engine.setSource\n");
   m_engine.setSource(source);
+
+  fprintf(stderr, "[VIEWPORT] setSource: emitting sourceChanged\n");
   emit sourceChanged();
   update();
+
+  fprintf(stderr, "[VIEWPORT] setSource END\n");
 }
 
 void RawViewport::setExposure(float ev) {
@@ -741,67 +756,74 @@ QRectF RawViewport::calculateTargetRect() {
   return QRectF(x, y, targetWidth, targetHeight);
 }
 
+
 QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
   QSGSimpleTextureNode* node = static_cast<QSGSimpleTextureNode*>(oldNode);
 
-  if (!node) {
-    node = new QSGSimpleTextureNode();
-  }
-
-  m_engine.setRhi(window()->rhi());
-
   if (m_textureDirty) {
+    QImage imgToRender;
     int width, height, colors;
     const uchar* data = m_engine.getProcessedData(width, height, colors);
 
     if (data && width > 0 && height > 0) {
-      // TRACK BUFFER SIZE SEPARATELY
       m_bufferWidth = width;
       m_bufferHeight = height;
 
-      QImage img;
       if (colors == 3) {
-        img = QImage(width, height, QImage::Format_RGBX64);
+        imgToRender = QImage(width, height, QImage::Format_RGBX64);
         const ushort* src = reinterpret_cast<const ushort*>(data);
-        QRgba64* dst = reinterpret_cast<QRgba64*>(img.bits());
+        QRgba64* dst = reinterpret_cast<QRgba64*>(imgToRender.bits());
         for (int i = 0; i < width * height; ++i) {
           dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1],
                                        src[i * 3 + 2], 65535);
         }
       } else if (colors == 4) {
-        img = QImage(data, width, height, QImage::Format_RGBA64).copy();
+        imgToRender = QImage(data, width, height, QImage::Format_RGBA64).copy();
       }
 
-      if (!img.isNull()) {
-        QSGTexture* texture = window()->createTextureFromImage(img);
-        node->setTexture(texture);
-        node->setOwnsTexture(true);
-      }
-    } else if (m_engine.isLoading() && !m_engine.previewPath().isEmpty()) {
-      // Show proxy while loading
-      QImage img(m_engine.previewPath());
-      if (!img.isNull()) {
-        QSGTexture* texture = window()->createTextureFromImage(img);
-        node->setTexture(texture);
-        node->setOwnsTexture(true);
+    } else if (m_engine.isLoading()) {
+      QImage previewImg = m_engine.previewImage();
+      if (!previewImg.isNull()) {
+        imgToRender = previewImg.copy();
+        m_bufferWidth = imgToRender.width();
+        m_bufferHeight = imgToRender.height();
 
-        m_bufferWidth = img.width();
-        m_bufferHeight = img.height();
-
-        // Update image dimensions if not yet known to prevent stretching
         if (m_imageWidth == 0 || m_imageHeight == 0) {
-          m_imageWidth = img.width();
-          m_imageHeight = img.height();
+          m_imageWidth = imgToRender.width();
+          m_imageHeight = imgToRender.height();
         }
       }
-    } else {
-      // Clear texture if nothing to show to avoid overlaying previous image
-      node->setTexture(nullptr);
     }
+
+    // --- APPLY THE RENDER STATE ---
+    if (!imgToRender.isNull()) {
+      if (!node) {
+        node = new QSGSimpleTextureNode();
+        node->setFiltering(QSGTexture::Linear);
+        // This tells Qt to manage the texture memory for us
+        node->setOwnsTexture(true);
+      }
+
+      QSGTexture* newTexture = window()->createTextureFromImage(imgToRender);
+      
+      // Because ownsTexture is true, this SAFELY and automatically 
+      // deletes the old texture. No manual deletion needed!
+      node->setTexture(newTexture); 
+
+    } else {
+      // Clear flags BEFORE returning so we don't get stuck in a dirty loop
+      m_textureDirty = false;
+      m_imageDirty = false;
+      return nullptr; 
+    }
+
     m_textureDirty = false;
     m_imageDirty = false;
   }
 
+  if (!node) return nullptr;
+
+  // --- CALCULATE RECT ---
   QRectF rect = calculateTargetRect();
   if (m_engine.hasDenoisedResult()) {
     QRectF roi = m_engine.denoisedRoi();
@@ -810,11 +832,14 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
                   roi.width() * rect.width(), roi.height() * rect.height());
   }
 
+  // --- THREAD-SAFE SIGNAL EMISSION ---
   if (m_imageRect != rect) {
     m_imageRect = rect;
-    emit imageRectChanged();
+    QMetaObject::invokeMethod(this, [this]() { emit imageRectChanged(); }, Qt::QueuedConnection);
   }
+  
   node->setRect(rect);
+
   return node;
 }
 

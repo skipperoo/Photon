@@ -167,6 +167,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
   Q_PROPERTY(bool isDefault READ isDefault NOTIFY isDefaultChanged)
   Q_PROPERTY(QString previewPath READ previewPath NOTIFY previewPathChanged)
+  Q_PROPERTY(QImage previewImage READ previewImage NOTIFY previewImageChanged)
 
  public:
   explicit RawEngine(QObject* parent = nullptr);
@@ -178,6 +179,7 @@ class RawEngine : public QObject {
   void setSource(const QString& source);
 
   QString previewPath() const { return m_previewPath; }
+  QImage previewImage() const { return m_previewImage; }
 
   QSize viewportSize() const { return m_viewportSize; }
   void setViewportSize(const QSize& size);
@@ -446,6 +448,7 @@ class RawEngine : public QObject {
   void denoisingFinished();
   void halfSizeChanged();
   void previewPathChanged();
+  void previewImageChanged();
   void editStackChanged();
   void canUndoChanged();
   void canRedoChanged();
@@ -453,8 +456,18 @@ class RawEngine : public QObject {
   void errorOccurred(const QString& error);
 
  private:
+  struct LoadResult {
+    bool success;
+    int id;
+  };
+
+  void clearProcessedImage();
+  void updateProcessingParams();
+  bool loadRawFileSync(const QString& path, int loadId);
+
   QString m_source;
   QString m_previewPath;
+  QImage m_previewImage;
   QRhi* m_rhi = nullptr;
 
   QSize m_viewportSize;
@@ -545,14 +558,12 @@ class RawEngine : public QObject {
   QRectF m_denoisedRoi{0, 0, 1, 1};
   mutable QMutex m_processorMutex;
   std::atomic<bool> m_abortDenoise{false};
+  std::atomic<int> m_currentLoadId{0};
   bool m_hasDenoisedResult = false;
   bool m_isLoaded = false;
 
-  QFutureWatcher<bool> m_loadWatcher;
+  QFutureWatcher<LoadResult> m_loadWatcher;
   QFutureWatcher<QImage> m_denoiseWatcher;
+  QFutureWatcher<QImage> m_previewWatcher;
   QFuture<void> m_histogramFuture;
-
-  void clearProcessedImage();
-  void updateProcessingParams();
-  bool loadRawFileSync(const QString& path);
 };

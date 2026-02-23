@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMutexLocker>
 
 #include "LogManager.h"
 #include "PreviewManager.h"
@@ -67,6 +68,7 @@ void AppStateManager::detectGpus() {
 }
 
 void AppStateManager::loadSettings() {
+  QMutexLocker locker(&m_mutex);
   m_lastOpenedFolder = m_settings.value(KEY_LAST_FOLDER, QString()).toString();
   m_preferredGpu = m_settings.value(KEY_PREFERRED_GPU, "Auto").toString();
   m_cacheSizeGB = m_settings.value(KEY_CACHE_SIZE, 10).toInt();
@@ -86,6 +88,7 @@ void AppStateManager::loadSettings() {
 }
 
 void AppStateManager::saveSettings() {
+  QMutexLocker locker(&m_mutex);
   m_settings.setValue(KEY_LAST_FOLDER, m_lastOpenedFolder);
   m_settings.setValue(KEY_PREFERRED_GPU, m_preferredGpu);
   m_settings.setValue(KEY_CACHE_SIZE, m_cacheSizeGB);
@@ -96,6 +99,7 @@ void AppStateManager::saveSettings() {
 }
 
 void AppStateManager::clearLastSession() {
+  QMutexLocker locker(&m_mutex);
   m_lastOpenedFolder.clear();
   m_settings.remove(KEY_LAST_FOLDER);
   emit lastOpenedFolderChanged();
@@ -169,6 +173,9 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
 }
 
 void AppStateManager::setCurrentImage(const QString& image) {
+  fprintf(stderr, "[APP] setCurrentImage START: %s\n",
+          image.toLocal8Bit().data());
+
   if (m_currentImage != image) {
     m_currentImage = image;
     emit currentImageChanged();
@@ -181,16 +188,16 @@ void AppStateManager::setCurrentImage(const QString& image) {
       emit selectedImagesChanged();
     }
   }
+
+  fprintf(stderr, "[APP] setCurrentImage END\n");
 }
 
 void AppStateManager::toggleSelection(const QString& path) {
-  qDebug() << "C++: toggleSelection for:" << path;
   if (m_selectedImages.contains(path)) {
     m_selectedImages.removeAll(path);
   } else {
     m_selectedImages.append(path);
   }
-  qDebug() << "C++: Total selected:" << m_selectedImages.size();
   emit selectedImagesChanged();
 }
 
@@ -239,16 +246,11 @@ bool AppStateManager::isSelected(const QString& path) const {
 }
 
 void AppStateManager::setRatingForSelected(int rating) {
-  qDebug() << "C++: setRatingForSelected called with rating:" << rating;
   if (m_selectedImages.isEmpty()) {
-    qDebug() << "C++: No images selected!";
     return;
   }
 
-  qDebug() << "C++: Updating" << m_selectedImages.size() << "images";
-
   for (const QString& path : m_selectedImages) {
-    qDebug() << "C++: Updating rating for:" << path;
     // Update sidecar file
     QFileInfo fileInfo(path);
     QString editsDir = fileInfo.absolutePath() + "/.PhotonData/edits";
@@ -331,9 +333,6 @@ QString AppStateManager::logLocation() const {
 void AppStateManager::setLogLocation(const QString& location) {
   LogManager::instance()->setLogLocation(location);
   emit logLocationChanged();
-  // We don't save log location in m_settings here as LogManager handles its own
-  // persistence if needed, but let's be consistent and save it if we want it to
-  // persist across sessions via Photon settings.
   m_settings.setValue("diagnostics/logLocation", location);
   m_settings.sync();
 }

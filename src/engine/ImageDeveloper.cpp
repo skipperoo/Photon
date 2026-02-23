@@ -105,7 +105,13 @@ static float get_luma_cpp(float r, float g, float b) {
 
 QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                const QJsonObject& obj) {
-  if (!src || width <= 0 || height <= 0) return QImage();
+  fprintf(stderr, "[DEV] develop START: %dx%d (thread: %p)\n", width, height,
+          QThread::currentThread());
+
+  if (!src || width <= 0 || height <= 0) {
+    fprintf(stderr, "[DEV] develop ABORT: invalid params\n");
+    return QImage();
+  }
 
   // 1. Extract parameters from JSON
   float exp = obj["exposure"].toDouble();
@@ -119,6 +125,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float sat_global = obj["saturation"].toDouble();
   float vib_global = obj["vibrance"].toDouble();
   bool agx_enabled = obj["tonemappingEnabled"].toBool();
+
+  fprintf(stderr, "[DEV] Params: exp=%.2f con=%.2f high=%.2f shad=%.2f\n", exp,
+          con, high, shad);
 
   // HSL Params
   float hsl_h[8], hsl_s[8], hsl_l[8];
@@ -329,6 +338,8 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     }
   });
 
+  fprintf(stderr, "[DEV] develop END: %dx%d\n", output.width(),
+          output.height());
   return output;
 }
 

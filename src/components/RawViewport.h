@@ -51,6 +51,7 @@ class RawViewport : public QQuickItem {
                  NOTIFY denoiseEnabledChanged)
   Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(QString previewPath READ previewPath NOTIFY previewPathChanged)
+  Q_PROPERTY(QImage previewImage READ previewImage NOTIFY previewImageChanged)
   Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
   Q_PROPERTY(
       bool isPanning READ isPanning WRITE setIsPanning NOTIFY isPanningChanged)
@@ -229,6 +230,7 @@ class RawViewport : public QQuickItem {
 
   bool isLoading() const { return m_engine.isLoading(); }
   QString previewPath() const { return m_engine.previewPath(); }
+  QImage previewImage() const { return m_engine.previewImage(); }
   bool isDenoising() const { return m_engine.isDenoising(); }
   bool isPanning() const { return m_engine.isPanning(); }
   void setIsPanning(bool panning);
@@ -381,6 +383,7 @@ class RawViewport : public QQuickItem {
   void isDenoisingChanged();
   void isLoadingChanged();
   void previewPathChanged();
+  void previewImageChanged();
   void isPanningChanged();
   void sourceSizeChanged();
   void imageRectChanged();

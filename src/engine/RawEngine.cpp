@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../managers/PreviewManager.h"
 #include "Denoiser.h"
 #include "GpuSearcher.h"
 
@@ -120,6 +121,18 @@ RawEngine::RawEngine(QObject* parent)
       emit imageLoaded();
     }
   });
+
+  // Listen for background previews
+  if (photon::PreviewManager::instance()) {
+    connect(photon::PreviewManager::instance(),
+            &photon::PreviewManager::previewReady, this,
+            [this](const QString& rawPath, const QString& cachePath) {
+              if (rawPath == m_source) {
+                m_previewPath = cachePath;
+                emit previewPathChanged();
+              }
+            });
+  }
 }
 
 RawEngine::~RawEngine() {
@@ -187,6 +200,13 @@ void RawEngine::setSource(const QString& source) {
 
   m_source = source;
   emit sourceChanged();
+
+  // Try to get existing preview immediately
+  if (photon::PreviewManager::instance()) {
+    m_previewPath =
+        photon::PreviewManager::instance()->getPreviewPath(m_source);
+    emit previewPathChanged();
+  }
 
   m_histogramUpdatePending = false;
   m_metadata.clear();
@@ -344,14 +364,8 @@ void RawEngine::setVignetteFeather(float val) {
 void RawEngine::setDenoiseAmount(float val) {
   if (qFuzzyCompare(m_denoiseAmount, val)) return;
   m_denoiseAmount = val;
+  m_hasDenoisedResult = false;  // Invalidate previous BM3D result
   emit denoiseAmountChanged();
-  emit isDefaultChanged();
-}
-
-void RawEngine::setRating(int val) {
-  if (m_rating == val) return;
-  m_rating = val;
-  emit ratingChanged();
   emit isDefaultChanged();
 }
 
@@ -1288,7 +1302,6 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["vignetteFeather"] = e->vignetteFeather();
   obj["denoiseAmount"] = e->denoiseAmount();
   obj["denoiseEnabled"] = e->denoiseEnabled();
-  obj["rating"] = e->rating();
 
   obj["hslRedHue"] = e->hslRedHue();
   obj["hslRedSaturation"] = e->hslRedSaturation();
@@ -1363,7 +1376,6 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setDenoiseAmount(obj["denoiseAmount"].toDouble());
   if (obj.contains("denoiseEnabled"))
     e->setDenoiseEnabled(obj["denoiseEnabled"].toBool());
-  if (obj.contains("rating")) e->setRating(obj["rating"].toInt());
 
   if (obj.contains("hslRedHue")) e->setHslRedHue(obj["hslRedHue"].toDouble());
   if (obj.contains("hslRedSaturation"))
@@ -1457,7 +1469,6 @@ static void resetToDefaults(RawEngine* e) {
   e->setVignetteFeather(50.0f);
   e->setDenoiseAmount(0.0f);
   e->setDenoiseEnabled(false);
-  e->setRating(0);
 
   e->setHslRedHue(0.0f);
   e->setHslRedSaturation(0.0f);
@@ -1588,6 +1599,12 @@ void RawEngine::commitEdit() {
   if (file.open(QIODevice::WriteOnly)) {
     file.write(QJsonDocument(arr).toJson());
   }
+
+  // Trigger preview refresh
+  if (photon::PreviewManager::instance()) {
+    photon::PreviewManager::instance()->refreshPreview(m_source);
+  }
+
   requestHistogramUpdate();
 }
 
@@ -1600,6 +1617,10 @@ void RawEngine::undo() {
   emit canRedoChanged();
   emit isDefaultChanged();
   requestHistogramUpdate();
+
+  if (photon::PreviewManager::instance()) {
+    photon::PreviewManager::instance()->refreshPreview(m_source);
+  }
 }
 
 void RawEngine::redo() {
@@ -1611,6 +1632,10 @@ void RawEngine::redo() {
   emit canRedoChanged();
   emit isDefaultChanged();
   requestHistogramUpdate();
+
+  if (photon::PreviewManager::instance()) {
+    photon::PreviewManager::instance()->refreshPreview(m_source);
+  }
 }
 
 void RawEngine::applySettings(const QVariantMap& settings) {
@@ -1640,7 +1665,6 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_vignetteAmount)) return false;
   if (!qFuzzyIsNull(m_denoiseAmount)) return false;
   if (m_denoiseEnabled) return false;
-  if (m_rating != 0) return false;
 
   // HSL checks
   if (!qFuzzyIsNull(m_hslRedHue) || !qFuzzyIsNull(m_hslRedSaturation) ||

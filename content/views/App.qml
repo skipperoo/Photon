@@ -55,6 +55,29 @@ Window {
         return paths;
     }
 
+    function navigateFilmstrip(offset) {
+        if (rawFilesModel.count === 0) return;
+        var currentPath = AppState.currentImage;
+        var idx = -1;
+        for (var i = 0; i < rawFilesModel.count; i++) {
+            if (rawFilesModel.get(i).path === currentPath) {
+                idx = i;
+                break;
+            }
+        }
+        
+        var nextIdx = idx + offset;
+        if (nextIdx >= 0 && nextIdx < rawFilesModel.count) {
+            var nextPath = rawFilesModel.get(nextIdx).path;
+            AppState.clearSelection();
+            AppState.toggleSelection(nextPath);
+            AppState.setCurrentImage(nextPath);
+            
+            // Ensure the ListView scrolls to show the selected item
+            filmstripList.positionViewAtIndex(nextIdx, ListView.Beginning);
+        }
+    }
+
     // Refresh files when the folder changes or rating is updated
     Connections {
         target: AppState
@@ -74,7 +97,7 @@ Window {
         }
     }
 
-    // Global keyboard shortcuts for rating
+    // Global keyboard shortcuts for rating and navigation
     Item {
         Shortcut { sequence: "0"; context: Qt.WindowShortcut; onActivated: AppState.setRatingForSelected(0) }
         Shortcut { sequence: "1"; context: Qt.WindowShortcut; onActivated: AppState.setRatingForSelected(1) }
@@ -82,6 +105,9 @@ Window {
         Shortcut { sequence: "3"; context: Qt.WindowShortcut; onActivated: AppState.setRatingForSelected(3) }
         Shortcut { sequence: "4"; context: Qt.WindowShortcut; onActivated: AppState.setRatingForSelected(4) }
         Shortcut { sequence: "5"; context: Qt.WindowShortcut; onActivated: AppState.setRatingForSelected(5) }
+        
+        Shortcut { sequence: "Left"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(-1) }
+        Shortcut { sequence: "Right"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(1) }
     }
 
     // --- Main Layout ---
@@ -346,6 +372,19 @@ Window {
                                     }
                                 }
                             }
+                        }
+
+                        Image {
+                            id: previewImage
+                            anchors.fill: rawViewport
+                            anchors.margins: 2
+                            source: rawViewport.previewPath ? "file://" + rawViewport.previewPath : ""
+                            fillMode: Image.PreserveAspectFit
+                            visible: rawViewport.isLoading && status === Image.Ready
+                            z: 1
+                            
+                            opacity: visible ? 1.0 : 0.0
+                            Behavior on opacity { NumberAnimation { duration: 250 } }
                         }
 
                         // Bottom Toolbar

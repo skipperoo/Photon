@@ -54,7 +54,6 @@ class RawEngine : public QObject {
                  NOTIFY vignetteFeatherChanged)
   Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount
                  NOTIFY denoiseAmountChanged)
-  Q_PROPERTY(int rating READ rating WRITE setRating NOTIFY ratingChanged)
 
   // HSL Panel Properties
   Q_PROPERTY(
@@ -167,6 +166,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
   Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
   Q_PROPERTY(bool isDefault READ isDefault NOTIFY isDefaultChanged)
+  Q_PROPERTY(QString previewPath READ previewPath NOTIFY previewPathChanged)
 
  public:
   explicit RawEngine(QObject* parent = nullptr);
@@ -176,6 +176,8 @@ class RawEngine : public QObject {
 
   QString source() const { return m_source; }
   void setSource(const QString& source);
+
+  QString previewPath() const { return m_previewPath; }
 
   QSize viewportSize() const { return m_viewportSize; }
   void setViewportSize(const QSize& size);
@@ -236,9 +238,6 @@ class RawEngine : public QObject {
 
   float denoiseAmount() const { return m_denoiseAmount; }
   void setDenoiseAmount(float val);
-
-  int rating() const { return m_rating; }
-  void setRating(int val);
 
   // HSL Getters & Setters
   float hslRedHue() const { return m_hslRedHue; }
@@ -395,7 +394,6 @@ class RawEngine : public QObject {
   void vignetteRoundnessChanged();
   void vignetteFeatherChanged();
   void denoiseAmountChanged();
-  void ratingChanged();
 
   // HSL Signals
   void hslRedHueChanged();
@@ -447,6 +445,7 @@ class RawEngine : public QObject {
   void viewportSizeChanged();
   void denoisingFinished();
   void halfSizeChanged();
+  void previewPathChanged();
   void editStackChanged();
   void canUndoChanged();
   void canRedoChanged();
@@ -455,7 +454,9 @@ class RawEngine : public QObject {
 
  private:
   QString m_source;
+  QString m_previewPath;
   QRhi* m_rhi = nullptr;
+
   QSize m_viewportSize;
   float m_exposure = 0.0f;
   float m_contrast = 1.0f;
@@ -477,7 +478,6 @@ class RawEngine : public QObject {
   float m_vignetteFeather = 0.5f;
   float m_denoiseAmount = 0.0f;
   bool m_denoiseEnabled = false;
-  int m_rating = 0;
 
   // HSL Member Variables
   float m_hslRedHue = 0.0f;

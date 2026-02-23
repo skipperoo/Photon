@@ -109,6 +109,13 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   });
   connect(&m_engine, &RawEngine::isDenoisingChanged, this,
           [this]() { emit isDenoisingChanged(); });
+  connect(&m_engine, &RawEngine::isLoadingChanged, this,
+          [this]() { emit isLoadingChanged(); });
+  connect(&m_engine, &RawEngine::previewPathChanged, this, [this]() {
+    emit previewPathChanged();
+    m_textureDirty = true;
+    update();
+  });
   connect(&m_engine, &RawEngine::isPanningChanged, this,
           [this]() { emit isPanningChanged(); });
   connect(&m_engine, &RawEngine::denoisingFinished, this, [this]() {
@@ -281,8 +288,10 @@ void RawViewport::setSource(const QString& source) {
   m_imageHeight = 0;
   m_bufferWidth = 0;
   m_bufferHeight = 0;
+  m_textureDirty = true;  // Mark texture as dirty to clear old image
   m_engine.setSource(source);
   emit sourceChanged();
+  update();
 }
 
 void RawViewport::setExposure(float ev) {
@@ -768,6 +777,26 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
         node->setTexture(texture);
         node->setOwnsTexture(true);
       }
+    } else if (m_engine.isLoading() && !m_engine.previewPath().isEmpty()) {
+      // Show proxy while loading
+      QImage img(m_engine.previewPath());
+      if (!img.isNull()) {
+        QSGTexture* texture = window()->createTextureFromImage(img);
+        node->setTexture(texture);
+        node->setOwnsTexture(true);
+
+        m_bufferWidth = img.width();
+        m_bufferHeight = img.height();
+
+        // Update image dimensions if not yet known to prevent stretching
+        if (m_imageWidth == 0 || m_imageHeight == 0) {
+          m_imageWidth = img.width();
+          m_imageHeight = img.height();
+        }
+      }
+    } else {
+      // Clear texture if nothing to show to avoid overlaying previous image
+      node->setTexture(nullptr);
     }
     m_textureDirty = false;
     m_imageDirty = false;

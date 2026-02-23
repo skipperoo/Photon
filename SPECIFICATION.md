@@ -158,9 +158,20 @@ Non-destructive edits are applied during the export process:
 1.  **Engine:** A dedicated `ExportManager` handles background processing without blocking the UI.
 2.  **Pipeline:** RAW -> Apply Kelvin WB -> Linear Exposure -> Processing Stack -> AgX Tonemapping -> Dithering -> Format Conversion.
 3.  **Formats:**
-    - **JPEG:** 8-bit, configurable quality (1-100).
-    - **TIFF:** 8-bit or 16-bit for maximum archival quality.
+    *   **JPEG:** 8-bit, configurable quality (1-100).
+    *   **TIFF:** 8-bit or 16-bit for maximum archival quality.
 4.  **Batching:** Multiple selected images can be exported in parallel using a worker thread pool.
+
+### Responsive Preview System (Phase 16)
+
+To ensure zero-latency feedback when switching photos, Photon implements a background proxy system:
+
+1.  **Background Precomputation:** Upon opening a folder, a `PreviewManager` scans all images and begins generating 1080p JPEG proxies in `.PhotonData/cache/previews/`.
+2.  **Instant Loading:** When a photo is selected, the UI immediately displays the cached JPEG proxy (if available) while the `RawEngine` develops the full-resolution RAW in the background.
+3.  **Hybrid Rendering:** Once the RAW development is complete, the viewport seamlessly swaps the proxy for the real GPU-processed image.
+4.  **Smart Invalidation:** Previews are automatically regenerated when:
+    *   Edits are committed to an image.
+    *   The sidecar JSON timestamp is newer than the cached preview.
 
 ### GPU Processing Pipeline (Phase 5)
 
@@ -222,9 +233,9 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 
 ### C. The Filmstrip (Bottom)
 
-- **Content:** Horizontal scrollable list of thumbnails from the current folder.
-- **Sync:** Highlighted thumbnail matches the main Viewport image.
-- **Navigation:** Left/Right Arrow keys move selection.
+- [x] **Content:** Horizontal scrollable list of thumbnails from the current folder.
+- [x] **Sync:** Highlighted thumbnail matches the main Viewport image.
+- [x] **Navigation:** Left/Right Arrow keys move selection.
 
 ### D. Presets Panel (Left - Collapsible)
 

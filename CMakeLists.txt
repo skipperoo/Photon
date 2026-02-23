@@ -37,6 +37,8 @@ qt_add_executable(Photon
     src/managers/LogManager.h
     src/managers/ExportManager.cpp
     src/managers/ExportManager.h
+    src/managers/PreviewManager.cpp
+    src/managers/PreviewManager.h
 )
 
 # Mark Theme.qml as a singleton (must be before qt_add_qml_module)
@@ -84,6 +86,8 @@ qt_add_qml_module(Photon
         src/managers/LogManager.h
         src/managers/ExportManager.cpp
         src/managers/ExportManager.h
+        src/managers/PreviewManager.cpp
+        src/managers/PreviewManager.h
     QML_FILES
         content/views/App.qml
         content/views/WelcomeView.qml

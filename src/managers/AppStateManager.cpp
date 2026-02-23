@@ -9,6 +9,7 @@
 #include <QJsonObject>
 
 #include "LogManager.h"
+#include "PreviewManager.h"
 
 using namespace photon;
 
@@ -16,8 +17,8 @@ AppStateManager* AppStateManager::s_instance = nullptr;
 
 AppStateManager::AppStateManager(const QString& appName, QObject* parent)
     : QObject(parent),
-      m_settings(QSettings::IniFormat, QSettings::UserScope, "Photon",
-                 appName) {
+      m_settings(QSettings::IniFormat, QSettings::UserScope, appName, appName) {
+  s_instance = this;
   detectGpus();
   loadSettings();
 }
@@ -153,6 +154,11 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
         emit lastOpenedFolderChanged();
         emit hasLastSessionChanged();
         saveSettings();
+
+        // Start background preview generation
+        if (PreviewManager::instance()) {
+          PreviewManager::instance()->startFolderScan(m_currentFolder);
+        }
       } else {
         qWarning() << "Folder does not exist:" << folder;
       }

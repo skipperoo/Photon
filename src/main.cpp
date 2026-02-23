@@ -17,6 +17,7 @@
 #include "managers/FileScanner.h"
 #include "managers/LogManager.h"
 #include "managers/PresetManager.h"
+#include "managers/PreviewManager.h"
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
 
@@ -139,6 +140,7 @@ int main(int argc, char* argv[]) {
   // Create managers
   ThumbnailProvider* thumbProvider = new ThumbnailProvider(&app);
   PresetManager* presetManager = new PresetManager(&app);
+  photon::PreviewManager* previewManager = new photon::PreviewManager(&app);
   photon::ExportManager* exportManager = new photon::ExportManager(&app);
 
   // Register singletons early and set parents to ensure they are destroyed with
@@ -160,6 +162,9 @@ int main(int argc, char* argv[]) {
 
   // Register PresetManager singleton
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
+
+  // Register PreviewManager singleton
+  qmlRegisterSingletonInstance("Main", 1, 0, "PreviewManager", previewManager);
 
   // Register ExportManager singleton
   qmlRegisterSingletonInstance("Main", 1, 0, "ExportManager", exportManager);

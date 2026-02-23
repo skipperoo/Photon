@@ -10,10 +10,18 @@ add_executable(tst_RawEngine
     ../src/engine/Denoiser.h
     ../src/engine/GpuSearcher.cpp
     ../src/engine/GpuSearcher.h
+    ../src/engine/ImageDeveloper.cpp
+    ../src/engine/ImageDeveloper.h
+    ../src/managers/PreviewManager.cpp
+    ../src/managers/PreviewManager.h
+    ../src/managers/FileScanner.cpp
+    ../src/managers/FileScanner.h
+    ../src/managers/LogManager.cpp
+    ../src/managers/LogManager.h
 )
 
 target_link_libraries(tst_RawEngine
-    PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate
+    PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate Qt6::Quick
     PRIVATE ${LIBRAW_LIBRARIES}
 )
 target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
@@ -33,10 +41,17 @@ add_executable(tst_AppStateManager
     ../src/managers/AppStateManager.h
     ../src/managers/LogManager.cpp
     ../src/managers/LogManager.h
+    ../src/managers/PreviewManager.cpp
+    ../src/managers/PreviewManager.h
+    ../src/engine/ImageDeveloper.cpp
+    ../src/engine/ImageDeveloper.h
+    ../src/managers/FileScanner.cpp
+    ../src/managers/FileScanner.h
 )
 
 target_link_libraries(tst_AppStateManager
-    PRIVATE Qt6::Test Qt6::Qml
+    PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate
+    PRIVATE ${LIBRAW_LIBRARIES}
     PRIVATE Vulkan::Vulkan
 )
 target_compile_options(tst_AppStateManager PRIVATE -mavx2 -mfma)
@@ -44,6 +59,8 @@ target_compile_options(tst_AppStateManager PRIVATE -mavx2 -mfma)
 target_include_directories(tst_AppStateManager PRIVATE
     ../src
     ../src/managers
+    ../src/engine
+    ${LIBRAW_INCLUDE_DIRS}
 )
 
 add_test(NAME tst_RawEngine COMMAND tst_RawEngine)

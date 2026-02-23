@@ -168,7 +168,7 @@ Control {
                             }
                             Switch { 
                                 checked: root.viewport ? root.viewport.tonemappingEnabled : false
-                                onToggled: if(root.viewport) { root.viewport.tonemappingEnabled = checked; root.viewport.commitEdit(); }
+                                onClicked: if(root.viewport) { root.viewport.tonemappingEnabled = checked; root.viewport.commitEdit(); }
                             }
                         }
                     }

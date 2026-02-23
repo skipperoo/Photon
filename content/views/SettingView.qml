@@ -73,7 +73,7 @@ Control {
                             Text { text: "Full Quality Denoise Preview"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
                             Switch {
                                 checked: AppState.previewDenoiseFull
-                                onToggled: AppState.setPreviewDenoiseFull(checked)
+                                onClicked: AppState.setPreviewDenoiseFull(checked)
                             }
                         }
                         Text {
@@ -120,7 +120,7 @@ Control {
                         Text { text: "Dark Mode"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
                         Switch {
                             checked: AppState.isDarkMode
-                            onToggled: AppState.setIsDarkMode(checked)
+                            onClicked: AppState.setIsDarkMode(checked)
                         }
                     }
 

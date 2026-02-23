@@ -91,6 +91,7 @@ qt_add_qml_module(Photon
         content/views/DevelopView.qml
         content/views/SettingView.qml
         content/components/Button.qml
+        content/components/Switch.qml
         content/components/Input.qml
         content/components/Slider.qml
         content/components/Card.qml

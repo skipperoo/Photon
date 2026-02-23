@@ -657,16 +657,25 @@ Window {
                             }
 
                             // Rating dots
-                            Row {
+                            Rectangle {
                                 anchors.bottom: parent.bottom
-                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.left: parent.left
+                                anchors.topMargin: 2
                                 anchors.bottomMargin: 4
-                                spacing: 2
-                                Repeater {
-                                    model: itemRating
-                                    Rectangle {
-                                        width: 4; height: 4; radius: 2
-                                        color: "#eab308"
+                                anchors.leftMargin: 2
+                                radius: 5
+                                color: Theme.foreground
+                            
+                                Row {
+                                    spacing: 4
+                                    Repeater {
+                                        model: itemRating
+                                        Text {
+                                            text: "★"
+                                            color: Theme.accent
+                                            font: Theme.fontSmall
+                                            width: 4
+                                        }
                                     }
                                 }
                             }
@@ -710,7 +719,7 @@ Window {
             anchors.top: parent.top
             anchors.topMargin: window.showTopbar ? 16 : -height - 20
             anchors.horizontalCenter: parent.horizontalCenter
-            color: "#E609090B" // Semi-transparent background
+            color: Theme.background // Semi-transparent background
             radius: Theme.radiusLg
             border.color: Theme.border
             border.width: 1

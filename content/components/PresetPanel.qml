@@ -98,7 +98,7 @@ Rectangle {
 
                 delegate: T.ItemDelegate {
                     width: presetList.width
-                    height: 32
+                    height: 42
                     
                     contentItem: RowLayout {
                         Text {
@@ -110,20 +110,18 @@ Rectangle {
                         
                         T.Button {
                             visible: parent.parent.hovered
-                            implicitWidth: 24
-                            implicitHeight: 24
+                            implicitWidth: 32
+                            implicitHeight: 32
                             onClicked: {
                                 root.presetToDelete = modelData
                                 deleteConfirmDialog.open()
                             }
                             
                             icon.source: "qrc:/Main/assets/icons/trash.svg"
-                            icon.color: "#ff0000" // Bright Red (destructive)
-                            icon.width: 14
-                            icon.height: 14
-                            display: T.AbstractButton.IconOnly
+                            icon.width: 32
+                            icon.height: 32
                             
-                            background: null
+                            background: Theme.destructive
                             
                             T.ToolTip.visible: hovered
                             T.ToolTip.text: "Delete Preset"

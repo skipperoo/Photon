@@ -78,14 +78,14 @@
   - [x] Implement right-side Section Switcher (Icon-sized navigation).
   - [x] Move Presets to the right sidebar stack.
   - [x] Implement tabbed layout for Metadata, Edit, Crop, Lens, and Presets.
-- [ ] **Presets Refinement**
-  - [ ] Replace 'x' delete button with trash icon.
-  - [ ] Implement delete confirmation dialog.
-- [ ] **Tool Panels**
-  - [ ] Add Export panel placeholder.
-- [ ] **Develop UI Polish**
+- [x] **Presets Refinement**
+  - [x] Replace 'x' delete button with trash icon.
+  - [x] Implement delete confirmation dialog.
+- [x] **Tool Panels**
+  - [x] Add Export panel placeholder.
+- [x] **Develop UI Polish**
   - [x] Remove floating top bar in Development view (exclusive to Library/Settings).
-  - [ ] Add sidebar-based navigation for Library and Settings.
+  - [x] Add sidebar-based navigation for Library and Settings.
 
   ## Phase 11: Advanced Settings & Diagnostics [DONE]
 
@@ -113,6 +113,7 @@
   - [x] **Step 2: Advanced GPU Preview (NLM)**
     - [x] Implement **Non-Local Means (NLM)** shader in `RawViewport.frag`.
     - [x] Optimize search radius and patch size for 60fps performance.
+
 - [x] **Step 3: GPU Search Offload [DONE]**
   - [x] Implement initial **Patch Search shaders** (3x3 patch SSD).
   - [x] Refactor `GpuSearcher` to handle **RHI readback** (blocking worker thread).
@@ -120,19 +121,19 @@
   - [x] Integrate GPU search results into the **BM3D aggregation phase** in `Denoiser.cpp` as a search seed.
   - [x] Implement **CPU fallback** (handled automatically by checking RHI availability).
 - [x] **Asynchronous Workflow**
-    - [x] Run heavy denoising in background thread.
-    - [x] Implement "Applying denoise..." UI indicator with rotating loader.
-    - [x] Implement automatic abort logic when switching photos.
-    - [x] Implement dynamic proxy scaling based on viewport size and zoom level.
+  - [x] Run heavy denoising in background thread.
+  - [x] Implement "Applying denoise..." UI indicator with rotating loader.
+  - [x] Implement automatic abort logic when switching photos.
+  - [x] Implement dynamic proxy scaling based on viewport size and zoom level.
 
 ## Phase 13: High-Performance Denoise Control [IN PROGRESS]
 
-- [ ] **Explicit Execution Control**
-  - [ ] Add "Denoise" checkbox to UI.
-  - [ ] Implement immediate abort logic when unchecking.
-- [ ] **ROI-Driven Proxy Refinement**
-  - [ ] Update zoom logic to re-render visible crop in high-fidelity first.
-  - [ ] Apply BM3D only to the high-quality visible region.
+- [x] **Explicit Execution Control**
+  - [x] Add "Denoise" checkbox to UI.
+  - [x] Implement immediate abort logic when unchecking.
+- [x] **ROI-Driven Proxy Refinement**
+  - [x] Update zoom logic to re-render visible crop in high-fidelity first.
+  - [x] Apply BM3D only to the high-quality visible region.
 - [x] **Lifecycle Management**
   - [x] Ensure `RawEngine` destructor clean-joins all background workers.
   - [x] Prevent segfaults on application close while denoising (Fixed race in `ThumbnailProvider` and RHI resource cleanup).
@@ -142,7 +143,7 @@
   - [x] Implement double-click zoom cycle (100% -> 200% -> 400% -> 100%).
 - [x] Fix pan/zoom interaction bug where double-click zoom triggered during pan.
 - [x] Fix "Zoom Increases" bug during panning (Race condition in ROI calculation).
-- [ ] Fix rendering artifacts during zoom/pan with active denoising.
+- [x] Fix rendering artifacts during zoom/pan with active denoising.
 
 ## Phase 18: Preview Rendering Optimization [DONE]
 
@@ -154,8 +155,11 @@
 - [x] **UI Integration**
   - [x] Update `ShaderEffect` in `App.qml` to pass `rawViewport.showingPreview` to the shader.
 
-## Backlog / Future
+## Phase 19: Basic export functionality [DONE]
 
+- [x] Export functionality (Save to JPEG/TIFF).
+
+## Backlog / Future
 
 - [ ] **Crop & Transform**
   - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
@@ -164,5 +168,4 @@
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Tone Curve (Spline UI).
-- [ ] Export functionality (Save to JPEG/TIFF).
 - [ ] Multi-image batch processing.

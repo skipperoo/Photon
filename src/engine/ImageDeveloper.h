@@ -6,6 +6,8 @@
 #include <cmath>
 #include <vector>
 
+class QRhi;
+
 namespace photon {
 
 struct HSV {
@@ -15,7 +17,7 @@ struct HSV {
 class ImageDeveloper {
  public:
   static QImage develop(const ushort* src, int width, int height,
-                        const QJsonObject& settings);
+                        const QJsonObject& settings, QRhi* rhi = nullptr);
 
  private:
   static float smoothstep(float edge0, float edge1, float x) {

@@ -183,12 +183,21 @@ int main(int argc, char* argv[]) {
 
   QObject::connect(
       &engine, &QQmlApplicationEngine::objectCreated, &app,
-      [url, &vulkanInstance](QObject* obj, const QUrl& objUrl) {
+      [url, &vulkanInstance, previewManager, exportManager](QObject* obj,
+                                                            const QUrl& objUrl) {
         if (!obj && url == objUrl) QCoreApplication::exit(-1);
 
         QQuickWindow* window = qobject_cast<QQuickWindow*>(obj);
         if (window) {
           window->setVulkanInstance(&vulkanInstance);
+          // Pass RHI to managers when it becomes available
+          QObject::connect(window, &QQuickWindow::sceneGraphInitialized,
+                           [window, previewManager, exportManager]() {
+                             if (previewManager)
+                               previewManager->setRhi(window->rhi());
+                             if (exportManager)
+                               exportManager->setRhi(window->rhi());
+                           });
         }
       },
       Qt::QueuedConnection);

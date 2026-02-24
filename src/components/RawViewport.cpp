@@ -10,6 +10,16 @@
 RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   setFlag(ItemHasContents, true);
 
+  connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow* window) {
+    if (window) {
+      connect(window, &QQuickWindow::sceneGraphInitialized, this,
+              [this, window]() { m_engine.setRhi(window->rhi()); });
+      if (window->isSceneGraphInitialized()) {
+        m_engine.setRhi(window->rhi());
+      }
+    }
+  });
+
   connect(this, &QQuickItem::widthChanged, this,
           [this]() { m_engine.setViewportSize(QSize(width(), height())); });
   connect(this, &QQuickItem::heightChanged, this,

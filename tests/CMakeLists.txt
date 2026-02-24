@@ -18,11 +18,14 @@ add_executable(tst_RawEngine
     ../src/managers/FileScanner.h
     ../src/managers/LogManager.cpp
     ../src/managers/LogManager.h
+    ../src/managers/AppStateManager.cpp
+    ../src/managers/AppStateManager.h
 )
 
 target_link_libraries(tst_RawEngine
     PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate Qt6::Quick
     PRIVATE ${LIBRAW_LIBRARIES}
+    PRIVATE Vulkan::Vulkan
 )
 target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
 
@@ -47,6 +50,10 @@ add_executable(tst_AppStateManager
     ../src/engine/ImageDeveloper.h
     ../src/managers/FileScanner.cpp
     ../src/managers/FileScanner.h
+    ../src/engine/Denoiser.cpp
+    ../src/engine/Denoiser.h
+    ../src/engine/GpuSearcher.cpp
+    ../src/engine/GpuSearcher.h
 )
 
 target_link_libraries(tst_AppStateManager

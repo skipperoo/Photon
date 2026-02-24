@@ -6,12 +6,14 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
+#include <QImageWriter>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QtConcurrent>
 
 #include "../engine/ImageDeveloper.h"
+#include "AppStateManager.h"
 #include "FileScanner.h"
 
 namespace photon {
@@ -187,9 +189,11 @@ void PreviewManager::processItem(const QString& rawPath) {
           fprintf(stderr, "[PREVIEW] Developing image: %s (%dx%d)\n",
                   rawPath.toLocal8Bit().data(), mem->width, mem->height);
           // 3. Develop Image with Edits
+          lastState["denoiseSecondPass"] =
+              ::AppStateManager::instance()->previewDenoiseFull();
           QImage result = ImageDeveloper::develop(
               reinterpret_cast<const ushort*>(mem->data), mem->width,
-              mem->height, lastState);
+              mem->height, lastState, m_rhi);
 
           fprintf(stderr, "[PREVIEW] Develop complete, result null: %d\n",
                   result.isNull());

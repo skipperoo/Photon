@@ -5,6 +5,9 @@
 #include <QtConcurrent>
 #include <numeric>
 
+#include "Denoiser.h"
+#include "GpuSearcher.h"
+
 namespace photon {
 
 // --- Colorspace Math ---
@@ -104,7 +107,7 @@ static float get_luma_cpp(float r, float g, float b) {
 }
 
 QImage ImageDeveloper::develop(const ushort* src, int width, int height,
-                               const QJsonObject& obj) {
+                               const QJsonObject& obj, QRhi* rhi) {
   fprintf(stderr, "[DEV] develop START: %dx%d (thread: %p)\n", width, height,
           QThread::currentThread());
 
@@ -125,9 +128,12 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float sat_global = obj["saturation"].toDouble();
   float vib_global = obj["vibrance"].toDouble();
   bool agx_enabled = obj["tonemappingEnabled"].toBool();
+  float denoiseAmount = obj["denoiseAmount"].toDouble();
+  bool denoiseEnabled = obj["denoiseEnabled"].toBool();
+  bool denoiseSecondPass = obj["denoiseSecondPass"].toBool(true);
 
-  fprintf(stderr, "[DEV] Params: exp=%.2f con=%.2f high=%.2f shad=%.2f\n", exp,
-          con, high, shad);
+  fprintf(stderr, "[DEV] Params: exp=%.2f con=%.2f high=%.2f shad=%.2f denoise=%.1f\n", exp,
+          con, high, shad, denoiseAmount);
 
   // HSL Params
   float hsl_h[8], hsl_s[8], hsl_l[8];
@@ -337,6 +343,35 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       scanline[x * 3 + 2] = (uchar)(std::clamp(b, 0.0f, 1.0f) * 255.0f);
     }
   });
+
+  // 11. Denoising
+  if (denoiseEnabled && denoiseAmount > 0.1f) {
+    fprintf(stderr, "[DEV] Denoising: amount=%.1f (rhi=%p)\n", denoiseAmount,
+            rhi);
+    std::vector<GpuSearcher::SearchResult> gpuMatches;
+    if (rhi) {
+      int w = output.width();
+      int h = output.height();
+      std::vector<float> luma(w * h);
+      for (int y = 0; y < h; ++y) {
+        const uchar* scanline = output.scanLine(y);
+        for (int x = 0; x < w; ++x) {
+          luma[y * w + x] = 0.2126f * scanline[x * 3] +
+                            0.7152f * scanline[x * 3 + 1] +
+                            0.0722f * scanline[x * 3 + 2];
+        }
+      }
+      GpuSearcher searcher(rhi);
+      gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
+    }
+    output = Denoiser::denoise(output, denoiseAmount, nullptr, denoiseSecondPass,
+                               4, gpuMatches);
+
+    // Convert back to RGB888 if Denoiser changed format to RGBX64
+    if (output.format() != QImage::Format_RGB888) {
+      output = output.convertToFormat(QImage::Format_RGB888);
+    }
+  }
 
   fprintf(stderr, "[DEV] develop END: %dx%d\n", output.width(),
           output.height());

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../managers/AppStateManager.h"
 #include "../managers/PreviewManager.h"
 #include "Denoiser.h"
 #include "GpuSearcher.h"
@@ -611,11 +612,13 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
     gpuMatches = m_gpuSearcher->runSearch(luma.data(), w, h, 19);
   }
 
+  bool useSecondPass =
+      final || ::AppStateManager::instance()->previewDenoiseFull();
   std::atomic<bool>* abortPtr = &m_abortDenoise;
-  QFuture<QImage> future =
-      QtConcurrent::run([img, amount, abortPtr, final, stride, gpuMatches]() {
-        return photon::Denoiser::denoise(img, amount, abortPtr, final, stride,
-                                         gpuMatches);
+  QFuture<QImage> future = QtConcurrent::run(
+      [img, amount, abortPtr, useSecondPass, stride, gpuMatches]() {
+        return photon::Denoiser::denoise(img, amount, abortPtr, useSecondPass,
+                                         stride, gpuMatches);
       });
   m_denoiseWatcher.setFuture(future);
 }

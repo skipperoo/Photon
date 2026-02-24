@@ -91,9 +91,10 @@ void ExportManager::processExport(const QStringList& paths,
           libraw_processed_image_t* mem = processor.dcraw_make_mem_image(&ret);
           if (mem && mem->type == LIBRAW_IMAGE_BITMAP) {
             // 3. Develop Image with Edits
+            lastState["denoiseSecondPass"] = true;
             QImage result = ImageDeveloper::develop(
                 reinterpret_cast<const ushort*>(mem->data), mem->width,
-                mem->height, lastState);
+                mem->height, lastState, m_rhi);
 
             if (!result.isNull()) {
               // 4. Save to Disk

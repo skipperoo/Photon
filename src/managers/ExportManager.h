@@ -6,6 +6,8 @@
 #include <QVariantMap>
 #include <atomic>
 
+class QRhi;
+
 namespace photon {
 
 class ExportManager : public QObject {
@@ -18,6 +20,8 @@ class ExportManager : public QObject {
  public:
   explicit ExportManager(QObject* parent = nullptr);
   ~ExportManager() override;
+
+  void setRhi(QRhi* rhi) { m_rhi = rhi; }
 
   bool isExporting() const { return m_isExporting; }
   float progress() const {
@@ -37,6 +41,7 @@ class ExportManager : public QObject {
   void exportFinished(int successCount, int failedCount);
 
  private:
+  QRhi* m_rhi = nullptr;
   bool m_isExporting = false;
   int m_doneCount = 0;
   int m_totalCount = 0;

@@ -8,6 +8,8 @@
 #include <QThreadPool>
 #include <QVariantList>
 
+class QRhi;
+
 namespace photon {
 
 class PreviewManager : public QObject {
@@ -20,6 +22,8 @@ class PreviewManager : public QObject {
   ~PreviewManager() override;
 
   static PreviewManager* instance();
+
+  void setRhi(QRhi* rhi) { m_rhi = rhi; }
 
   // Get path to cached preview if it exists and is valid
   Q_INVOKABLE QString getPreviewPath(const QString& rawPath) const;
@@ -47,6 +51,7 @@ class PreviewManager : public QObject {
   bool isPreviewValid(const QString& rawPath) const;
   QString getCachePath(const QString& rawPath) const;
 
+  QRhi* m_rhi = nullptr;
   static PreviewManager* s_instance;
   bool m_isProcessing = false;
   bool m_abort = false;

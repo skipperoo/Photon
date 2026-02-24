@@ -12,6 +12,7 @@
 
 #include "../engine/ImageDeveloper.h"
 #include "../engine/RawEngine.h"
+#include "LogManager.h"
 
 namespace photon {
 

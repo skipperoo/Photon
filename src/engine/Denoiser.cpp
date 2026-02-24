@@ -5,6 +5,7 @@
 #include <QRgba64>
 #include <QtConcurrent>
 #include <cmath>
+#include <numeric>
 
 namespace photon {
 
@@ -70,11 +71,21 @@ QImage Denoiser::denoise(
   if (input.format() == QImage::Format_RGBX64 ||
       input.format() == QImage::Format_RGBA64) {
     const QRgba64* bits = reinterpret_cast<const QRgba64*>(input.constBits());
-    for (int i = 0; i < size; ++i) {
-      channels[0][i] = bits[i].red() / 257.0f;  // Scale to 0-255
-      channels[1][i] = bits[i].green() / 257.0f;
-      channels[2][i] = bits[i].blue() / 257.0f;
-    }
+    // Parallelize conversion for large images
+    const int grain = 4096;
+    int numChunks = (size + grain - 1) / grain;
+    std::vector<int> chunks(numChunks);
+    std::iota(chunks.begin(), chunks.end(), 0);
+
+    QtConcurrent::blockingMap(chunks, [=, &channels](int chunk) {
+      int start = chunk * grain;
+      int end = std::min(size, start + grain);
+      for (int i = start; i < end; ++i) {
+        channels[0][i] = bits[i].red() / 257.0f;  // Scale to 0-255
+        channels[1][i] = bits[i].green() / 257.0f;
+        channels[2][i] = bits[i].blue() / 257.0f;
+      }
+    });
   } else {
     QImage converted = input.convertToFormat(QImage::Format_RGB888);
     const uchar* bits = converted.constBits();
@@ -95,15 +106,26 @@ QImage Denoiser::denoise(
 
   QImage output(width, height, QImage::Format_RGBX64);
   QRgba64* out_bits = reinterpret_cast<QRgba64*>(output.bits());
-  for (int i = 0; i < size; ++i) {
-    ushort r = static_cast<ushort>(
-        std::clamp(denoised_channels[0][i], 0.0f, 255.0f) * 257.0f);
-    ushort g = static_cast<ushort>(
-        std::clamp(denoised_channels[1][i], 0.0f, 255.0f) * 257.0f);
-    ushort b = static_cast<ushort>(
-        std::clamp(denoised_channels[2][i], 0.0f, 255.0f) * 257.0f);
-    out_bits[i] = QRgba64::fromRgba64(r, g, b, 65535);
-  }
+
+  const int grain_out = 4096;
+  int numChunksOut = (size + grain_out - 1) / grain_out;
+  std::vector<int> chunksOut(numChunksOut);
+  std::iota(chunksOut.begin(), chunksOut.end(), 0);
+
+  QtConcurrent::blockingMap(
+      chunksOut, [=, &denoised_channels](int chunk) {
+        int start = chunk * grain_out;
+        int end = std::min(size, start + grain_out);
+        for (int i = start; i < end; ++i) {
+          ushort r = static_cast<ushort>(
+              std::clamp(denoised_channels[0][i], 0.0f, 255.0f) * 257.0f);
+          ushort g = static_cast<ushort>(
+              std::clamp(denoised_channels[1][i], 0.0f, 255.0f) * 257.0f);
+          ushort b = static_cast<ushort>(
+              std::clamp(denoised_channels[2][i], 0.0f, 255.0f) * 257.0f);
+          out_bits[i] = QRgba64::fromRgba64(r, g, b, 65535);
+        }
+      });
 
   return output;
 }
@@ -140,11 +162,26 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     denominators[i] = std::make_shared<AtomicAccumulator>(count);
   }
 
-  // Pre-extract Luma for search
+  // Pre-extract Luma for search (SIMD optimized)
   std::vector<float> luma_buffer(count);
-  for (int i = 0; i < count; ++i) {
-    luma_buffer[i] =
-        0.2126f * guide[0][i] + 0.7152f * guide[1][i] + 0.0722f * guide[2][i];
+  const float wr = 0.2126f;
+  const float wg = 0.7152f;
+  const float wb = 0.0722f;
+  __m256 v_wr = _mm256_set1_ps(wr);
+  __m256 v_wg = _mm256_set1_ps(wg);
+  __m256 v_wb = _mm256_set1_ps(wb);
+
+  int i = 0;
+  for (; i <= count - 8; i += 8) {
+    __m256 r = _mm256_loadu_ps(&guide[0][i]);
+    __m256 g = _mm256_loadu_ps(&guide[1][i]);
+    __m256 b = _mm256_loadu_ps(&guide[2][i]);
+    __m256 luma = _mm256_fmadd_ps(
+        r, v_wr, _mm256_fmadd_ps(g, v_wg, _mm256_mul_ps(b, v_wb)));
+    _mm256_storeu_ps(&luma_buffer[i], luma);
+  }
+  for (; i < count; ++i) {
+    luma_buffer[i] = wr * guide[0][i] + wg * guide[1][i] + wb * guide[2][i];
   }
   std::vector<std::vector<float>> search_channels = {luma_buffer};
 
@@ -570,21 +607,111 @@ void Denoiser::transform_3d(float* stack, int group_size,
                             const DctTables& tables) {
   for (int i = 0; i < group_size; ++i)
     dct_2d_8x8(stack + i * 64, tables.dct_coeff);
-  for (int i = 0; i < 64; ++i) {
-    float col[MAX_GROUP_SIZE];
-    for (int k = 0; k < group_size; ++k) col[k] = stack[k * 64 + i];
-    walsh_hadamard_1d(col, group_size);
-    for (int k = 0; k < group_size; ++k) stack[k * 64 + i] = col[k];
+
+  if (group_size == 16) {
+    for (int i = 0; i < 64; i += 8) {
+      __m256 v[16];
+      for (int k = 0; k < 16; ++k) v[k] = _mm256_loadu_ps(&stack[k * 64 + i]);
+
+      // 4 stages of WHT
+      // Stage 1
+      for (int k = 0; k < 16; k += 2) {
+        __m256 a = v[k];
+        __m256 b = v[k + 1];
+        v[k] = _mm256_add_ps(a, b);
+        v[k + 1] = _mm256_sub_ps(a, b);
+      }
+      // Stage 2
+      for (int k = 0; k < 16; k += 4) {
+        for (int j = 0; j < 2; ++j) {
+          __m256 a = v[k + j];
+          __m256 b = v[k + j + 2];
+          v[k + j] = _mm256_add_ps(a, b);
+          v[k + j + 2] = _mm256_sub_ps(a, b);
+        }
+      }
+      // Stage 3
+      for (int k = 0; k < 16; k += 8) {
+        for (int j = 0; j < 4; ++j) {
+          __m256 a = v[k + j];
+          __m256 b = v[k + j + 4];
+          v[k + j] = _mm256_add_ps(a, b);
+          v[k + j + 4] = _mm256_sub_ps(a, b);
+        }
+      }
+      // Stage 4
+      for (int j = 0; j < 8; ++j) {
+        __m256 a = v[j];
+        __m256 b = v[j + 8];
+        v[j] = _mm256_add_ps(a, b);
+        v[j + 8] = _mm256_sub_ps(a, b);
+      }
+
+      __m256 v_scale = _mm256_set1_ps(0.25f);
+      for (int k = 0; k < 16; ++k)
+        _mm256_storeu_ps(&stack[k * 64 + i], _mm256_mul_ps(v[k], v_scale));
+    }
+  } else {
+    for (int i = 0; i < 64; ++i) {
+      float col[MAX_GROUP_SIZE];
+      for (int k = 0; k < group_size; ++k) col[k] = stack[k * 64 + i];
+      walsh_hadamard_1d(col, group_size);
+      for (int k = 0; k < group_size; ++k) stack[k * 64 + i] = col[k];
+    }
   }
 }
 
 void Denoiser::inverse_transform_3d(float* stack, int group_size,
                                     const DctTables& tables) {
-  for (int i = 0; i < 64; ++i) {
-    float col[MAX_GROUP_SIZE];
-    for (int k = 0; k < group_size; ++k) col[k] = stack[k * 64 + i];
-    walsh_hadamard_1d(col, group_size);
-    for (int k = 0; k < group_size; ++k) stack[k * 64 + i] = col[k];
+  if (group_size == 16) {
+    for (int i = 0; i < 64; i += 8) {
+      __m256 v[16];
+      for (int k = 0; k < 16; ++k) v[k] = _mm256_loadu_ps(&stack[k * 64 + i]);
+
+      // Stage 1
+      for (int k = 0; k < 16; k += 2) {
+        __m256 a = v[k];
+        __m256 b = v[k + 1];
+        v[k] = _mm256_add_ps(a, b);
+        v[k + 1] = _mm256_sub_ps(a, b);
+      }
+      // Stage 2
+      for (int k = 0; k < 16; k += 4) {
+        for (int j = 0; j < 2; ++j) {
+          __m256 a = v[k + j];
+          __m256 b = v[k + j + 2];
+          v[k + j] = _mm256_add_ps(a, b);
+          v[k + j + 2] = _mm256_sub_ps(a, b);
+        }
+      }
+      // Stage 3
+      for (int k = 0; k < 16; k += 8) {
+        for (int j = 0; j < 4; ++j) {
+          __m256 a = v[k + j];
+          __m256 b = v[k + j + 4];
+          v[k + j] = _mm256_add_ps(a, b);
+          v[k + j + 4] = _mm256_sub_ps(a, b);
+        }
+      }
+      // Stage 4
+      for (int j = 0; j < 8; ++j) {
+        __m256 a = v[j];
+        __m256 b = v[j + 8];
+        v[j] = _mm256_add_ps(a, b);
+        v[j + 8] = _mm256_sub_ps(a, b);
+      }
+
+      __m256 v_scale = _mm256_set1_ps(0.25f);
+      for (int k = 0; k < 16; ++k)
+        _mm256_storeu_ps(&stack[k * 64 + i], _mm256_mul_ps(v[k], v_scale));
+    }
+  } else {
+    for (int i = 0; i < 64; ++i) {
+      float col[MAX_GROUP_SIZE];
+      for (int k = 0; k < group_size; ++k) col[k] = stack[k * 64 + i];
+      walsh_hadamard_1d(col, group_size);
+      for (int k = 0; k < group_size; ++k) stack[k * 64 + i] = col[k];
+    }
   }
   for (int i = 0; i < group_size; ++i)
     idct_2d_8x8(stack + i * 64, tables.idct_coeff);

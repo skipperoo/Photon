@@ -6,6 +6,9 @@
 #include <QtMath>
 
 #include "managers/AppStateManager.h"
+#include "managers/LogManager.h"
+
+using namespace photon;
 
 RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   setFlag(ItemHasContents, true);
@@ -295,11 +298,10 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
 }
 
 void RawViewport::setSource(const QString& source) {
-  fprintf(stderr, "[VIEWPORT] setSource START: %s\n",
-          source.toLocal8Bit().data());
+  LogManager::instance()->log(QString("[ RawViewport ] - setSource START: %1").arg(source), "DEBUG");
 
   if (m_engine.source() == source) {
-    fprintf(stderr, "[VIEWPORT] setSource: same source, skipping\n");
+    LogManager::instance()->log("[ RawViewport ] - setSource: same source, skipping", "DEBUG");
     return;
   }
 
@@ -315,14 +317,14 @@ void RawViewport::setSource(const QString& source) {
   // This ensures the old image is removed before the new one loads
   update();
 
-  fprintf(stderr, "[VIEWPORT] setSource: calling m_engine.setSource\n");
+  LogManager::instance()->log("[ RawViewport ] - setSource: calling m_engine.setSource", "DEBUG");
   m_engine.setSource(source);
 
-  fprintf(stderr, "[VIEWPORT] setSource: emitting sourceChanged\n");
+  LogManager::instance()->log("[ RawViewport ] - setSource: emitting sourceChanged", "DEBUG");
   emit sourceChanged();
   update();
 
-  fprintf(stderr, "[VIEWPORT] setSource END\n");
+  LogManager::instance()->log("[ RawViewport ] - setSource END", "DEBUG");
 }
 
 void RawViewport::setExposure(float ev) {

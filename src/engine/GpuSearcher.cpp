@@ -6,6 +6,8 @@
 #include <QFile>
 #include <QMatrix4x4>
 
+#include "../managers/LogManager.h"
+
 namespace photon {
 
 GpuSearcher::GpuSearcher(QRhi* rhi, QObject* parent)
@@ -61,13 +63,34 @@ void GpuSearcher::initResources(int w, int h) {
   m_pipeline->setRenderPassDescriptor(m_rp.get());
 
   // Load baked shaders from resources
-  QFile vertFile(":/Main/shaders/PatchSearch.vert.qsb");
-  if (vertFile.open(QIODevice::ReadOnly)) {
-    QShader vert = QShader::fromSerialized(vertFile.readAll());
-    QShader frag = QShader::fromSerialized(
-        QFile(":/Main/shaders/PatchSearch.frag.qsb").readAll());
+  QShader vert, frag;
+
+  {
+    QFile vertFile(":/Main/shaders/PatchSearch.vert.qsb");
+    if (vertFile.open(QIODevice::ReadOnly)) {
+      vert = QShader::fromSerialized(vertFile.readAll());
+      vertFile.close();
+    } else {
+      LogManager::instance()->log("Failed to open vertex shader resource", "ERROR");
+    }
+  }
+
+  {
+    QFile fragFile(":/Main/shaders/PatchSearch.frag.qsb");
+    if (fragFile.open(QIODevice::ReadOnly)) {
+      frag = QShader::fromSerialized(fragFile.readAll());
+      fragFile.close();
+    } else {
+      LogManager::instance()->log("Failed to open fragment shader resource", "ERROR");
+    }
+  }
+
+  if (vert.isValid() && frag.isValid()) {
     m_pipeline->setShaderStages(
         {{QRhiShaderStage::Vertex, vert}, {QRhiShaderStage::Fragment, frag}});
+  } else {
+    LogManager::instance()->log(QString("Shader validation failed: vert=%1, frag=%2")
+                                    .arg(vert.isValid()).arg(frag.isValid()), "ERROR");
   }
 
   // Minimal pipeline state
@@ -102,7 +125,11 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
   u->updateDynamicBuffer(m_ubuf.get(), 72, 4, &searchWindow);
 
   QRhiCommandBuffer* cb;
-  m_rhi->beginOffscreenFrame(&cb);
+  QRhi::FrameOpResult res = m_rhi->beginOffscreenFrame(&cb);
+  if (res != QRhi::FrameOpSuccess) {
+    LogManager::instance()->log(QString("beginOffscreenFrame failed with result %1").arg(static_cast<int>(res)), "ERROR");
+    return {};
+  }
   cb->beginPass(m_rt.get(), Qt::transparent, {1.0f, 0}, u);
   cb->setGraphicsPipeline(m_pipeline.get());
   cb->setViewport({0, 0, (float)width, (float)height});

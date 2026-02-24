@@ -75,7 +75,7 @@ void LogManager::log(const QString& message, const QString& level) {
   QString timestamp =
       QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
   out << QString("[%1] [%2] %3\n")
-             .arg(timestamp, level.leftJustified(5), message);
+             .arg(timestamp, level, message);
   out.flush();
 }
 

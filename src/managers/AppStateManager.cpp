@@ -173,8 +173,7 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
 }
 
 void AppStateManager::setCurrentImage(const QString& image) {
-  fprintf(stderr, "[APP] setCurrentImage START: %s\n",
-          image.toLocal8Bit().data());
+  LogManager::instance()->log(QString("[ AppStateManager ] - setCurrentImage START: %1").arg(image), "DEBUG");
 
   if (m_currentImage != image) {
     m_currentImage = image;
@@ -189,7 +188,7 @@ void AppStateManager::setCurrentImage(const QString& image) {
     }
   }
 
-  fprintf(stderr, "[APP] setCurrentImage END\n");
+  LogManager::instance()->log("[ AppStateManager ] - setCurrentImage END", "DEBUG");
 }
 
 void AppStateManager::toggleSelection(const QString& path) {

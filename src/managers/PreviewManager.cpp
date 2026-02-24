@@ -15,6 +15,7 @@
 #include "../engine/ImageDeveloper.h"
 #include "AppStateManager.h"
 #include "FileScanner.h"
+#include "LogManager.h"
 
 namespace photon {
 
@@ -135,14 +136,12 @@ void PreviewManager::cancelAll() {
 }
 
 void PreviewManager::processItem(const QString& rawPath) {
-  fprintf(stderr, "[PREVIEW] processItem START: %s\n",
-          rawPath.toLocal8Bit().data());
+  LogManager::instance()->log(QString("[ PreviewManager ] - processItem START: %1").arg(rawPath), "DEBUG");
 
   {
     QMutexLocker locker(&m_mutex);
     if (m_abort) {
-      fprintf(stderr, "[PREVIEW] processItem ABORTED: %s\n",
-              rawPath.toLocal8Bit().data());
+      LogManager::instance()->log(QString("[ PreviewManager ] - processItem ABORTED: %1").arg(rawPath), "DEBUG");
       return;
     }
   }
@@ -155,8 +154,7 @@ void PreviewManager::processItem(const QString& rawPath) {
                       fileInfo.fileName() + ".json";
   QJsonObject lastState;
   if (QFile::exists(editsPath)) {
-    fprintf(stderr, "[PREVIEW] Loading sidecar: %s\n",
-            editsPath.toLocal8Bit().data());
+    LogManager::instance()->log(QString("[ PreviewManager ] - Loading sidecar: %1").arg(editsPath), "DEBUG");
     QFile file(editsPath);
     if (file.open(QIODevice::ReadOnly)) {
       QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
@@ -168,8 +166,7 @@ void PreviewManager::processItem(const QString& rawPath) {
   }
 
   // 2. Load RAW via LibRaw (Fast mode)
-  fprintf(stderr, "[PREVIEW] Opening RAW file: %s\n",
-          rawPath.toLocal8Bit().data());
+  LogManager::instance()->log(QString("[ PreviewManager ] - Opening RAW file: %1").arg(rawPath), "DEBUG");
   LibRaw processor;
   processor.imgdata.params.output_bps = 16;
   processor.imgdata.params.use_camera_wb = 1;
@@ -177,17 +174,15 @@ void PreviewManager::processItem(const QString& rawPath) {
   processor.imgdata.params.half_size = 1;  // 1080p is enough, half_size is fast
 
   if (processor.open_file(rawPath.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
-    fprintf(stderr, "[PREVIEW] Unpacking RAW: %s\n",
-            rawPath.toLocal8Bit().data());
+    LogManager::instance()->log(QString("[ PreviewManager ] - Unpacking RAW: %1").arg(rawPath));
     if (processor.unpack() == LIBRAW_SUCCESS) {
-      fprintf(stderr, "[PREVIEW] Processing RAW: %s\n",
-              rawPath.toLocal8Bit().data());
+      LogManager::instance()->log(QString("[ PreviewManager ] - Processing RAW: %1").arg(rawPath));
       if (processor.dcraw_process() == LIBRAW_SUCCESS) {
         int ret = 0;
         libraw_processed_image_t* mem = processor.dcraw_make_mem_image(&ret);
         if (mem && mem->type == LIBRAW_IMAGE_BITMAP) {
-          fprintf(stderr, "[PREVIEW] Developing image: %s (%dx%d)\n",
-                  rawPath.toLocal8Bit().data(), mem->width, mem->height);
+          LogManager::instance()->log(QString("[ PreviewManager ] - Developing image: %1 (%2x%3)")
+                  .arg(rawPath).arg(mem->width).arg(mem->height));
           // 3. Develop Image with Edits
           lastState["denoiseSecondPass"] =
               ::AppStateManager::instance()->previewDenoiseFull();
@@ -195,23 +190,23 @@ void PreviewManager::processItem(const QString& rawPath) {
               reinterpret_cast<const ushort*>(mem->data), mem->width,
               mem->height, lastState, m_rhi);
 
-          fprintf(stderr, "[PREVIEW] Develop complete, result null: %d\n",
-                  result.isNull());
+          LogManager::instance()->log(QString("[ PreviewManager ] - Develop complete, result null: %1")
+                  .arg(result.isNull()));
           if (!result.isNull()) {
             // Scale to 1080p if larger
             if (result.width() > 1920 || result.height() > 1080) {
-              fprintf(stderr, "[PREVIEW] Scaling down from %dx%d\n",
-                      result.width(), result.height());
+              LogManager::instance()->log(QString("[ PreviewManager ] - Scaling down from %1x%2")
+                      .arg(result.width()).arg(result.height()));
               result = result.scaled(1920, 1080, Qt::KeepAspectRatio,
                                      Qt::SmoothTransformation);
             }
 
             // 4. Save to Disk
             QDir().mkpath(QFileInfo(cachePath).absolutePath());
-            fprintf(stderr, "[PREVIEW] Saving to: %s\n",
-                    cachePath.toLocal8Bit().data());
+            LogManager::instance()->log(QString("[ PreviewManager ] - Saving to: %1")
+                    .arg(cachePath));
             if (result.save(cachePath, "JPG", 90)) {
-              fprintf(stderr, "[PREVIEW] Save successful, emitting signal\n");
+              LogManager::instance()->log("[ PreviewManager ] - Save successful, emitting signal");
               QMetaObject::invokeMethod(this, [this, rawPath, cachePath]() {
                 emit previewReady(rawPath, cachePath);
               });
@@ -222,8 +217,7 @@ void PreviewManager::processItem(const QString& rawPath) {
       }
     }
   }
-  fprintf(stderr, "[PREVIEW] processItem END: %s\n",
-          rawPath.toLocal8Bit().data());
+  LogManager::instance()->log(QString("[ PreviewManager ] - processItem END: %1").arg(rawPath), "DEBUG");
 }
 
 }  // namespace photon

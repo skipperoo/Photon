@@ -1,5 +1,6 @@
 #include "RawEngine.h"
 
+#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -13,9 +14,12 @@
 #include <cmath>
 
 #include "../managers/AppStateManager.h"
+#include "../managers/LogManager.h"
 #include "../managers/PreviewManager.h"
 #include "Denoiser.h"
 #include "GpuSearcher.h"
+
+using namespace photon;
 
 // --- Static Math Helpers for Histogram ---
 static float smoothstep(float edge0, float edge1, float x) {
@@ -128,18 +132,24 @@ RawEngine::RawEngine(QObject* parent)
           });
 
   connect(&m_previewWatcher, &QFutureWatcher<QImage>::finished, this, [this]() {
-    fprintf(stderr, "[RAW] previewWatcher callback START (thread: %p)\n",
-            QThread::currentThread());
+    LogManager::instance()->log(
+        QString("[ RawEngine ] - previewWatcher callback START (thread: %1)")
+            .arg((quintptr)QThread::currentThread()),
+        "DEBUG");
     if (m_previewWatcher.isCanceled()) {
-      fprintf(stderr, "[RAW] previewWatcher: canceled\n");
+      LogManager::instance()->log("[ RawEngine ] - previewWatcher: canceled", "DEBUG");
       return;
     }
     QImage result = m_previewWatcher.result();
-    fprintf(stderr, "[RAW] previewWatcher: result null=%d, size=%dx%d\n",
-            result.isNull(), result.width(), result.height());
+    LogManager::instance()->log(
+        QString("[ RawEngine ] - previewWatcher: result null=%1, size=%2x%3")
+            .arg(result.isNull())
+            .arg(result.width())
+            .arg(result.height()),
+        "DEBUG");
     m_previewImage = result;
     emit previewImageChanged();
-    fprintf(stderr, "[RAW] previewWatcher callback END\n");
+    LogManager::instance()->log("[ RawEngine ] - previewWatcher callback END", "DEBUG");
   });
 
   // Listen for background previews
@@ -199,13 +209,15 @@ void RawEngine::setHalfSize(bool half) {
 }
 
 void RawEngine::setSource(const QString& source) {
-  fprintf(stderr, "[RAW] setSource START: %s\n", source.toLocal8Bit().data());
+  LogManager::instance()->log(QString("[ RawEngine ] - setSource START: %1").arg(source),
+                              "INFO");
 
   // 1. Abort any ongoing denoise tasks
   m_abortDenoise = true;
 
   if (m_source == source) {
-    fprintf(stderr, "[RAW] setSource: same source, skipping\n");
+    LogManager::instance()->log("[ RawEngine ] - setSource: same source, skipping",
+                                "DEBUG");
     return;
   }
 
@@ -228,15 +240,17 @@ void RawEngine::setSource(const QString& source) {
   emit sourceChanged();
 
   // Try to get existing preview immediately
-  fprintf(stderr, "[RAW] setSource: getting preview path\n");
+  LogManager::instance()->log("[ RawEngine ] - setSource: getting preview path", "DEBUG");
   if (photon::PreviewManager::instance()) {
     m_previewPath =
         photon::PreviewManager::instance()->getPreviewPath(m_source);
     emit previewPathChanged();
 
     if (!m_previewPath.isEmpty()) {
-      fprintf(stderr, "[RAW] setSource: starting preview image load: %s\n",
-              m_previewPath.toLocal8Bit().data());
+      LogManager::instance()->log(
+          QString("[ RawEngine ] - setSource: starting preview image load: %1")
+              .arg(m_previewPath),
+          "DEBUG");
       m_previewWatcher.setFuture(
           QtConcurrent::run([path = m_previewPath]() { return QImage(path); }));
     }
@@ -259,10 +273,10 @@ void RawEngine::setSource(const QString& source) {
   loadEdits();
 
   // Start async loading
-  fprintf(stderr, "[RAW] setSource: starting async load\n");
+  LogManager::instance()->log("[ RawEngine ] - setSource: starting async load", "DEBUG");
   loadRawFileAsync(source);
 
-  fprintf(stderr, "[RAW] setSource END\n");
+  LogManager::instance()->log("[ RawEngine ] - setSource END", "INFO");
 }
 
 void RawEngine::setViewportSize(const QSize& size) {
@@ -609,7 +623,15 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
       }
     }
 
-    gpuMatches = m_gpuSearcher->runSearch(luma.data(), w, h, 19);
+    // Synchronize GPU search on main thread to avoid RHI frame conflicts
+    if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
+      QMetaObject::invokeMethod(
+          QCoreApplication::instance(),
+          [&]() { gpuMatches = m_gpuSearcher->runSearch(luma.data(), w, h, 19); },
+          Qt::BlockingQueuedConnection);
+    } else {
+      gpuMatches = m_gpuSearcher->runSearch(luma.data(), w, h, 19);
+    }
   }
 
   bool useSecondPass =

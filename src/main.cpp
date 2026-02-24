@@ -21,6 +21,8 @@
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
 
+using namespace photon;
+
 // Function pointer types for raw Vulkan discovery
 typedef VkResult (*PFN_vkCreateInstance_t)(const VkInstanceCreateInfo*,
                                            const VkAllocationCallbacks*,
@@ -104,12 +106,18 @@ int main(int argc, char* argv[]) {
                     qputenv("QSG_RHI_PREFER_HIGH_PERFORMANCE_GPU", "1");
                   }
 
-                  fprintf(stderr,
-                          "Photon: Forcing GPU [%u] %s (Vendor: %04x, Device: "
-                          "%04x)\n",
-                          i, props.deviceName, props.vendorID, props.deviceID);
-                  fprintf(stderr, "Photon: QSG_RHI_DEVICE_INDEX=%s\n",
-                          qgetenv("QSG_RHI_DEVICE_INDEX").constData());
+                  LogManager::instance()->log(
+                      QString("Photon: Forcing GPU [%1] %2 (Vendor: %3, Device: "
+                              "%4)")
+                          .arg(i)
+                          .arg(deviceName)
+                          .arg(props.vendorID, 4, 16, QChar('0'))
+                          .arg(props.deviceID, 4, 16, QChar('0')),
+                      "INFO");
+                  LogManager::instance()->log(
+                      QString("Photon: QSG_RHI_DEVICE_INDEX=%1")
+                          .arg(qgetenv("QSG_RHI_DEVICE_INDEX").constData()),
+                      "DEBUG");
                   break;
                 }
               }

@@ -5,10 +5,12 @@
 #include <QtConcurrent>
 #include <numeric>
 
+#include "../managers/LogManager.h"
 #include "Denoiser.h"
 #include "GpuSearcher.h"
 
 namespace photon {
+// ... (rest of colorspace math)
 
 // --- Colorspace Math ---
 static float srgb_to_linear_f(float c) {
@@ -108,11 +110,15 @@ static float get_luma_cpp(float r, float g, float b) {
 
 QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                const QJsonObject& obj, QRhi* rhi) {
-  fprintf(stderr, "[DEV] develop START: %dx%d (thread: %p)\n", width, height,
-          QThread::currentThread());
+  LogManager::instance()->log(
+      QString("[ ImageDeveloper ] - develop START: %1x%2 (thread: %3)")
+          .arg(width)
+          .arg(height)
+          .arg((quintptr)QThread::currentThread()),
+      "DEBUG");
 
   if (!src || width <= 0 || height <= 0) {
-    fprintf(stderr, "[DEV] develop ABORT: invalid params\n");
+    LogManager::instance()->log("[ ImageDeveloper ] - develop ABORT: invalid params", "ERROR");
     return QImage();
   }
 
@@ -130,10 +136,17 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   bool agx_enabled = obj["tonemappingEnabled"].toBool();
   float denoiseAmount = obj["denoiseAmount"].toDouble();
   bool denoiseEnabled = obj["denoiseEnabled"].toBool();
-  bool denoiseSecondPass = obj["denoiseSecondPass"].toBool(true);
+  // When exporting we ALWAYS want to perform the second pass
+  bool denoiseSecondPass = true;
 
-  fprintf(stderr, "[DEV] Params: exp=%.2f con=%.2f high=%.2f shad=%.2f denoise=%.1f\n", exp,
-          con, high, shad, denoiseAmount);
+  LogManager::instance()->log(
+      QString("[ ImageDeveloper ] - Params: exp=%1 con=%2 high=%3 shad=%4 denoise=%5")
+          .arg(exp, 0, 'f', 2)
+          .arg(con, 0, 'f', 2)
+          .arg(high, 0, 'f', 2)
+          .arg(shad, 0, 'f', 2)
+          .arg(denoiseAmount, 0, 'f', 1),
+      "DEBUG");
 
   // HSL Params
   float hsl_h[8], hsl_s[8], hsl_l[8];
@@ -346,8 +359,11 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
 
   // 11. Denoising
   if (denoiseEnabled && denoiseAmount > 0.1f) {
-    fprintf(stderr, "[DEV] Denoising: amount=%.1f (rhi=%p)\n", denoiseAmount,
-            rhi);
+    LogManager::instance()->log(
+        QString("[ ImageDeveloper ] - Denoising: amount=%1 (rhi=%2)")
+            .arg(denoiseAmount, 0, 'f', 1)
+            .arg((quintptr)rhi),
+        "INFO");
     std::vector<GpuSearcher::SearchResult> gpuMatches;
     if (rhi) {
       int w = output.width();
@@ -361,8 +377,27 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                             0.0722f * scanline[x * 3 + 2];
         }
       }
-      GpuSearcher searcher(rhi);
-      gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
+
+      // Safety check: run on UI thread if we are in a worker thread to avoid RHI
+      // frame conflicts
+      if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
+        QMetaObject::invokeMethod(
+            QCoreApplication::instance(),
+            [&]() {
+              GpuSearcher searcher(rhi);
+              gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
+            },
+            Qt::BlockingQueuedConnection);
+      } else {
+        GpuSearcher searcher(rhi);
+        gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
+      }
+
+      if (gpuMatches.empty()) {
+        LogManager::instance()->log("[ ImageDeveloper ] - GPU search produced no matches (possibly due to frame conflict or shader error). Falling back to CPU matching.", "WARNING");
+      } else {
+        LogManager::instance()->log(QString("[ ImageDeveloper ] - GPU search successful: %1 matches").arg(gpuMatches.size()), "DEBUG");
+      }
     }
     output = Denoiser::denoise(output, denoiseAmount, nullptr, denoiseSecondPass,
                                4, gpuMatches);
@@ -373,8 +408,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     }
   }
 
-  fprintf(stderr, "[DEV] develop END: %dx%d\n", output.width(),
-          output.height());
+  LogManager::instance()->log(
+      QString("[ ImageDeveloper ] - export END: %1x%2").arg(output.width()).arg(output.height()),
+      "DEBUG");
   return output;
 }
 

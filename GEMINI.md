@@ -20,6 +20,8 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 
 ## 🚀 Key Commands
 
+### Build & Run
+
 - **Build (Debug):**
 
   ```bash
@@ -28,27 +30,56 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
   make -j$(nproc)
   ```
 
-- **Run:** `./build/Photon`
-- **Test:** `cd build && ctest --output-on-failure`
-- **Format:** `find src tests -name "*.cpp" -o -name "*.h" | xargs clang-format -i`
+- **Run Application:** `./build/Photon`
+
+### Testing
+
+- **Run All Tests:** `cd build && ctest --output-on-failure`
+- **Run Single Test:** `cd build && ctest -R "test_name" -V` (or run executable directly in `./build/tests/auto/`)
+
+### Formatting
+
+- **C++:** `find src tests -name "*.cpp" -o -name "*.h" | xargs clang-format -i -style=file`
+- **QML:** `qmlformat -i content/**/*.qml`
 
 ## 📂 Directory Structure
 
-- `src/`: C++ source code (Engine, Viewport components).
-- `content/`: QML files, components, and UI themes.
+- `src/`: C++ source code (Engine, Viewport, Managers).
+- `content/`: QML files, views, components, and UI themes.
 - `cmake/`: Build configurations and modules.
 - `.PhotonData/`: (Runtime) Hidden directory for sidecar metadata and cache.
 
 ## 📜 Development Conventions
 
+### General Rules
+
 - **GIT POLICY:** NEVER merge changes or perform git operations (commit, push, checkout) unless explicitly asked by the user.
-- **STRICT SAFETY RULE:** ALWAYS build and manually RUN the application (`./build/Photon`) to verify runtime stability and UI correctness BEFORE merging any changes into the `develop` branch. Unit tests alone are insufficient for UI/Graphics verification.
-- **STRICT CODE INTEGRITY:** NEVER remove chunks of code and replace them with ellipses (`...`) or any other placeholder. ALWAYS provide the full, complete content when using the `write` tool or accurate, context-rich strings when using the `edit` tool. Failure to do so breaks the build and loses functionality.
-- **C++ Style:** Follows `.clang-format` (Google/Qt style). Use `m_member` for private variables and `PascalCase` for classes.
-- **QML Style:** Use the `Theme` singleton for all styling (colors, spacing). Avoid hardcoding values.
+- **STRICT SAFETY RULE:** ALWAYS build and manually RUN the application (`./build/Photon`) to verify runtime stability and UI correctness BEFORE merging any changes.
+- **STRICT CODE INTEGRITY:** NEVER use ellipses (`...`) placeholders. Provide full content for all modifications.
+
+### Logging Rule
+
+- **Logging Prefix:** ALWAYS add logs using the prefix `[ FileName.cpp ] - message`.
+- Use only `LogManager` for all trace and error information.
+
+### C++ Style (Backend)
+
+- **Standard:** C++17.
+- **Naming:**
+  - Classes: `PascalCase`.
+  - Methods/Variables: `camelCase`.
+  - Private Members: `m_variableName`.
 - **Memory:** Strict RAII with `std::unique_ptr` for backend resources; parent-child ownership for `QObject` hierarchies.
-- **Asynchrony:** Heavy IO (RAW loading) must be handled in worker threads to keep the UI at 60fps.
+- **Asynchrony:** Heavy IO (RAW loading) and processing MUST be handled in worker threads to maintain 60fps UI.
 
-## 🗺️ Roadmap Highlights
+### QML Style (Frontend)
 
-Check `TASKS.md`.
+- **Theming:** ALWAYS use the `Theme` singleton (e.g., `color: Theme.background`). NEVER hardcode colors or spacing.
+- **Structure:** Root item should use `id: root`. Properties first, then signals, then children.
+- **Bindings:** Prefer declarative bindings over imperative assignments.
+
+## 🏗️ Project Architecture
+
+- **Integration:** MVVM-lite pattern. QML handles the View, C++ classes (exposed via `QML_ELEMENT`) handle the Logic/ViewModel.
+- **Rendering:** Custom `RawViewport` (C++) renders content via Qt RHI/Vulkan.
+- **Communication:** Signals flow from QML to C++ slots; properties are synchronized via `Q_PROPERTY` with notification signals.

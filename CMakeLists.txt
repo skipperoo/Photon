@@ -212,12 +212,6 @@ target_include_directories(Photon PRIVATE
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1/QtGui>
 )
 
-if(WIN32)
-    target_include_directories(Photon PRIVATE ${LibRaw_INCLUDE_DIR})
-else()
-    target_include_directories(Photon PRIVATE ${LIBRAW_INCLUDE_DIRS})
-endif()
-
 # Ensure QML types are registered before main
 set_target_properties(Photon PROPERTIES
     QT_QML_IMPORT_PATH "${CMAKE_BINARY_DIR}/Main"

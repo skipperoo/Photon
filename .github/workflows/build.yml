@@ -72,6 +72,12 @@ jobs:
           cd build_dir/Release
           # Gather Qt dependencies
           windeployqt --qmldir ../../content Photon.exe
+          # Copy additional Qt DLLs that windeployqt might miss
+          copy "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin\Qt6Concurrent.dll" . 2>nul || true
+          copy "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin\Qt6Quick.dll" . 2>nul || true
+          copy "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin\Qt6Qml.dll" . 2>nul || true
+          # Copy vcpkg DLLs (LibRaw and dependencies)
+          copy "C:\vcpkg\installed\x64-windows\bin\*.dll" . 2>nul || true
           cd ..
           cpack -G WIX -C Release
 

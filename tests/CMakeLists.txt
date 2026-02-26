@@ -40,6 +40,8 @@ target_link_libraries(tst_RawEngine
 )
 if(NOT MSVC)
     target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
+else()
+    target_compile_options(tst_RawEngine PRIVATE /arch:AVX2)
 endif()
 
 target_include_directories(tst_RawEngine PRIVATE
@@ -84,6 +86,8 @@ target_link_libraries(tst_AppStateManager
 )
 if(NOT MSVC)
     target_compile_options(tst_AppStateManager PRIVATE -mavx2 -mfma)
+else()
+    target_compile_options(tst_AppStateManager PRIVATE /arch:AVX2)
 endif()
 
 target_include_directories(tst_AppStateManager PRIVATE

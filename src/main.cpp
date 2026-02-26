@@ -1,4 +1,6 @@
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
 #include <dlfcn.h>
 #endif
 #include <vulkan/vulkan.h>
@@ -26,14 +28,14 @@
 using namespace photon;
 
 // Function pointer types for raw Vulkan discovery
-typedef VkResult (*PFN_vkCreateInstance_t)(const VkInstanceCreateInfo*,
+typedef VkResult (VKAPI_PTR *PFN_vkCreateInstance_t)(const VkInstanceCreateInfo*,
                                            const VkAllocationCallbacks*,
                                            VkInstance*);
-typedef VkResult (*PFN_vkEnumeratePhysicalDevices_t)(VkInstance, uint32_t*,
+typedef VkResult (VKAPI_PTR *PFN_vkEnumeratePhysicalDevices_t)(VkInstance, uint32_t*,
                                                      VkPhysicalDevice*);
-typedef void (*PFN_vkGetPhysicalDeviceProperties_t)(
+typedef void (VKAPI_PTR *PFN_vkGetPhysicalDeviceProperties_t)(
     VkPhysicalDevice, VkPhysicalDeviceProperties*);
-typedef void (*PFN_vkDestroyInstance_t)(VkInstance,
+typedef void (VKAPI_PTR *PFN_vkDestroyInstance_t)(VkInstance,
                                         const VkAllocationCallbacks*);
 
 int main(int argc, char* argv[]) {
@@ -55,11 +57,21 @@ int main(int argc, char* argv[]) {
         settings.value("performance/preferredGpu", "Auto").toString();
 
     if (preferredGpu != "Auto") {
-#ifndef Q_OS_WIN
-      void* libvulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+#ifdef Q_OS_WIN
+      HMODULE libvulkan = LoadLibraryA("vulkan-1.dll");
+      if (libvulkan) {
+        auto vkCreateInstance_ptr =
+            (PFN_vkCreateInstance_t)GetProcAddress(libvulkan, "vkCreateInstance");
+        auto vkEnumeratePhysicalDevices_ptr =
+            (PFN_vkEnumeratePhysicalDevices_t)GetProcAddress(
+                libvulkan, "vkEnumeratePhysicalDevices");
+        auto vkGetPhysicalDeviceProperties_ptr =
+            (PFN_vkGetPhysicalDeviceProperties_t)GetProcAddress(
+                libvulkan, "vkGetPhysicalDeviceProperties");
+        auto vkDestroyInstance_ptr =
+            (PFN_vkDestroyInstance_t)GetProcAddress(libvulkan, "vkDestroyInstance");
 #else
-      void* libvulkan = nullptr; // Windows implementation for GPU detection pending if needed
-#endif
+      void* libvulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
       if (libvulkan) {
         auto vkCreateInstance_ptr =
             (PFN_vkCreateInstance_t)dlsym(libvulkan, "vkCreateInstance");
@@ -71,6 +83,7 @@ int main(int argc, char* argv[]) {
                 libvulkan, "vkGetPhysicalDeviceProperties");
         auto vkDestroyInstance_ptr =
             (PFN_vkDestroyInstance_t)dlsym(libvulkan, "vkDestroyInstance");
+#endif
 
         if (vkCreateInstance_ptr && vkEnumeratePhysicalDevices_ptr &&
             vkGetPhysicalDeviceProperties_ptr && vkDestroyInstance_ptr) {
@@ -131,7 +144,9 @@ int main(int argc, char* argv[]) {
             vkDestroyInstance_ptr(instance, nullptr);
           }
         }
-#ifndef Q_OS_WIN
+#ifdef Q_OS_WIN
+        FreeLibrary(libvulkan);
+#else
         dlclose(libvulkan);
 #endif
       }

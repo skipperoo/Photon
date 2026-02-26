@@ -833,12 +833,11 @@ Window {
                 RowLayout {
                     spacing: 4
                     
-                    Button {
+                    PhotonButton {
                         text: "Library"
-                        flat: true
-                        font: Theme.fontMedium
-                        palette.buttonText: AppState.currentView === AppState.ViewState.Library ? Theme.foreground : Theme.mutedFg
+                        Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Library)
+                        variantOutline: AppState.currentView !== AppState.ViewState.Library
                         
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
@@ -847,12 +846,11 @@ Window {
                         }
                     }
 
-                    Button {
+                    PhotonButton {
                         text: "Develop"
-                        flat: true
-                        font: Theme.fontMedium
-                        palette.buttonText: AppState.currentView === AppState.ViewState.Develop ? Theme.foreground : Theme.mutedFg
+                        Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Develop)
+                        variantOutline: AppState.currentView !== AppState.ViewState.Develop
 
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
@@ -861,12 +859,11 @@ Window {
                         }
                     }
 
-                    Button {
+                    PhotonButton {
                         text: "Settings"
-                        flat: true
-                        font: Theme.fontMedium
-                        palette.buttonText: AppState.currentView === AppState.ViewState.Settings ? Theme.foreground : Theme.mutedFg
+                        Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Settings)
+                        variantOutline: AppState.currentView !== AppState.ViewState.Settings
 
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter

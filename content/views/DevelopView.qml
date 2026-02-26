@@ -471,11 +471,11 @@ Control {
                                 text: "Denoise"
                                 font: Theme.fontRegular
                                 color: Theme.foreground
-                                Layout.fillWidth: false
+                                Layout.fillWidth: true
                             }
-                            CheckBox {
+                            PhotonSwitch {
                                 checked: root.viewport ? root.viewport.denoiseEnabled : false
-                                onToggled: if(root.viewport) { root.viewport.denoiseEnabled = checked; root.viewport.commitEdit(); }
+                                onClicked: if(root.viewport) { root.viewport.denoiseEnabled = checked; root.viewport.commitEdit(); }
                             }
                         }
 

@@ -174,9 +174,9 @@ Control {
             
             Item { width: 20 } // Spacer
 
-            PhotonButton { text: "Date"; variantOutline: true }
-            PhotonButton { text: "Name"; variantOutline: true }
-            PhotonButton { text: "Rating"; variantOutline: true }
+            PhotonButton { text: "Date"; variantOutline: true; Layout.preferredWidth: 80 }
+            PhotonButton { text: "Name"; variantOutline: true; Layout.preferredWidth: 80 }
+            PhotonButton { text: "Rating"; variantOutline: true; Layout.preferredWidth: 80 }
         }
 
         // --- Central Grid ---

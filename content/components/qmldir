@@ -6,6 +6,7 @@ ControlGroup 1.0 ControlGroup.qml
 PhotonInput 1.0 PhotonInput.qml
 PhotonSlider 1.0 PhotonSlider.qml
 Histogram 1.0 Histogram.qml
+PhotonCheckbox 1.0 PhotonCheckbox.qml
 PhotonSwitch 1.0 PhotonSwitch.qml
 PresetPanel 1.0 PresetPanel.qml
 MetadataPanel 1.0 MetadataPanel.qml

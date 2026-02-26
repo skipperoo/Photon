@@ -1,13 +1,10 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Quick Concurrent Qml)
 
 if(WIN32)
-    find_package(LibRaw REQUIRED)
-    set(LIBRAW_LIBRARIES ${LibRaw_LIBRARIES})
-    set(LIBRAW_INCLUDE_DIRS ${LibRaw_INCLUDE_DIR})
-    add_compile_definitions(LIBRAW_NODLL)
+  find_package(LibRaw REQUIRED)
 else()
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBRAW REQUIRED libraw)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(LIBRAW REQUIRED libraw)
 endif()
 
 add_executable(tst_RawEngine
@@ -36,7 +33,7 @@ add_executable(tst_RawEngine
 
 target_link_libraries(tst_RawEngine
     PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate Qt6::Quick
-    PRIVATE ${LIBRAW_LIBRARIES}
+    PRIVATE $<IF:$<BOOL:${WIN32}>,LibRaw::LibRaw,${LIBRAW_LIBRARIES}>
     PRIVATE Vulkan::Vulkan
 )
 if(NOT MSVC)
@@ -51,12 +48,15 @@ target_include_directories(tst_RawEngine PRIVATE
     ../src/components
     ../src/managers
     ${CMAKE_BINARY_DIR}
-    /usr/include/qt6/QtGui/6.10.1
-    /usr/include/qt6/QtGui/6.10.1/QtGui
-    /usr/include/qt6/QtCore/6.10.1
-    /usr/include/qt6/QtCore/6.10.1/QtCore
-    ${LIBRAW_INCLUDE_DIRS}
+    $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1>
+    $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1/QtGui>
+    $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtCore/6.10.1>
+    $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtCore/6.10.1/QtCore>
 )
+
+if(NOT WIN32)
+    target_include_directories(tst_RawEngine PRIVATE ${LIBRAW_INCLUDE_DIRS})
+endif()
 
 add_executable(tst_AppStateManager
     auto/tst_AppStateManager.cpp
@@ -82,7 +82,7 @@ add_executable(tst_AppStateManager
 
 target_link_libraries(tst_AppStateManager
     PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate Qt6::Quick
-    PRIVATE ${LIBRAW_LIBRARIES}
+    PRIVATE $<IF:$<BOOL:${WIN32}>,LibRaw::LibRaw,${LIBRAW_LIBRARIES}>
     PRIVATE Vulkan::Vulkan
 )
 if(NOT MSVC)

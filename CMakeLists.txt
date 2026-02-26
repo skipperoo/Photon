@@ -4,6 +4,11 @@ project(Photon VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Set MSVC runtime to dynamic to match vcpkg libraries
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 # Configure version header
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Version.h.in"
@@ -16,12 +21,8 @@ find_package(Vulkan REQUIRED)
 if(WIN32)
     # Use find_package for vcpkg compatibility on Windows
     find_package(LibRaw REQUIRED)
-    add_compile_definitions(LIBRAW_NODLL)
     add_compile_definitions(WIN32_LEAN_AND_MEAN)
     add_compile_definitions(NOMINMAX)
-    
-    # Use static runtime for static build parity
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBRAW REQUIRED libraw)
@@ -181,7 +182,7 @@ set_target_properties(Photon PROPERTIES
 
 target_link_libraries(Photon
     PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
-    PRIVATE ${LIBRAW_LIBRARIES}
+    PRIVATE $<IF:$<BOOL:${WIN32}>,LibRaw::LibRaw,${LIBRAW_LIBRARIES}>
     PRIVATE Vulkan::Vulkan
 )
 
@@ -199,10 +200,13 @@ target_include_directories(Photon PRIVATE
     src/components
     src/managers
     ${CMAKE_CURRENT_BINARY_DIR}
-    /usr/include/qt6/QtGui/6.10.1
-    /usr/include/qt6/QtGui/6.10.1/QtGui
-    ${LIBRAW_INCLUDE_DIRS}
+    $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1>
+    $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1/QtGui>
 )
+
+if(NOT WIN32)
+    target_include_directories(Photon PRIVATE ${LIBRAW_INCLUDE_DIRS})
+endif()
 
 # Ensure QML types are registered before main
 set_target_properties(Photon PROPERTIES

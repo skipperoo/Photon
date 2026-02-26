@@ -40,7 +40,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libraw-dev libvulkan-dev libfuse2 libgl1-mesa-dev
-          # Download linuxdeploy
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
@@ -59,7 +58,7 @@ jobs:
 
       - name: Build
         run: |
-          cmake --build build_dir --config Release -j2
+          cmake --build build_dir --config Release -j
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -72,10 +71,9 @@ jobs:
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          # Ensure linuxdeploy can find the Qt installation
-          export PATH=$QT_ROOT/bin:$PATH
-          export LD_LIBRARY_PATH=$QT_ROOT/lib:$LD_LIBRARY_PATH
-          export QMAKE=$QT_ROOT/bin/qmake
+          # Find qmake dynamically
+          export QMAKE=$(find ${{ github.workspace }}/../Qt -name qmake | head -n 1)
+          echo "Using QMAKE at: $QMAKE"
 
           # Run linuxdeploy
           ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage

@@ -94,7 +94,7 @@ jobs:
           name: Photon-${{ runner.os }}
           path: |
             build_dir/*.msi
-            *.AppImage
+            Photon-x86_64.AppImage
 
   release:
     name: Create Release

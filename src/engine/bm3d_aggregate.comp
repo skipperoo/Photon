@@ -1,28 +1,106 @@
 #version 450
-#extension GL_EXT_shader_atomic_float : require
 
 layout(local_size_x = 64, local_size_y = 1) in;
 
-layout(binding = 0) buffer FilteredData {
-    float data[];
-} filtered;
+layout(std430, binding = 0) readonly buffer FilteredBuffer {
+    float filtered_data[];
+};
 
-layout(binding = 1) buffer Accumulator {
-    vec2 data[]; // (sum, weight)
+layout(std430, binding = 1) buffer Accumulator {
+    ivec2 data[]; // (sum * 1000, weight * 1000) - fixed point to avoid float atomics
 } accumulator;
 
-layout(binding = 2) buffer DctTables {
+layout(std430, binding = 2) readonly buffer DctTables {
     float dctCoeff[64];
     float idctCoeff[64];
     float kaiser[64];
 } tables;
 
+layout(std430, binding = 3) readonly buffer Groups {
+    ivec2 offsets[]; // (numGroups * groupSize)
+} groups;
+
 layout(push_constant) uniform Params {
     int width;
     int height;
     int numGroups;
-} params;
+    int groupSize;
+} pcs;
+
+void idct_1d_8(inout float x[8]) {
+    float out_val[8];
+    for (int i = 0; i < 8; i++) {
+        float sum = 0.0;
+        for (int j = 0; j < 8; j++) {
+            sum += x[j] * tables.idctCoeff[i * 8 + j];
+        }
+        out_val[i] = sum;
+    }
+    for (int i = 0; i < 8; i++) x[i] = out_val[i];
+}
+
+void idct_2d_8x8(inout float block[64]) {
+    // Rows
+    for (int i = 0; i < 8; i++) {
+        float row[8];
+        for (int j = 0; j < 8; j++) row[j] = block[i * 8 + j];
+        idct_1d_8(row);
+        for (int j = 0; j < 8; j++) block[i * 8 + j] = row[j];
+    }
+    // Cols
+    for (int j = 0; j < 8; j++) {
+        float col[8];
+        for (int i = 0; i < 8; i++) col[i] = block[i * 8 + j];
+        idct_1d_8(col);
+        for (int i = 0; i < 8; i++) block[i * 8 + j] = col[i];
+    }
+}
 
 void main() {
-    // Aggregate logic
+    int g_idx = int(gl_GlobalInvocationID.x);
+    if (g_idx >= pcs.numGroups) return;
+
+    float group_stack[16 * 64];
+    int nonzero_count = 0;
+    
+    // 1. Load
+    for (int i = 0; i < pcs.groupSize; i++) {
+        for (int j = 0; j < 64; j++) {
+            float val = filtered_data[(g_idx * pcs.groupSize + i) * 64 + j];
+            group_stack[i * 64 + j] = val;
+            if (val != 0.0) nonzero_count++;
+        }
+    }
+    
+    // Weight calculation
+    float weight = nonzero_count > 0 ? 1.0 / float(nonzero_count) : 1.0;
+
+    // 2. Inverse 1D WHT (Placeholder)
+    for (int j = 0; j < 64; j++) {
+        for (int i = 0; i < pcs.groupSize; i++) group_stack[i * 64 + j] /= float(pcs.groupSize);
+    }
+
+    // 3. Inverse 2D DCT and Aggregate
+    float scale = 1000.0;
+    for (int i = 0; i < pcs.groupSize; i++) {
+        float block[64];
+        for (int j = 0; j < 64; j++) block[j] = group_stack[i * 64 + j];
+        idct_2d_8x8(block);
+        
+        ivec2 offset = groups.offsets[g_idx * pcs.groupSize + i];
+        
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
+                int px = offset.x + x;
+                int py = offset.y + y;
+                if (px >= 0 && px < pcs.width && py >= 0 && py < pcs.height) {
+                    int pixel_idx = py * pcs.width + px;
+                    float val = block[y * 8 + x] * tables.kaiser[y * 8 + x];
+                    
+                    atomicAdd(accumulator.data[pixel_idx].x, int(val * weight * scale));
+                    atomicAdd(accumulator.data[pixel_idx].y, int(weight * tables.kaiser[y * 8 + x] * scale));
+                }
+            }
+        }
+    }
 }

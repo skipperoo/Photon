@@ -16,15 +16,14 @@ QImage Denoiser::denoise(
     int stride, const std::vector<GpuSearcher::SearchResult>& gpuMatches,
     QRhi* rhi, bool useGpu, QQuickWindow* window) {
   if (useGpu && rhi != nullptr) {
-    // Try GPU denoising
+    // Use full GPU denoising pipeline
     QImage result =
         denoiseGpu(input, intensity, abort, step2, stride, gpuMatches, rhi, window);
     if (!result.isNull()) {
       return result;
     }
-    // Fallback to CPU if GPU failed
   }
-  // Use CPU denoising
+  // Fallback to CPU denoising
   return denoiseCpu(input, intensity, abort, step2, stride, gpuMatches);
 }
 

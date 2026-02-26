@@ -2,15 +2,15 @@
 
 layout(local_size_x = 64, local_size_y = 1) in;
 
-layout(binding = 0) buffer GroupedData {
-    float data[];
-} grouped;
+layout(std430, binding = 0) readonly buffer GroupedBuffer {
+    float grouped_data[]; // (numGroups * groupSize * 64)
+};
 
-layout(binding = 1) buffer TransformedData {
-    float data[];
-} transformed;
+layout(std430, binding = 1) writeonly buffer TransformedBuffer {
+    float transformed_data[];
+};
 
-layout(binding = 2) buffer DctTables {
+layout(std430, binding = 2) readonly buffer DctTables {
     float dctCoeff[64];
     float idctCoeff[64];
     float kaiser[64];
@@ -19,8 +19,91 @@ layout(binding = 2) buffer DctTables {
 layout(push_constant) uniform Params {
     int numGroups;
     int groupSize;
-} params;
+} pcs;
+
+void dct_1d_8(inout float x[8]) {
+    float out_val[8];
+    for (int i = 0; i < 8; i++) {
+        float sum = 0.0;
+        for (int j = 0; j < 8; j++) {
+            sum += x[j] * tables.dctCoeff[i * 8 + j];
+        }
+        out_val[i] = sum;
+    }
+    for (int i = 0; i < 8; i++) x[i] = out_val[i];
+}
+
+void dct_2d_8x8(inout float block[64]) {
+    // Rows
+    for (int i = 0; i < 8; i++) {
+        float row[8];
+        for (int j = 0; j < 8; j++) row[j] = block[i * 8 + j];
+        dct_1d_8(row);
+        for (int j = 0; j < 8; j++) block[i * 8 + j] = row[j];
+    }
+    // Cols
+    for (int j = 0; j < 8; j++) {
+        float col[8];
+        for (int i = 0; i < 8; i++) col[i] = block[i * 8 + j];
+        dct_1d_8(col);
+        for (int i = 0; i < 8; i++) block[i * 8 + j] = col[i];
+    }
+}
+
+void wht_1d(inout float data[16], int n) {
+    if (n == 8) {
+        for (int i = 0; i < 4; i++) {
+            float a = data[i];
+            float b = data[i + 4];
+            data[i] = a + b;
+            data[i + 4] = a - b;
+        }
+        for (int i = 0; i < 8; i += 4) {
+            for (int j = 0; j < 2; j++) {
+                float a = data[i + j];
+                float b = data[i + j + 2];
+                data[i + j] = a + b;
+                data[i + j + 2] = a - b;
+            }
+        }
+        for (int i = 0; i < 8; i += 2) {
+            float a = data[i];
+            float b = data[i + 1];
+            data[i] = a + b;
+            data[i + 1] = a - b;
+        }
+    }
+    // Simplification: only supporting 8 or 16 for now
+}
 
 void main() {
-    // Transform logic
+    int g_idx = int(gl_GlobalInvocationID.x);
+    if (g_idx >= pcs.numGroups) return;
+
+    // 1. Load group blocks and apply 2D DCT
+    float group_stack[16 * 64]; // groupSize * 64
+    for (int i = 0; i < pcs.groupSize; i++) {
+        for (int j = 0; j < 64; j++) {
+            group_stack[i * 64 + j] = grouped_data[(g_idx * pcs.groupSize + i) * 64 + j];
+        }
+        float block[64];
+        for (int j = 0; j < 64; j++) block[j] = group_stack[i * 64 + j];
+        dct_2d_8x8(block);
+        for (int j = 0; j < 64; j++) group_stack[i * 64 + j] = block[j];
+    }
+
+    // 2. Apply 1D WHT across the group dimension for each coefficient
+    for (int j = 0; j < 64; j++) {
+        float col[16];
+        for (int i = 0; i < pcs.groupSize; i++) col[i] = group_stack[i * 64 + j];
+        wht_1d(col, pcs.groupSize);
+        for (int i = 0; i < pcs.groupSize; i++) group_stack[i * 64 + j] = col[i];
+    }
+
+    // 3. Store result
+    for (int i = 0; i < pcs.groupSize; i++) {
+        for (int j = 0; j < 64; j++) {
+            transformed_data[(g_idx * pcs.groupSize + i) * 64 + j] = group_stack[i * 64 + j];
+        }
+    }
 }

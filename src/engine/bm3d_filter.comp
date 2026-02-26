@@ -2,21 +2,34 @@
 
 layout(local_size_x = 64, local_size_y = 1) in;
 
-layout(binding = 0) buffer TransformedData {
-    float data[];
-} transformed;
+layout(std430, binding = 0) readonly buffer TransformedBuffer {
+    float transformed_data[];
+};
 
-layout(binding = 1) buffer FilteredData {
-    float data[];
-} filtered;
+layout(std430, binding = 1) writeonly buffer FilteredBuffer {
+    float filtered_data[];
+};
 
 layout(push_constant) uniform Params {
     int numGroups;
     int groupSize;
     float sigma;
     float lambda;
-} params;
+} pcs;
 
 void main() {
-    // Filter logic
+    int g_idx = int(gl_GlobalInvocationID.x);
+    if (g_idx >= pcs.numGroups) return;
+
+    float threshold = pcs.lambda * pcs.sigma * sqrt(float(pcs.groupSize));
+    
+    for (int i = 0; i < pcs.groupSize; i++) {
+        for (int j = 0; j < 64; j++) {
+            float val = transformed_data[(g_idx * pcs.groupSize + i) * 64 + j];
+            if (abs(val) < threshold) {
+                val = 0.0;
+            }
+            filtered_data[(g_idx * pcs.groupSize + i) * 64 + j] = val;
+        }
+    }
 }

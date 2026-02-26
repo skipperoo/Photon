@@ -69,16 +69,18 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
-          cd build_dir/Release
-          # Gather Qt dependencies
-          windeployqt --qmldir ../../content Photon.exe
-          # Copy additional Qt DLLs that windeployqt might miss
-          copy "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin\Qt6Concurrent.dll" . 2>nul || true
-          copy "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin\Qt6Quick.dll" . 2>nul || true
-          copy "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin\Qt6Qml.dll" . 2>nul || true
-          # Copy vcpkg DLLs (LibRaw and dependencies)
-          copy "C:\vcpkg\installed\x64-windows\bin\*.dll" . 2>nul || true
-          cd ..
+          # Install to a staging directory first
+          cmake --install build_dir --config Release --prefix install
+
+          # Add Qt and vcpkg to PATH so windeployqt can find all dependencies
+          $env:PATH = "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin;C:\vcpkg\installed\x64-windows\bin;$env:PATH"
+
+          # Gather Qt dependencies for the installed executable
+          cd install\bin
+          windeployqt --qmldir ..\..\..\content --release Photon.exe
+
+          # Go back and create the package from the install directory
+          cd ..\..
           cpack -G WIX -C Release
 
       - name: Package (Linux)

@@ -238,6 +238,17 @@ install(DIRECTORY content/ DESTINATION ${CMAKE_INSTALL_BINDIR}/content)
 # Install Assets
 install(DIRECTORY assets/ DESTINATION ${CMAKE_INSTALL_BINDIR}/assets)
 
+# Install vcpkg DLLs on Windows
+if(WIN32)
+    # Install LibRaw DLL and its dependencies
+    install(FILES ${LibRaw_LIBRARIES} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    # Find and install all vcpkg DLLs
+    file(GLOB VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/*.dll")
+    if(VCPKG_DLLS)
+        install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+endif()
+
 if(WIN32)
     set(CPACK_GENERATOR "WIX")
     set(CPACK_WIX_UPGRADE_GUID "d2b3c4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e")

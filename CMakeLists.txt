@@ -180,11 +180,19 @@ set_target_properties(Photon PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
-target_link_libraries(Photon
-    PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
-    PRIVATE $<IF:$<BOOL:${WIN32}>,LibRaw::LibRaw,${LIBRAW_LIBRARIES}>
-    PRIVATE Vulkan::Vulkan
-)
+if(WIN32)
+    target_link_libraries(Photon
+        PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
+        PRIVATE ${LibRaw_LIBRARIES}
+        PRIVATE Vulkan::Vulkan
+    )
+else()
+    target_link_libraries(Photon
+        PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
+        PRIVATE ${LIBRAW_LIBRARIES}
+        PRIVATE Vulkan::Vulkan
+    )
+endif()
 
 # Performance Optimizations
 if(MSVC)
@@ -204,7 +212,9 @@ target_include_directories(Photon PRIVATE
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1/QtGui>
 )
 
-if(NOT WIN32)
+if(WIN32)
+    target_include_directories(Photon PRIVATE ${LibRaw_INCLUDE_DIR})
+else()
     target_include_directories(Photon PRIVATE ${LIBRAW_INCLUDE_DIRS})
 endif()
 

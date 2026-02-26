@@ -31,11 +31,19 @@ add_executable(tst_RawEngine
     ../src/managers/AppStateManager.h
 )
 
-target_link_libraries(tst_RawEngine
-    PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate Qt6::Quick
-    PRIVATE $<IF:$<BOOL:${WIN32}>,LibRaw::LibRaw,${LIBRAW_LIBRARIES}>
-    PRIVATE Vulkan::Vulkan
-)
+if(WIN32)
+    target_link_libraries(tst_RawEngine
+        PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate Qt6::Quick
+        PRIVATE ${LibRaw_LIBRARIES}
+        PRIVATE Vulkan::Vulkan
+    )
+else()
+    target_link_libraries(tst_RawEngine
+        PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate Qt6::Quick
+        PRIVATE ${LIBRAW_LIBRARIES}
+        PRIVATE Vulkan::Vulkan
+    )
+endif()
 if(NOT MSVC)
     target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
 else()
@@ -54,7 +62,9 @@ target_include_directories(tst_RawEngine PRIVATE
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtCore/6.10.1/QtCore>
 )
 
-if(NOT WIN32)
+if(WIN32)
+    target_include_directories(tst_RawEngine PRIVATE ${LibRaw_INCLUDE_DIR})
+else()
     target_include_directories(tst_RawEngine PRIVATE ${LIBRAW_INCLUDE_DIRS})
 endif()
 
@@ -80,24 +90,42 @@ add_executable(tst_AppStateManager
  ../src/engine/VulkanComputeContext.h
 )
 
-target_link_libraries(tst_AppStateManager
-    PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate Qt6::Quick
-    PRIVATE $<IF:$<BOOL:${WIN32}>,LibRaw::LibRaw,${LIBRAW_LIBRARIES}>
-    PRIVATE Vulkan::Vulkan
-)
+if(WIN32)
+    target_link_libraries(tst_AppStateManager
+        PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate Qt6::Quick
+        PRIVATE ${LibRaw_LIBRARIES}
+        PRIVATE Vulkan::Vulkan
+    )
+else()
+    target_link_libraries(tst_AppStateManager
+        PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate Qt6::Quick
+        PRIVATE ${LIBRAW_LIBRARIES}
+        PRIVATE Vulkan::Vulkan
+    )
+endif()
 if(NOT MSVC)
     target_compile_options(tst_AppStateManager PRIVATE -mavx2 -mfma)
 else()
     target_compile_options(tst_AppStateManager PRIVATE /arch:AVX2)
 endif()
 
-target_include_directories(tst_AppStateManager PRIVATE
-    ../src
-    ../src/managers
-    ../src/engine
-    ${CMAKE_BINARY_DIR}
-    ${LIBRAW_INCLUDE_DIRS}
-)
+if(WIN32)
+    target_include_directories(tst_AppStateManager PRIVATE
+        ../src
+        ../src/managers
+        ../src/engine
+        ${CMAKE_BINARY_DIR}
+        ${LibRaw_INCLUDE_DIR}
+    )
+else()
+    target_include_directories(tst_AppStateManager PRIVATE
+        ../src
+        ../src/managers
+        ../src/engine
+        ${CMAKE_BINARY_DIR}
+        ${LIBRAW_INCLUDE_DIRS}
+    )
+endif()
 
 add_test(NAME tst_RawEngine COMMAND tst_RawEngine)
 add_test(NAME tst_AppStateManager COMMAND tst_AppStateManager)

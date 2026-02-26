@@ -178,7 +178,15 @@ target_link_libraries(Photon
     PRIVATE ${LIBRAW_LIBRARIES}
     PRIVATE Vulkan::Vulkan
 )
-target_compile_options(Photon PRIVATE -mavx2 -mfma)
+
+# Performance Optimizations
+if(MSVC)
+    target_compile_options(Photon PRIVATE /O2 /arch:AVX2 /GL)
+    target_link_options(Photon PRIVATE /LTCG)
+else()
+    target_compile_options(Photon PRIVATE -O3 -mavx2 -mfma -flto=auto)
+    target_link_options(Photon PRIVATE -flto=auto)
+endif()
 target_include_directories(Photon PRIVATE
     src
     src/engine

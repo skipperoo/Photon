@@ -49,14 +49,15 @@ jobs:
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          vcpkg install libraw:x64-windows
+          vcpkg install libraw:x64-windows vulkan:x64-windows
 
       - name: Configure CMake
+        shell: bash
         run: |
-          mkdir build_dir
+          mkdir -p build_dir
           cd build_dir
           cmake .. -DCMAKE_BUILD_TYPE=Release \
-            ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake"' || '' }}
+            ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake' || '' }}
 
       - name: Build
         run: |

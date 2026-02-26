@@ -80,10 +80,11 @@ jobs:
           export QMAKE=$(find ${{ github.workspace }}/../Qt -name qmake | head -n 1)
           # Pass version to linuxdeploy for better naming
           export VERSION=$(git describe --tags --always)
-          
-          # Run linuxdeploy with explicit qmldir scanning
+          # Tell the Qt plugin where to find QML files to scan for dependencies
           export QML_SOURCES_PATHS="${{ github.workspace }}/content"
-          ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage --plugin qt -v 2 --qmldir "$QML_SOURCES_PATHS"
+          
+          # Run linuxdeploy
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
           
           # Find the generated AppImage and ensure it's named Photon-x86_64.AppImage
           GENERATED_APPIMAGE=$(ls Photon-*.AppImage | grep -v "linuxdeploy" | head -n 1)

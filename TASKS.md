@@ -194,7 +194,10 @@
   - [ ] Implement `apply_local_contrast` utility in `RawViewport.frag`.
   - [ ] Implement `apply_dehaze` in `RawViewport.frag`.
   - [ ] Implement `apply_centre` (radial tonal/color) in `RawViewport.frag`.
-  - [ ] Port RapidRAW's `apply_local_contrast` logic for Clarity, Structure, and Sharpening.
+  - [ ] **Viewport Performance Optimization**
+  - [ ] Implement texture caching in \`RawViewport\` to decouple panning from texture uploads.
+  - [ ] Optimize 16-bit to 8-bit conversion/upload path.
+  - [ ] Throttled UI updates during pan.
 
 ## Backlog / Future
 

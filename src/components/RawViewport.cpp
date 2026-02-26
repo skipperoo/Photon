@@ -536,7 +536,12 @@ void RawViewport::setDenoiseEnabled(bool enabled) {
 void RawViewport::setIsPanning(bool panning) {
   if (m_engine.isPanning() == panning) return;
   m_engine.setIsPanning(panning);
-  m_textureDirty = true;
+
+  if (panning && m_engine.hasDenoisedResult()) {
+    m_engine.clearDenoisedResult();
+    m_textureDirty = true;
+  }
+
   emit isPanningChanged();
   update();
 }
@@ -745,10 +750,12 @@ void RawViewport::setPan(const QPointF& offset) {
   if (m_panOffset == constrained) return;
   m_panOffset = constrained;
 
-  // If we are panning, immediately revert to noisy texture for 60fps
-  // responsiveness.
-  m_engine.clearDenoisedResult();
-  m_textureDirty = true;
+  // If we were showing a finalized denoised result, we must switch back to the
+  // noisy texture for 60fps responsiveness.
+  if (m_engine.hasDenoisedResult()) {
+    m_engine.clearDenoisedResult();
+    m_textureDirty = true;
+  }
 
   emit panChanged();
   update();

@@ -119,6 +119,7 @@ Photon provides advanced control over performance and aesthetics:
   - Pan (Space + Drag) & Zoom (Scroll Wheel).
   - Floating toolbar at the bottom for Zoom, Undo/Redo, and **Restore to Original**.
   - **Note:** The floating top navigation bar is **disabled** in this view to maximize vertical space.
+  - **High-Performance Panning:** To ensure 60fps responsiveness during high-resolution RAW navigation, Photon uses a texture-caching strategy. Panning only updates the viewport geometry (quad coordinates) without re-uploading texture data to the GPU or performing CPU-side pixel conversions.
 
 ### B. The Tool Stack & Switcher (Right)
 

@@ -169,8 +169,8 @@ vec3 apply_local_contrast(vec3 color_linear, vec3 blurred_linear, float amount, 
 vec3 apply_dehaze(vec3 color, float amount) {
     if (amount == 0.0) return color;
     
-    // Halving the effect
-    float effective_amount = amount * 0.5;
+    // Halving the effect again (total 0.25 of original)
+    float effective_amount = amount * 0.25;
     
     vec3 atmospheric_light = vec3(0.95, 0.97, 1.0);
     if (effective_amount > 0.0) {

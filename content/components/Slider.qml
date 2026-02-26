@@ -8,9 +8,22 @@ Slider {
     to: 100
     value: 50
     
+    property real defaultValue: 0.0
+    property var lastReleaseTime: 0
+    signal doubleClicked()
+
     signal released()
     onPressedChanged: {
         if (!pressed) {
+            var currentTime = Date.now()
+            if (currentTime - lastReleaseTime < 300) {
+                control.value = control.defaultValue
+                control.moved()
+                control.doubleClicked()
+                lastReleaseTime = 0 // Reset to prevent triple-click double-reset
+            } else {
+                lastReleaseTime = currentTime
+            }
             released()
         }
     }

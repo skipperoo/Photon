@@ -9,6 +9,7 @@ ColumnLayout {
     property real value: 0
     property real from: 0
     property real to: 100
+    property real defaultValue: 0.0
     signal moved(real val)
     signal released()
 
@@ -17,6 +18,15 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true
+        
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onDoubleTapped: {
+                root.moved(root.defaultValue)
+                root.released()
+            }
+        }
+
         Text { 
             id: titleText
             text: root.title
@@ -38,7 +48,12 @@ ColumnLayout {
         from: root.from
         to: root.to
         value: root.value
+        defaultValue: root.defaultValue
         onMoved: root.moved(value)
         onReleased: root.released()
+        onDoubleClicked: {
+            root.moved(root.defaultValue)
+            root.released()
+        }
     }
 }

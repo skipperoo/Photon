@@ -1,0 +1,26 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1) in;
+
+layout(binding = 0) buffer GroupedData {
+    float data[];
+} grouped;
+
+layout(binding = 1) buffer TransformedData {
+    float data[];
+} transformed;
+
+layout(binding = 2) buffer DctTables {
+    float dctCoeff[64];
+    float idctCoeff[64];
+    float kaiser[64];
+} tables;
+
+layout(push_constant) uniform Params {
+    int numGroups;
+    int groupSize;
+} params;
+
+void main() {
+    // Transform logic
+}

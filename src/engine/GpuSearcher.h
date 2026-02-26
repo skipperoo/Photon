@@ -15,6 +15,7 @@ class QRhiShaderResourceBindings;
 class QRhiGraphicsPipeline;
 class QRhiBuffer;
 class QRhiSampler;
+class QQuickWindow;
 
 namespace photon {
 
@@ -26,6 +27,8 @@ class GpuSearcher : public QObject {
 public:
     explicit GpuSearcher(QRhi* rhi, QObject* parent = nullptr);
     ~GpuSearcher();
+
+    void setWindow(QQuickWindow* window) { m_window = window; }
 
     struct SearchResult {
         int x;
@@ -40,6 +43,7 @@ public:
 
 private:
     QRhi* m_rhi;
+    QQuickWindow* m_window = nullptr;
     std::unique_ptr<QRhiTexture> m_lumaTex;
     std::unique_ptr<QRhiTexture> m_resultTex;
     std::unique_ptr<QRhiSampler> m_sampler;

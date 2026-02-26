@@ -9,6 +9,7 @@
 #include <QVariantList>
 
 class QRhi;
+class QQuickWindow;
 
 namespace photon {
 
@@ -24,6 +25,7 @@ class PreviewManager : public QObject {
   static PreviewManager* instance();
 
   void setRhi(QRhi* rhi) { m_rhi = rhi; }
+  void setWindow(QQuickWindow* window) { m_window = window; }
 
   // Get path to cached preview if it exists and is valid
   Q_INVOKABLE QString getPreviewPath(const QString& rawPath) const;
@@ -52,6 +54,7 @@ class PreviewManager : public QObject {
   QString getCachePath(const QString& rawPath) const;
 
   QRhi* m_rhi = nullptr;
+  QQuickWindow* m_window = nullptr;
   static PreviewManager* s_instance;
   bool m_isProcessing = false;
   bool m_abort = false;

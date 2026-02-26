@@ -188,7 +188,7 @@ void PreviewManager::processItem(const QString& rawPath) {
               ::AppStateManager::instance()->previewDenoiseFull();
           QImage result = ImageDeveloper::develop(
               reinterpret_cast<const ushort*>(mem->data), mem->width,
-              mem->height, lastState, m_rhi);
+              mem->height, lastState, m_rhi, m_window);
 
           LogManager::instance()->log(QString("[ PreviewManager ] - Develop complete, result null: %1")
                   .arg(result.isNull()));

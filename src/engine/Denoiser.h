@@ -9,6 +9,10 @@
 
 #include "GpuSearcher.h"
 
+// Forward declaration
+class QRhi;
+class QQuickWindow;
+
 namespace photon {
 
 struct Bm3dParams {
@@ -24,10 +28,45 @@ struct Bm3dParams {
 
 class Denoiser {
  public:
+  /**
+   * @brief Main denoise entry point. Automatically selects GPU or CPU based on
+   * settings.
+   *
+   * @param input Input image
+   * @param intensity Denoising strength (0.0 - 100.0)
+   * @param abort Optional abort flag
+   * @param step2 Whether to perform second pass
+   * @param stride Block matching stride
+   * @param gpuMatches GPU search results (optional)
+   * @param rhi QRhi instance for GPU denoising (optional)
+   * @param useGpu Whether to attempt GPU denoising (falls back to CPU if
+   * unavailable)
+   * @param window Optional QQuickWindow for RHI synchronization
+   * @return Denoised image
+   */
   static QImage denoise(
       const QImage& input, float intensity, std::atomic<bool>* abort = nullptr,
       bool step2 = true, int stride = 6,
+      const std::vector<GpuSearcher::SearchResult>& gpuMatches = {},
+      QRhi* rhi = nullptr, bool useGpu = false,
+      QQuickWindow* window = nullptr);
+
+  /**
+   * @brief CPU-only BM3D denoising (original implementation).
+   */
+  static QImage denoiseCpu(
+      const QImage& input, float intensity, std::atomic<bool>* abort = nullptr,
+      bool step2 = true, int stride = 6,
       const std::vector<GpuSearcher::SearchResult>& gpuMatches = {});
+
+  /**
+   * @brief GPU-accelerated BM3D denoising.
+   */
+  static QImage denoiseGpu(
+      const QImage& input, float intensity, std::atomic<bool>* abort = nullptr,
+      bool step2 = true, int stride = 6,
+      const std::vector<GpuSearcher::SearchResult>& gpuMatches = {},
+      QRhi* rhi = nullptr, QQuickWindow* window = nullptr);
 
  private:
   static constexpr int BLOCK_SIZE = 8;

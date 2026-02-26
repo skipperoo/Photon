@@ -65,11 +65,15 @@ To ensure non-destructive editing and high performance, Photon manages a sidecar
 
 Photon provides advanced control over performance and aesthetics:
 
-1.  **GPU Selection:**
-    *   **Finding:** On Linux/NVIDIA systems, forcing the GPU requires setting `QSG_RHI_DEVICE_INDEX`, `QT_VULKAN_DEVICE_INDEX`, and `MESA_VK_DEVICE_SELECT` environment variables *before* the graphics driver initializes. For NVIDIA Prime, `__NV_PRIME_RENDER_OFFLOAD=1` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` are mandatory.
-    *   Dynamically detects available Vulkan-compatible physical devices.
-    *   Allows users to select a specific GPU for RHI rendering.
-    *   Changes may require an application restart.
+1. **GPU Selection:**
+   * **Finding:** On Linux/NVIDIA systems, forcing the GPU requires setting `QSG_RHI_DEVICE_INDEX`, `QT_VULKAN_DEVICE_INDEX`, and `MESA_VK_DEVICE_SELECT` environment variables *before* the graphics driver initializes. For NVIDIA Prime, `__NV_PRIME_RENDER_OFFLOAD=1` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` are mandatory.
+   * Dynamically detects available Vulkan-compatible physical devices.
+   * Allows users to select a specific GPU for RHI rendering.
+   * Changes may require an application restart.
+2. **Denoising Engine:**
+   * **GPU Denoise Toggle:** Users can choose between GPU-accelerated BM3D (compute shaders) or CPU-only (AVX2/FMA SIMD).
+   * **Default:** GPU denoise is enabled by default on supported hardware.
+   * **Fallback:** Automatically falls back to CPU if GPU compute is unavailable or if manually disabled.
 2.  **Aesthetics:**
     *   **Theme:** Toggle between "Zinc Dark" and "Zinc Light".
     *   **Accent Color:** Choose from a predefined palette of high-contrast colors (Blue, Rose, Green, Orange).
@@ -202,7 +206,7 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 9.  **Denoising Pipeline (Phase 12):** Photon employs a hybrid GPU/CPU architecture designed for professional performance:
     *   **GPU Preview (NLM):** A real-time **Non-Local Means (NLM)** filter runs in the fragment shader. It uses 3x3 patch comparisons within a 7x7 search window, providing high-fidelity spatial denoising at 60fps.
     *   **Full Quality Toggle:** A user preference in settings allows forcing the high-fidelity 2-step denoiser even during the preview phase.
-    *   **GPU-Accelerated Search:** The computationally expensive patch-matching phase of the BM3D algorithm is offloaded to the GPU. An RHI-based offscreen pass computes the Sum of Squared Differences (SSD) using 3x3 patches across the search window and generates a spatial similarity index texture. This texture encodes the best-match offset and SSD value, which is then read back and used as a search seed for the CPU BM3D aggregation phase, ensuring high-quality clustering with minimal CPU overhead.
+    *   **Vulkan-Native Search Offload:** To ensure zero interference with the UI rendering, the computationally expensive patch-matching phase of the BM3D algorithm is offloaded to a dedicated **plain Vulkan** compute pipeline. It bypasses Qt's RHI to run on an independent compute queue, using the same physical device as the UI. This pipeline computes the Sum of Squared Differences (SSD) using 3x3 patches and generates a spatial similarity index.
     *   **CPU Transform & Filter (SIMD):** The collaborative filtering is performed on the CPU using **AVX2 and FMA** instructions, protected by a `QMutex` to ensure thread safety with the LibRaw processor.
     *   **Adaptive Proxy Scaling:** Preview denoising resolution dynamically adjusts based on the viewport size and zoom level (`viewport * zoom * 1.5`), ensuring zero pixelation even at 400% zoom.
     *   **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.

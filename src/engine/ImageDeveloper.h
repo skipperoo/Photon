@@ -7,6 +7,7 @@
 #include <vector>
 
 class QRhi;
+class QQuickWindow;
 
 namespace photon {
 
@@ -17,7 +18,8 @@ struct HSV {
 class ImageDeveloper {
  public:
   static QImage develop(const ushort* src, int width, int height,
-                        const QJsonObject& settings, QRhi* rhi = nullptr);
+                        const QJsonObject& settings, QRhi* rhi = nullptr,
+                        QQuickWindow* window = nullptr);
 
  private:
   static float smoothstep(float edge0, float edge1, float x) {

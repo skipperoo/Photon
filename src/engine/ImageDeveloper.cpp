@@ -109,7 +109,8 @@ static float get_luma_cpp(float r, float g, float b) {
 }
 
 QImage ImageDeveloper::develop(const ushort* src, int width, int height,
-                               const QJsonObject& obj, QRhi* rhi) {
+                               const QJsonObject& obj, QRhi* rhi,
+                               QQuickWindow* window) {
   LogManager::instance()->log(
       QString("[ ImageDeveloper ] - develop START: %1x%2 (thread: %3)")
           .arg(width)
@@ -378,20 +379,11 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         }
       }
 
-      // Safety check: run on UI thread if we are in a worker thread to avoid RHI
-      // frame conflicts
-      if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
-        QMetaObject::invokeMethod(
-            QCoreApplication::instance(),
-            [&]() {
-              GpuSearcher searcher(rhi);
-              gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
-            },
-            Qt::BlockingQueuedConnection);
-      } else {
-        GpuSearcher searcher(rhi);
-        gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
-      }
+      // Safety check: run on Render Thread via GpuSearcher's internal sync
+      // to avoid RHI frame conflicts
+      GpuSearcher searcher(rhi);
+      searcher.setWindow(window);
+      gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
 
       if (gpuMatches.empty()) {
         LogManager::instance()->log("[ ImageDeveloper ] - GPU search produced no matches (possibly due to frame conflict or shader error). Falling back to CPU matching.", "WARNING");
@@ -400,7 +392,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       }
     }
     output = Denoiser::denoise(output, denoiseAmount, nullptr, denoiseSecondPass,
-                               4, gpuMatches);
+                               4, gpuMatches, rhi, false, window);
 
     // Convert back to RGB888 if Denoiser changed format to RGBX64
     if (output.format() != QImage::Format_RGB888) {

@@ -8,10 +8,14 @@ add_executable(tst_RawEngine
     ../src/engine/RawEngine.h
     ../src/engine/Denoiser.cpp
     ../src/engine/Denoiser.h
-    ../src/engine/GpuSearcher.cpp
-    ../src/engine/GpuSearcher.h
-    ../src/engine/ImageDeveloper.cpp
-    ../src/engine/ImageDeveloper.h
+ ../src/engine/GpuSearcher.cpp
+ ../src/engine/GpuSearcher.h
+ ../src/engine/GpuDenoiser.cpp
+ ../src/engine/GpuDenoiser.h
+ ../src/engine/ImageDeveloper.cpp
+ ../src/engine/ImageDeveloper.h
+ ../src/engine/VulkanComputeContext.cpp
+ ../src/engine/VulkanComputeContext.h
     ../src/managers/PreviewManager.cpp
     ../src/managers/PreviewManager.h
     ../src/managers/FileScanner.cpp
@@ -50,14 +54,18 @@ add_executable(tst_AppStateManager
     ../src/engine/ImageDeveloper.h
     ../src/managers/FileScanner.cpp
     ../src/managers/FileScanner.h
-    ../src/engine/Denoiser.cpp
-    ../src/engine/Denoiser.h
-    ../src/engine/GpuSearcher.cpp
-    ../src/engine/GpuSearcher.h
+ ../src/engine/Denoiser.cpp
+ ../src/engine/Denoiser.h
+ ../src/engine/GpuSearcher.cpp
+ ../src/engine/GpuSearcher.h
+ ../src/engine/GpuDenoiser.cpp
+ ../src/engine/GpuDenoiser.h
+ ../src/engine/VulkanComputeContext.cpp
+ ../src/engine/VulkanComputeContext.h
 )
 
 target_link_libraries(tst_AppStateManager
-    PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate
+    PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate Qt6::Quick
     PRIVATE ${LIBRAW_LIBRARIES}
     PRIVATE Vulkan::Vulkan
 )

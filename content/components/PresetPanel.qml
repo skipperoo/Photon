@@ -121,7 +121,10 @@ Rectangle {
                             icon.width: 32
                             icon.height: 32
                             
-                            background: Theme.destructive
+                            background: Rectangle {
+                                color: Theme.destructive
+                                radius: 4
+                            }
                             
                             T.ToolTip.visible: hovered
                             T.ToolTip.text: "Delete Preset"

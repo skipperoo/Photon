@@ -1,0 +1,23 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) buffer LumaData {
+    float data[];
+} luma;
+
+layout(binding = 1) buffer Groups {
+    int indices[];
+} groups;
+
+layout(push_constant) uniform Params {
+    int width;
+    int height;
+    int stride;
+    float max_dist;
+} params;
+
+void main() {
+    // Basic grouping logic (matching what was in the C++ version)
+    // Placeholder for actual implementation
+}

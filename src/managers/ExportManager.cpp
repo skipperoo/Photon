@@ -95,7 +95,7 @@ void ExportManager::processExport(const QStringList& paths,
             lastState["denoiseSecondPass"] = true;
             QImage result = ImageDeveloper::develop(
                 reinterpret_cast<const ushort*>(mem->data), mem->width,
-                mem->height, lastState, m_rhi);
+                mem->height, lastState, m_rhi, m_window);
 
             if (!result.isNull()) {
               // 4. Save to Disk

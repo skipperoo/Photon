@@ -8,6 +8,7 @@
 #include <QString>
 #include <QVariantList>
 #include <QtConcurrent>
+#include <QtQuick/QQuickWindow>
 #include <memory>
 #include <vector>
 
@@ -174,6 +175,7 @@ class RawEngine : public QObject {
   ~RawEngine();
 
   void setRhi(QRhi* rhi) { m_rhi = rhi; }
+  void setWindow(QQuickWindow* window) { m_window = window; }
 
   QString source() const { return m_source; }
   void setSource(const QString& source);
@@ -469,6 +471,7 @@ class RawEngine : public QObject {
   QString m_previewPath;
   QImage m_previewImage;
   QRhi* m_rhi = nullptr;
+  class QQuickWindow* m_window = nullptr;
 
   QSize m_viewportSize;
   float m_exposure = 0.0f;

@@ -7,6 +7,7 @@
 #include <atomic>
 
 class QRhi;
+class QQuickWindow;
 
 namespace photon {
 
@@ -22,6 +23,7 @@ class ExportManager : public QObject {
   ~ExportManager() override;
 
   void setRhi(QRhi* rhi) { m_rhi = rhi; }
+  void setWindow(QQuickWindow* window) { m_window = window; }
 
   bool isExporting() const { return m_isExporting; }
   float progress() const {
@@ -42,6 +44,7 @@ class ExportManager : public QObject {
 
  private:
   QRhi* m_rhi = nullptr;
+  QQuickWindow* m_window = nullptr;
   bool m_isExporting = false;
   int m_doneCount = 0;
   int m_totalCount = 0;

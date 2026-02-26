@@ -7,7 +7,39 @@
 #include <cmath>
 #include <numeric>
 
+#include "GpuDenoiser.h"
+
 namespace photon {
+
+QImage Denoiser::denoise(
+    const QImage& input, float intensity, std::atomic<bool>* abort, bool step2,
+    int stride, const std::vector<GpuSearcher::SearchResult>& gpuMatches,
+    QRhi* rhi, bool useGpu, QQuickWindow* window) {
+  if (useGpu && rhi != nullptr) {
+    // Try GPU denoising
+    QImage result =
+        denoiseGpu(input, intensity, abort, step2, stride, gpuMatches, rhi, window);
+    if (!result.isNull()) {
+      return result;
+    }
+    // Fallback to CPU if GPU failed
+  }
+  // Use CPU denoising
+  return denoiseCpu(input, intensity, abort, step2, stride, gpuMatches);
+}
+
+QImage Denoiser::denoiseGpu(
+    const QImage& input, float intensity, std::atomic<bool>* abort, bool step2,
+    int stride, const std::vector<GpuSearcher::SearchResult>& gpuMatches,
+    QRhi* rhi, QQuickWindow* window) {
+  if (rhi == nullptr || !GpuDenoiser::isAvailable(rhi)) {
+    return QImage();  // Return null image to indicate failure
+  }
+
+  GpuDenoiser gpuDenoiser(rhi);
+  gpuDenoiser.setWindow(window);
+  return gpuDenoiser.denoise(input, intensity, abort, step2, stride, gpuMatches);
+}
 
 Denoiser::DctTables::DctTables() {
   const float PI = 3.14159265358979323846f;
@@ -57,7 +89,7 @@ std::vector<float> Denoiser::AtomicAccumulator::toVector() const {
   return res;
 }
 
-QImage Denoiser::denoise(
+QImage Denoiser::denoiseCpu(
     const QImage& input, float intensity, std::atomic<bool>* abort, bool step2,
     int stride, const std::vector<GpuSearcher::SearchResult>& gpuMatches) {
   if (input.isNull() || intensity <= 0.0f) return input;
@@ -112,20 +144,19 @@ QImage Denoiser::denoise(
   std::vector<int> chunksOut(numChunksOut);
   std::iota(chunksOut.begin(), chunksOut.end(), 0);
 
-  QtConcurrent::blockingMap(
-      chunksOut, [=, &denoised_channels](int chunk) {
-        int start = chunk * grain_out;
-        int end = std::min(size, start + grain_out);
-        for (int i = start; i < end; ++i) {
-          ushort r = static_cast<ushort>(
-              std::clamp(denoised_channels[0][i], 0.0f, 255.0f) * 257.0f);
-          ushort g = static_cast<ushort>(
-              std::clamp(denoised_channels[1][i], 0.0f, 255.0f) * 257.0f);
-          ushort b = static_cast<ushort>(
-              std::clamp(denoised_channels[2][i], 0.0f, 255.0f) * 257.0f);
-          out_bits[i] = QRgba64::fromRgba64(r, g, b, 65535);
-        }
-      });
+  QtConcurrent::blockingMap(chunksOut, [=, &denoised_channels](int chunk) {
+    int start = chunk * grain_out;
+    int end = std::min(size, start + grain_out);
+    for (int i = start; i < end; ++i) {
+      ushort r = static_cast<ushort>(
+          std::clamp(denoised_channels[0][i], 0.0f, 255.0f) * 257.0f);
+      ushort g = static_cast<ushort>(
+          std::clamp(denoised_channels[1][i], 0.0f, 255.0f) * 257.0f);
+      ushort b = static_cast<ushort>(
+          std::clamp(denoised_channels[2][i], 0.0f, 255.0f) * 257.0f);
+      out_bits[i] = QRgba64::fromRgba64(r, g, b, 65535);
+    }
+  });
 
   return output;
 }

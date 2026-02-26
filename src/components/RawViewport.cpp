@@ -16,9 +16,13 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow* window) {
     if (window) {
       connect(window, &QQuickWindow::sceneGraphInitialized, this,
-              [this, window]() { m_engine.setRhi(window->rhi()); });
+              [this, window]() {
+                m_engine.setRhi(window->rhi());
+                m_engine.setWindow(window);
+              });
       if (window->isSceneGraphInitialized()) {
         m_engine.setRhi(window->rhi());
+        m_engine.setWindow(window);
       }
     }
   });

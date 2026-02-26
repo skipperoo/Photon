@@ -198,13 +198,17 @@ int main(int argc, char* argv[]) {
         QQuickWindow* window = qobject_cast<QQuickWindow*>(obj);
         if (window) {
           window->setVulkanInstance(&vulkanInstance);
-          // Pass RHI to managers when it becomes available
+          // Pass RHI and Window to managers when it becomes available
           QObject::connect(window, &QQuickWindow::sceneGraphInitialized,
                            [window, previewManager, exportManager]() {
-                             if (previewManager)
+                             if (previewManager) {
                                previewManager->setRhi(window->rhi());
-                             if (exportManager)
+                               previewManager->setWindow(window);
+                             }
+                             if (exportManager) {
                                exportManager->setRhi(window->rhi());
+                               exportManager->setWindow(window);
+                             }
                            });
         }
       },

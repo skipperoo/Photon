@@ -1,171 +1,238 @@
 #include "GpuSearcher.h"
-
-#include <private/qshader_p.h>
-
-#include <QCoreApplication>
+#include "VulkanComputeContext.h"
 #include <QFile>
-#include <QMatrix4x4>
-
+#include <QThread>
+#include <private/qshader_p.h>
 #include "../managers/LogManager.h"
 
 namespace photon {
 
 GpuSearcher::GpuSearcher(QRhi* rhi, QObject* parent)
-    : QObject(parent), m_rhi(rhi) {}
-
-GpuSearcher::~GpuSearcher() {
-  // Resources are smart pointers, they will be destroyed now
+    : QObject(parent), m_rhi(rhi) {
+    if (rhi) {
+        VulkanComputeContext::instance()->init(rhi);
+    }
 }
 
-void GpuSearcher::initResources(int w, int h) {
-  if (m_lumaTex && m_lumaTex->pixelSize() == QSize(w, h)) return;
-
-  m_lumaTex.reset(m_rhi->newTexture(QRhiTexture::R32F, QSize(w, h), 1,
-                                    QRhiTexture::UsedAsTransferSource));
-  m_lumaTex->create();
-
-  m_resultTex.reset(m_rhi->newTexture(
-      QRhiTexture::RGBA32F, QSize(w, h), 1,
-      QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
-  m_resultTex->create();
-
-  QRhiTextureRenderTargetDescription rtDesc;
-  rtDesc.setColorAttachments({{m_resultTex.get()}});
-  m_rt.reset(m_rhi->newTextureRenderTarget(rtDesc));
-  m_rp.reset(m_rt->newCompatibleRenderPassDescriptor());
-  m_rt->setRenderPassDescriptor(m_rp.get());
-  m_rt->create();
-
-  m_ubuf.reset(m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer,
-                                64 + 16));
-  m_ubuf->create();
-
-  m_srb.reset(m_rhi->newShaderResourceBindings());
-
-  // Create and store sampler
-  m_sampler.reset(m_rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
-                                    QRhiSampler::None, QRhiSampler::ClampToEdge,
-                                    QRhiSampler::ClampToEdge));
-  m_sampler->create();
-
-  using Binding = QRhiShaderResourceBinding;
-  std::vector<Binding> bindings;
-  bindings.push_back(Binding::uniformBuffer(
-      0, Binding::VertexStage | Binding::FragmentStage, m_ubuf.get()));
-  bindings.push_back(Binding::sampledTexture(1, Binding::FragmentStage,
-                                             m_lumaTex.get(), m_sampler.get()));
-
-  m_srb->setBindings(bindings.begin(), bindings.end());
-  m_srb->create();
-
-  m_pipeline.reset(m_rhi->newGraphicsPipeline());
-  m_pipeline->setShaderResourceBindings(m_srb.get());
-  m_pipeline->setRenderPassDescriptor(m_rp.get());
-
-  // Load baked shaders from resources
-  QShader vert, frag;
-
-  {
-    QFile vertFile(":/Main/shaders/PatchSearch.vert.qsb");
-    if (vertFile.open(QIODevice::ReadOnly)) {
-      vert = QShader::fromSerialized(vertFile.readAll());
-      vertFile.close();
-    } else {
-      LogManager::instance()->log("Failed to open vertex shader resource", "ERROR");
-    }
-  }
-
-  {
-    QFile fragFile(":/Main/shaders/PatchSearch.frag.qsb");
-    if (fragFile.open(QIODevice::ReadOnly)) {
-      frag = QShader::fromSerialized(fragFile.readAll());
-      fragFile.close();
-    } else {
-      LogManager::instance()->log("Failed to open fragment shader resource", "ERROR");
-    }
-  }
-
-  if (vert.isValid() && frag.isValid()) {
-    m_pipeline->setShaderStages(
-        {{QRhiShaderStage::Vertex, vert}, {QRhiShaderStage::Fragment, frag}});
-  } else {
-    LogManager::instance()->log(QString("Shader validation failed: vert=%1, frag=%2")
-                                    .arg(vert.isValid()).arg(frag.isValid()), "ERROR");
-  }
-
-  // Minimal pipeline state
-  m_pipeline->setDepthTest(false);
-  m_pipeline->setDepthWrite(false);
-  m_pipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
-
-  m_pipeline->create();
+GpuSearcher::~GpuSearcher() {
 }
 
 std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     const float* luma, int width, int height, int searchWindow) {
-  if (!m_rhi) return {};
-  initResources(width, height);
+    
+    auto* ctx = VulkanComputeContext::instance();
+    if (ctx->device() == VK_NULL_HANDLE) return {};
 
-  QRhiResourceUpdateBatch* u = m_rhi->nextResourceUpdateBatch();
+    const auto& f = ctx->functions();
+    VkDevice device = ctx->device();
 
-  // Upload raw float data
-  QRhiTextureSubresourceUploadDescription subDesc(
-      QByteArray((const char*)luma, width * height * sizeof(float)));
-  QRhiTextureUploadEntry entry(0, 0, subDesc);
+    LogManager::instance()->log(QString("[ GpuSearcher ] - Starting raw Vulkan search %1x%2").arg(width).arg(height), "INFO");
 
-  QRhiTextureUploadDescription desc;
-  desc.setEntries({entry});
-  u->uploadTexture(m_lumaTex.get(), desc);
+    // 1. Create Resources
+    VkBuffer lumaBuffer = VK_NULL_HANDLE, resultBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory lumaMemory = VK_NULL_HANDLE, resultMemory = VK_NULL_HANDLE;
+    VkDeviceSize lumaSize = width * height * sizeof(float);
+    VkDeviceSize resultSize = width * height * sizeof(float) * 4;
 
-  // Update Uniforms
-  QMatrix4x4 matrix;  // Identity for full screen quad
-  u->updateDynamicBuffer(m_ubuf.get(), 0, 64, matrix.constData());
-  float size[2] = {(float)width, (float)height};
-  u->updateDynamicBuffer(m_ubuf.get(), 64, 8, size);
-  u->updateDynamicBuffer(m_ubuf.get(), 72, 4, &searchWindow);
+    ctx->createBuffer(lumaSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      lumaBuffer, lumaMemory);
+    
+    ctx->createBuffer(resultSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      resultBuffer, resultMemory);
 
-  QRhiCommandBuffer* cb;
-  QRhi::FrameOpResult res = m_rhi->beginOffscreenFrame(&cb);
-  if (res != QRhi::FrameOpSuccess) {
-    LogManager::instance()->log(QString("beginOffscreenFrame failed with result %1").arg(static_cast<int>(res)), "ERROR");
-    return {};
-  }
-  cb->beginPass(m_rt.get(), Qt::transparent, {1.0f, 0}, u);
-  cb->setGraphicsPipeline(m_pipeline.get());
-  cb->setViewport({0, 0, (float)width, (float)height});
-  cb->setShaderResources();
-  cb->draw(4);
-  cb->endPass();
+    if (lumaBuffer == VK_NULL_HANDLE || resultBuffer == VK_NULL_HANDLE) {
+        LogManager::instance()->log("Failed to create Vulkan buffers for search", "ERROR");
+        return {};
+    }
 
-  // Readback result
-  QRhiReadbackResult readback;
-  bool completed = false;
-  readback.completed = [&completed]() { completed = true; };
+    // Upload Luma
+    void* dataPtr = nullptr;
+    if (f.MapMemory(device, lumaMemory, 0, lumaSize, 0, &dataPtr) != VK_SUCCESS) {
+        LogManager::instance()->log("Failed to map luma memory", "ERROR");
+        return {};
+    }
+    memcpy(dataPtr, luma, lumaSize);
+    f.UnmapMemory(device, lumaMemory);
 
-  u = m_rhi->nextResourceUpdateBatch();
-  u->readBackTexture({m_resultTex.get()}, &readback);
-  cb->resourceUpdate(u);
+    // 2. Create Descriptor Set
+    VkDescriptorSetLayoutBinding bindings[2]{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-  m_rhi->endOffscreenFrame();
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-  // Wait for the result
-  m_rhi->finish();
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 2;
+    layoutInfo.pBindings = bindings;
 
-  if (readback.data.isEmpty()) return {};
+    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+    if (f.CreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
+        LogManager::instance()->log("Failed to create descriptor set layout", "ERROR");
+        return {};
+    }
 
-  const float* data = reinterpret_cast<const float*>(readback.data.constData());
-  std::vector<SearchResult> results;
-  results.reserve(width * height);
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSize.descriptorCount = 2;
 
-  for (int i = 0; i < width * height; ++i) {
-    // Decode from RGBA (0-1 range)
-    float dx = data[i * 4] * 255.0f - 128.0f;
-    float dy = data[i * 4 + 1] * 255.0f - 128.0f;
-    float ssd = data[i * 4 + 2];
-    results.push_back({(int)dx, (int)dy, ssd});
-  }
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1;
 
-  return results;
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    if (f.CreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
+        LogManager::instance()->log("Failed to create descriptor pool", "ERROR");
+        return {};
+    }
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &descriptorSetLayout;
+
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    if (f.AllocateDescriptorSets(device, &allocInfo, &descriptorSet) != VK_SUCCESS) {
+        LogManager::instance()->log("Failed to allocate descriptor set", "ERROR");
+        return {};
+    }
+
+    VkDescriptorBufferInfo lumaInfo{lumaBuffer, 0, lumaSize};
+    VkDescriptorBufferInfo resultInfo{resultBuffer, 0, resultSize};
+
+    VkWriteDescriptorSet descriptorWrites[2]{};
+    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[0].dstSet = descriptorSet;
+    descriptorWrites[0].dstBinding = 0;
+    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorWrites[0].descriptorCount = 1;
+    descriptorWrites[0].pBufferInfo = &lumaInfo;
+
+    descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[1].dstSet = descriptorSet;
+    descriptorWrites[1].dstBinding = 1;
+    descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorWrites[1].descriptorCount = 1;
+    descriptorWrites[1].pBufferInfo = &resultInfo;
+
+    f.UpdateDescriptorSets(device, 2, descriptorWrites, 0, nullptr);
+
+    // 3. Create Pipeline
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = 12;
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    if (f.CreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+        LogManager::instance()->log("Failed to create pipeline layout", "ERROR");
+        return {};
+    }
+
+    QFile shaderFile(":/Main/shaders/patch_search.comp.qsb");
+    if (!shaderFile.open(QIODevice::ReadOnly)) {
+        LogManager::instance()->log("Failed to open shader resource", "ERROR");
+        return {};
+    }
+    
+    QShader shader = QShader::fromSerialized(shaderFile.readAll());
+    QByteArray spirvCode;
+    auto shaders = shader.availableShaders();
+    for (const auto& key : shaders) {
+        if (key.source() == QShader::SpirvShader) {
+            spirvCode = shader.shader(key).shader();
+            break;
+        }
+    }
+
+    if (spirvCode.isEmpty()) {
+        LogManager::instance()->log("Failed to extract SPIR-V from shader", "ERROR");
+        return {};
+    }
+
+    // Ensure alignment by copying to vector
+    std::vector<uint32_t> code(spirvCode.size() / 4);
+    memcpy(code.data(), spirvCode.constData(), spirvCode.size());
+    
+    VkShaderModuleCreateInfo shaderModuleCreateInfo{};
+    shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    shaderModuleCreateInfo.codeSize = code.size() * 4;
+    shaderModuleCreateInfo.pCode = code.data();
+
+    VkShaderModule computeShaderModule = VK_NULL_HANDLE;
+    if (f.CreateShaderModule(device, &shaderModuleCreateInfo, nullptr, &computeShaderModule) != VK_SUCCESS) {
+        LogManager::instance()->log("Failed to create shader module", "ERROR");
+        return {};
+    }
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.layout = pipelineLayout;
+    pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineInfo.stage.module = computeShaderModule;
+    pipelineInfo.stage.pName = "main";
+
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    if (f.CreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
+        LogManager::instance()->log("Failed to create compute pipeline", "ERROR");
+        return {};
+    }
+
+    // 4. Dispatch
+    VkCommandBuffer cb = ctx->beginSingleTimeCommands();
+    if (cb != VK_NULL_HANDLE) {
+        f.CmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        f.CmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+        
+        int pcs[3] = {width, height, searchWindow};
+        f.CmdPushConstants(cb, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 12, pcs);
+
+        f.CmdDispatch(cb, (width + 15) / 16, (height + 15) / 16, 1);
+        ctx->endSingleTimeCommands(cb);
+    }
+
+    // 5. Readback
+    std::vector<SearchResult> results(width * height);
+    if (f.MapMemory(device, resultMemory, 0, resultSize, 0, &dataPtr) == VK_SUCCESS) {
+        const float* fData = static_cast<const float*>(dataPtr);
+        for (int i = 0; i < width * height; i++) {
+            results[i] = { (int)fData[i*4], (int)fData[i*4+1], fData[i*4+2] };
+        }
+        f.UnmapMemory(device, resultMemory);
+    } else {
+        LogManager::instance()->log("Failed to map result memory for readback", "ERROR");
+    }
+
+    // 6. Cleanup
+    if (pipeline != VK_NULL_HANDLE) f.DestroyPipeline(device, pipeline, nullptr);
+    if (computeShaderModule != VK_NULL_HANDLE) f.DestroyShaderModule(device, computeShaderModule, nullptr);
+    if (pipelineLayout != VK_NULL_HANDLE) f.DestroyPipelineLayout(device, pipelineLayout, nullptr);
+    if (descriptorPool != VK_NULL_HANDLE) f.DestroyDescriptorPool(device, descriptorPool, nullptr);
+    if (descriptorSetLayout != VK_NULL_HANDLE) f.DestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+    if (lumaBuffer != VK_NULL_HANDLE) f.DestroyBuffer(device, lumaBuffer, nullptr);
+    if (lumaMemory != VK_NULL_HANDLE) f.FreeMemory(device, lumaMemory, nullptr);
+    if (resultBuffer != VK_NULL_HANDLE) f.DestroyBuffer(device, resultBuffer, nullptr);
+    if (resultMemory != VK_NULL_HANDLE) f.FreeMemory(device, resultMemory, nullptr);
+
+    return results;
 }
 
-}  // namespace photon
+} // namespace photon

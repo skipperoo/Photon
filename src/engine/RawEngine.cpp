@@ -137,7 +137,8 @@ RawEngine::RawEngine(QObject* parent)
             .arg((quintptr)QThread::currentThread()),
         "DEBUG");
     if (m_previewWatcher.isCanceled()) {
-      LogManager::instance()->log("[ RawEngine ] - previewWatcher: canceled", "DEBUG");
+      LogManager::instance()->log("[ RawEngine ] - previewWatcher: canceled",
+                                  "DEBUG");
       return;
     }
     QImage result = m_previewWatcher.result();
@@ -149,7 +150,8 @@ RawEngine::RawEngine(QObject* parent)
         "DEBUG");
     m_previewImage = result;
     emit previewImageChanged();
-    LogManager::instance()->log("[ RawEngine ] - previewWatcher callback END", "DEBUG");
+    LogManager::instance()->log("[ RawEngine ] - previewWatcher callback END",
+                                "DEBUG");
   });
 
   // Listen for background previews
@@ -209,15 +211,15 @@ void RawEngine::setHalfSize(bool half) {
 }
 
 void RawEngine::setSource(const QString& source) {
-  LogManager::instance()->log(QString("[ RawEngine ] - setSource START: %1").arg(source),
-                              "INFO");
+  LogManager::instance()->log(
+      QString("[ RawEngine ] - setSource START: %1").arg(source), "INFO");
 
   // 1. Abort any ongoing denoise tasks
   m_abortDenoise = true;
 
   if (m_source == source) {
-    LogManager::instance()->log("[ RawEngine ] - setSource: same source, skipping",
-                                "DEBUG");
+    LogManager::instance()->log(
+        "[ RawEngine ] - setSource: same source, skipping", "DEBUG");
     return;
   }
 
@@ -240,7 +242,8 @@ void RawEngine::setSource(const QString& source) {
   emit sourceChanged();
 
   // Try to get existing preview immediately
-  LogManager::instance()->log("[ RawEngine ] - setSource: getting preview path", "DEBUG");
+  LogManager::instance()->log("[ RawEngine ] - setSource: getting preview path",
+                              "DEBUG");
   if (photon::PreviewManager::instance()) {
     m_previewPath =
         photon::PreviewManager::instance()->getPreviewPath(m_source);
@@ -273,7 +276,8 @@ void RawEngine::setSource(const QString& source) {
   loadEdits();
 
   // Start async loading
-  LogManager::instance()->log("[ RawEngine ] - setSource: starting async load", "DEBUG");
+  LogManager::instance()->log("[ RawEngine ] - setSource: starting async load",
+                              "DEBUG");
   loadRawFileAsync(source);
 
   LogManager::instance()->log("[ RawEngine ] - setSource END", "INFO");
@@ -601,6 +605,7 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
     if (!m_gpuSearcher) {
       m_gpuSearcher = std::make_unique<photon::GpuSearcher>(m_rhi);
     }
+    m_gpuSearcher->setWindow(m_window);
 
     // Extract luma for GPU search
     int w = img.width();
@@ -623,26 +628,28 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
       }
     }
 
-    // Synchronize GPU search on main thread to avoid RHI frame conflicts
-    if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
-      QMetaObject::invokeMethod(
-          QCoreApplication::instance(),
-          [&]() { gpuMatches = m_gpuSearcher->runSearch(luma.data(), w, h, 19); },
-          Qt::BlockingQueuedConnection);
-    } else {
-      gpuMatches = m_gpuSearcher->runSearch(luma.data(), w, h, 19);
-    }
+    // Safety check: run on Render Thread via GpuSearcher's internal sync
+    // to avoid RHI frame conflicts
+    gpuMatches = m_gpuSearcher->runSearch(luma.data(), w, h, 19);
   }
 
   bool useSecondPass =
       final || ::AppStateManager::instance()->previewDenoiseFull();
+  bool useGpuDenoise = ::AppStateManager::instance()->useGpuDenoise();
   std::atomic<bool>* abortPtr = &m_abortDenoise;
-  QFuture<QImage> future = QtConcurrent::run(
-      [img, amount, abortPtr, useSecondPass, stride, gpuMatches]() {
-        return photon::Denoiser::denoise(img, amount, abortPtr, useSecondPass,
-                                         stride, gpuMatches);
-      });
+  QRhi* rhi = m_rhi;  // Capture RHI for potential GPU denoise
+  QQuickWindow* window = m_window;
+
+  QFuture<QImage> future = QtConcurrent::run([img, amount, abortPtr,
+                                              useSecondPass, stride, gpuMatches,
+                                              rhi, useGpuDenoise, window]() {
+    return photon::Denoiser::denoise(img, amount, abortPtr, useSecondPass,
+                                     stride, gpuMatches, rhi, useGpuDenoise, window);
+  });
   m_denoiseWatcher.setFuture(future);
+  LogManager::instance()->log(
+      QString("[ RawEngine.cpp ] - Started denoise (useGpu=%1)")
+          .arg(useGpuDenoise));
 }
 
 void RawEngine::clearDenoisedResult() {

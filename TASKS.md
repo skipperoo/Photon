@@ -114,12 +114,12 @@
     - [x] Implement **Non-Local Means (NLM)** shader in `RawViewport.frag`.
     - [x] Optimize search radius and patch size for 60fps performance.
 
-- [x] **Step 3: GPU Search Offload [DONE]**
+- [x] **Step 3: Vulkan-Native Search Offload [DONE]**
   - [x] Implement initial **Patch Search shaders** (3x3 patch SSD).
-  - [x] Refactor `GpuSearcher` to handle **RHI readback** (blocking worker thread).
-  - [x] Implement **GPU-to-CPU transfer** of search indices and SSD values.
-  - [x] Integrate GPU search results into the **BM3D aggregation phase** in `Denoiser.cpp` as a search seed.
-  - [x] Implement **CPU fallback** (handled automatically by checking RHI availability).
+  - [x] Refactor `GpuSearcher` to use **plain Vulkan** (independent compute queue).
+  - [x] Implement **Vulkan-to-CPU transfer** of search indices and SSD values.
+  - [x] Integrate search results into the **BM3D aggregation phase** in `Denoiser.cpp`.
+  - [x] Implement **CPU fallback** (handled automatically by checking Vulkan availability).
 - [x] **Asynchronous Workflow**
   - [x] Run heavy denoising in background thread.
   - [x] Implement "Applying denoise..." UI indicator with rotating loader.
@@ -136,7 +136,7 @@
   - [x] Apply BM3D only to the high-quality visible region.
 - [x] **Lifecycle Management**
   - [x] Ensure `RawEngine` destructor clean-joins all background workers.
-  - [x] Prevent segfaults on application close while denoising (Fixed race in `ThumbnailProvider` and RHI resource cleanup).
+  - [x] Prevent segfaults on application close while denoising (Fixed race in `ThumbnailProvider` and resource cleanup).
 - [x] **Viewport Constraints & Polish**
   - [x] Lock panning when zoom <= 100% (center image).
   - [x] Constrain pan offset to image boundaries when zoomed in.
@@ -158,6 +158,30 @@
 ## Phase 19: Basic export functionality [DONE]
 
 - [x] Export functionality (Save to JPEG/TIFF).
+
+## Phase 20: Full Vulkan BM3D Denoising [IN PROGRESS]
+
+- [x] **Architecture & Settings**
+  - [x] Add `useGpuDenoise` toggle setting in `AppStateManager`.
+  - [x] Design `VulkanDenoiser` class architecture (plain Vulkan, compute shaders).
+  - [x] Create compute shader infrastructure (grouping, transform, filter, aggregate).
+- [x] **Compute Shader Implementation**
+  - [x] Implement `bm3d_grouping.comp` - Block matching and group formation.
+  - [x] Implement `bm3d_transform.comp` - 3D DCT + Walsh-Hadamard transform.
+  - [x] Implement `bm3d_filter.comp` - Hard thresholding (step 1) and Wiener filtering (step 2).
+  - [x] Implement `bm3d_aggregate.comp` - Inverse transform and weighted aggregation.
+- [x] **Integration & Fallback**
+  - [x] Implement `GpuDenoiser` class using plain Vulkan.
+  - [x] Implement wrapper `denoise()` method in `Denoiser` class with automatic Vulkan/CPU selection.
+  - [x] Rename existing `denoise()` to `denoiseCpu()` for CPU-only path.
+  - [x] Add `denoiseGpu()` method for Vulkan-accelerated path.
+  - [x] Integrate into `RawEngine` with async execution via `QtConcurrent`.
+  - [x] Implement CPU fallback when `useGpuDenoise` is false or Vulkan unavailable.
+  - [x] Respect `previewDenoiseFull` setting for high-quality previews.
+- [ ] **Performance & Validation**
+  - [ ] Benchmark Vulkan vs CPU SIMD performance.
+  - [ ] Ensure non-blocking UI (independent Vulkan compute queue).
+  - [ ] Handle edge cases (memory limits, driver timeouts).
 
 ## Backlog / Future
 

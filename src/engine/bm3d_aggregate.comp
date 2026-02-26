@@ -1,0 +1,28 @@
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+
+layout(local_size_x = 64, local_size_y = 1) in;
+
+layout(binding = 0) buffer FilteredData {
+    float data[];
+} filtered;
+
+layout(binding = 1) buffer Accumulator {
+    vec2 data[]; // (sum, weight)
+} accumulator;
+
+layout(binding = 2) buffer DctTables {
+    float dctCoeff[64];
+    float idctCoeff[64];
+    float kaiser[64];
+} tables;
+
+layout(push_constant) uniform Params {
+    int width;
+    int height;
+    int numGroups;
+} params;
+
+void main() {
+    // Aggregate logic
+}

@@ -9,9 +9,12 @@
 
 #include "GpuDenoiser.h"
 
-#ifdef _MSC_VER
-#include <intrin.h>
-#define photon_popcount __popcnt
+#ifdef _WIN32
+static int photon_popcount(unsigned int n) {
+    int count = 0;
+    while (n) { n &= (n - 1); count++; }
+    return count;
+}
 #else
 #define photon_popcount __builtin_popcount
 #endif

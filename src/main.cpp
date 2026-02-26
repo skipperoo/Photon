@@ -1,8 +1,9 @@
-#ifdef Q_OS_WIN
+#ifdef _WIN32
 #include <windows.h>
 #else
 #include <dlfcn.h>
 #endif
+
 #include <vulkan/vulkan.h>
 
 #include <QCoreApplication>
@@ -42,7 +43,6 @@ int main(int argc, char* argv[]) {
   // Enable RHI info and Vulkan logging
   qputenv("QSG_INFO", "1");
   qputenv("QSG_RHI_DEBUG", "1");
-  // qputenv("QT_LOGGING_RULES", "qt.vulkan=true");
   qputenv("QSG_RHI_BACKEND", "vulkan");
 
   // Set basic app info early for QSettings
@@ -57,7 +57,7 @@ int main(int argc, char* argv[]) {
         settings.value("performance/preferredGpu", "Auto").toString();
 
     if (preferredGpu != "Auto") {
-#ifdef Q_OS_WIN
+#ifdef _WIN32
       HMODULE libvulkan = LoadLibraryA("vulkan-1.dll");
       if (libvulkan) {
         auto vkCreateInstance_ptr =
@@ -106,37 +106,20 @@ int main(int argc, char* argv[]) {
 
                 if (preferredGpu == deviceName) {
                   QByteArray idx = QByteArray::number(i);
-                  // Force Qt RHI to use this index
                   qputenv("QSG_RHI_DEVICE_INDEX", idx);
                   qputenv("QT_VULKAN_DEVICE_INDEX", idx);
 
-                  // Linux-specific: Force device selection layer
-                  // (Mesa/AMD/Intel)
                   QByteArray deviceSelect =
                       QByteArray::number(props.vendorID, 16) + ":" +
                       QByteArray::number(props.deviceID, 16);
                   qputenv("MESA_VK_DEVICE_SELECT", deviceSelect);
 
-                  // NVIDIA Prime / Optimus specific:
                   if (deviceName.contains("NVIDIA", Qt::CaseInsensitive)) {
                     qputenv("__NV_PRIME_RENDER_OFFLOAD", "1");
                     qputenv("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
                     qputenv("__VK_LAYER_NV_optimus", "NVIDIA_only");
                     qputenv("QSG_RHI_PREFER_HIGH_PERFORMANCE_GPU", "1");
                   }
-
-                  LogManager::instance()->log(
-                      QString("Photon: Forcing GPU [%1] %2 (Vendor: %3, Device: "
-                              "%4)")
-                          .arg(i)
-                          .arg(deviceName)
-                          .arg(props.vendorID, 4, 16, QChar('0'))
-                          .arg(props.deviceID, 4, 16, QChar('0')),
-                      "INFO");
-                  LogManager::instance()->log(
-                      QString("Photon: QSG_RHI_DEVICE_INDEX=%1")
-                          .arg(qgetenv("QSG_RHI_DEVICE_INDEX").constData()),
-                      "DEBUG");
                   break;
                 }
               }
@@ -144,7 +127,7 @@ int main(int argc, char* argv[]) {
             vkDestroyInstance_ptr(instance, nullptr);
           }
         }
-#ifdef Q_OS_WIN
+#ifdef _WIN32
         FreeLibrary(libvulkan);
 #else
         dlclose(libvulkan);
@@ -155,59 +138,38 @@ int main(int argc, char* argv[]) {
 
   QGuiApplication app(argc, argv);
 
-  // Setup Vulkan Instance - Non-static local to ensure it's destroyed before
-  // app returns
   QVulkanInstance vulkanInstance;
   vulkanInstance.setLayers({});
   if (!vulkanInstance.create()) {
     qWarning("Failed to create Vulkan instance");
   }
 
-  // Use Vulkan by default for the RHI
   QQuickWindow::setGraphicsApi(QSGRendererInterface::VulkanRhi);
 
   QQmlApplicationEngine engine;
 
-  // Create managers
   ThumbnailProvider* thumbProvider = new ThumbnailProvider(&app);
   PresetManager* presetManager = new PresetManager(&app);
   photon::PreviewManager* previewManager = new photon::PreviewManager(&app);
   photon::ExportManager* exportManager = new photon::ExportManager(&app);
 
-  // Register singletons early and set parents to ensure they are destroyed with
-  // the app
   auto* appState = AppStateManager::instance();
   appState->setParent(&app);
   auto* logManager = photon::LogManager::instance();
   logManager->setParent(&app);
 
-  // Register image provider
   engine.addImageProvider("thumbnail",
                           new ThumbnailImageProvider(thumbProvider));
 
-  // Register AppStateManager singleton
   qmlRegisterSingletonType<AppStateManager>(
       "Main", 1, 0, "AppState", &AppStateManager::createQmlInstance);
 
   qmlRegisterSingletonInstance("Main", 1, 0, "Logger", logManager);
-
-  // Register PresetManager singleton
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
-
-  // Register PreviewManager singleton
   qmlRegisterSingletonInstance("Main", 1, 0, "PreviewManager", previewManager);
-
-  // Register ExportManager singleton
   qmlRegisterSingletonInstance("Main", 1, 0, "ExportManager", exportManager);
-
-  // Register RawViewport component
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");
-
-  // Register ThumbnailProvider component (as an instance for QML to call
-  // generateThumbnailAsync)
   engine.rootContext()->setContextProperty("thumbnailProvider", thumbProvider);
-
-  // Register FileScanner component
   qmlRegisterType<FileScanner>("Main", 1, 0, "FileScanner");
 
   const QUrl url(QStringLiteral("qrc:/Main/content/views/App.qml"));
@@ -221,7 +183,6 @@ int main(int argc, char* argv[]) {
         QQuickWindow* window = qobject_cast<QQuickWindow*>(obj);
         if (window) {
           window->setVulkanInstance(&vulkanInstance);
-          // Pass RHI and Window to managers when it becomes available
           QObject::connect(window, &QQuickWindow::sceneGraphInitialized,
                            [window, previewManager, exportManager]() {
                              if (previewManager) {

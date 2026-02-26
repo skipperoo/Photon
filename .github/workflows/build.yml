@@ -2,10 +2,10 @@ name: Build and Release
 
 on:
   push:
-    branches: [ master, develop ]
-    tags: [ 'v*' ]
+    branches: [master, develop]
+    tags: ["v*"]
   pull_request:
-    branches: [ master, develop ]
+    branches: [master, develop]
 
 jobs:
   build:
@@ -17,8 +17,9 @@ jobs:
         os: [ubuntu-22.04, windows-latest]
         include:
           - os: ubuntu-22.04
-            qt_arch: gcc_64
+            qt_ver: 6.10.1
           - os: windows-latest
+            qt_ver: 6.10.1
             qt_arch: win64_msvc2022_64
 
     steps:
@@ -30,9 +31,9 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
-          version: '6.7.2'
+          version: ${{ matrix.qt_ver }}
           arch: ${{ matrix.qt_arch }}
-          modules: 'qtshadertools'
+          modules: "qtshadertools"
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -54,7 +55,7 @@ jobs:
           mkdir build_dir
           cd build_dir
           cmake .. -DCMAKE_BUILD_TYPE=Release \
-            ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake' || '' }}
+            ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake"' || '' }}
 
       - name: Build
         run: |
@@ -75,7 +76,7 @@ jobs:
           export PATH=$QT_ROOT/bin:$PATH
           export LD_LIBRARY_PATH=$QT_ROOT/lib:$LD_LIBRARY_PATH
           export QMAKE=$QT_ROOT/bin/qmake
-          
+
           # Run linuxdeploy
           ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
           mv Photon-*.AppImage Photon-x86_64.AppImage

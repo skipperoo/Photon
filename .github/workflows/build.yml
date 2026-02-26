@@ -32,7 +32,7 @@ jobs:
         with:
           version: '6.8.*'
           arch: ${{ matrix.qt_arch }}
-          modules: 'qtshadertools qtquickcontrols2'
+          modules: 'qtshadertools'
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -51,19 +51,19 @@ jobs:
 
       - name: Configure CMake
         run: |
-          mkdir build
-          cd build
+          mkdir build_dir
+          cd build_dir
           cmake .. -DCMAKE_BUILD_TYPE=Release \
             ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake' || '' }}
 
       - name: Build
         run: |
-          cmake --build build --config Release -j2
+          cmake --build build_dir --config Release -j2
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
-          cd build/Release
+          cd build_dir/Release
           # Gather Qt dependencies
           windeployqt --qmldir ../../content Photon.exe
           # Generate MSI using CPack
@@ -75,7 +75,7 @@ jobs:
         run: |
           export QMAKE=$(which qmake)
           # Use linuxdeploy to create AppImage
-          ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
           # Rename output for consistent artifact naming
           mv Photon-*.AppImage Photon-x86_64.AppImage
 
@@ -84,7 +84,7 @@ jobs:
         with:
           name: Photon-${{ runner.os }}
           path: |
-            build/*.msi
+            build_dir/*.msi
             *.AppImage
 
   release:

@@ -42,6 +42,7 @@ jobs:
           sudo apt-get install -y libraw-dev libvulkan-dev libfuse2 libgl1-mesa-dev \
             libxcb-cursor0 libxcb-xinerama0 libxcb-xinput0 libxcb-icccm4 \
             libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 libxkbcommon-x11-0 \
             imagemagick
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
@@ -82,6 +83,8 @@ jobs:
           export VERSION=$(git describe --tags --always)
           # Tell the Qt plugin where to find QML files to scan for dependencies
           export QML_SOURCES_PATHS="${{ github.workspace }}/content"
+          # Explicitly request extra platform plugins for better compatibility
+          export EXTRA_QT_PLUGINS="platforms,wayland-graphics-integration-client,wayland-shell-integration,imageformats"
           
           # Run linuxdeploy
           ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage

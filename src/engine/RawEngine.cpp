@@ -1635,7 +1635,13 @@ void RawEngine::loadEdits() {
   resetToDefaults(this);
 
   // Apply last state - this will trigger signals and update UI
-  applyJsonToState(this, arr.last().toObject());
+  QJsonObject lastState = arr.last().toObject();
+  LogManager::instance()->log(
+      QString("[ RawEngine ] - Loading edits: denoiseEnabled=%1, denoiseAmount=%2")
+          .arg(lastState["denoiseEnabled"].toBool())
+          .arg(lastState["denoiseAmount"].toDouble()),
+      "DEBUG");
+  applyJsonToState(this, lastState);
 
   emit editStackChanged();
   emit canUndoChanged();
@@ -1748,6 +1754,9 @@ bool RawEngine::isDefault() const {
   if (m_tonemappingEnabled) return false;
   if (!qFuzzyIsNull(m_grainAmount)) return false;
   if (!qFuzzyIsNull(m_vignetteAmount)) return false;
+  if (!qFuzzyCompare(m_vignetteMidpoint, 50.0f)) return false;
+  if (!qFuzzyIsNull(m_vignetteRoundness)) return false;
+  if (!qFuzzyCompare(m_vignetteFeather, 50.0f)) return false;
   if (!qFuzzyIsNull(m_denoiseAmount)) return false;
   if (m_denoiseEnabled) return false;
 

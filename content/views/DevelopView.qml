@@ -412,8 +412,6 @@ Control {
                         Layout.fillWidth: true
                         spacing: 16
                         
-                        property real localDenoise: root.viewport ? root.viewport.denoiseAmount : 0.0
-
                         ControlGroup { title: "Sharpening"; value: 0; from: 0; to: 100 }
 
                         RowLayout {
@@ -432,17 +430,16 @@ Control {
 
                         ControlGroup { 
                             title: "Noise Reduction"; 
-                            value: parent.localDenoise; 
+                            value: root.viewport ? root.viewport.denoiseAmount : 0.0; 
                             from: 0; to: 100; 
                             enabled: root.viewport ? root.viewport.denoiseEnabled : false
                             opacity: enabled ? 1.0 : 0.5
                             onMoved: (v) => { 
-                                parent.localDenoise = v;
+                                if(root.viewport) root.viewport.denoiseAmount = v;
                             } 
                             onReleased: {
                                 if(root.viewport) {
-                                    root.viewport.denoiseAmount = parent.localDenoise;
-                                    if (parent.localDenoise > 0 && root.viewport.denoiseEnabled) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
                                         root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
                                     }
                                     root.viewport.commitEdit();

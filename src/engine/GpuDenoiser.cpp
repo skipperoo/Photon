@@ -29,15 +29,9 @@ QImage GpuDenoiser::denoise(
 
     LogManager::instance()->log(QString("[ GpuDenoiser ] - Starting full Vulkan denoise with intensity %1").arg(intensity), "INFO");
 
-    QImage output = input.convertToFormat(QImage::Format_RGB888);
-    int width = output.width();
-    int height = output.height();
-
-    // For now, if full pipeline isn't finished, use Hybrid as fallback internally
-    // but log that we are in GpuDenoiser.
-    // In next steps, I'll add the Vulkan resource management for buffers.
-
-    return input; // Placeholder until full buffer logic is added
+    // Placeholder: Return null QImage for now until full Vulkan BM3D pipeline is ported
+    // This allows Denoiser::denoise to fallback to Hybrid path (GPU search + CPU filter)
+    return QImage();
 }
 
 } // namespace photon

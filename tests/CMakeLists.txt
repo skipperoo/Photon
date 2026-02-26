@@ -34,7 +34,11 @@ target_link_libraries(tst_RawEngine
 target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
 
 target_include_directories(tst_RawEngine PRIVATE
+    ../src
     ../src/engine
+    ../src/components
+    ../src/managers
+    ${CMAKE_BINARY_DIR}
     /usr/include/qt6/QtGui/6.10.1
     /usr/include/qt6/QtGui/6.10.1/QtGui
     /usr/include/qt6/QtCore/6.10.1
@@ -75,6 +79,7 @@ target_include_directories(tst_AppStateManager PRIVATE
     ../src
     ../src/managers
     ../src/engine
+    ${CMAKE_BINARY_DIR}
     ${LIBRAW_INCLUDE_DIRS}
 )
 

@@ -417,14 +417,19 @@ Window {
                                     opacity: 0.6
                                 }
 
-                                Slider {
+                                PhotonSlider {
                                     id: zoomSlider
                                     Layout.preferredWidth: 200
                                     from: 0.1
                                     to: 10.0
                                     value: rawViewport.zoom
+                                    defaultValue: 1.0
                                     onMoved: {
                                         rawViewport.zoom = value
+                                        interactionDenoiseTimer.restart()
+                                    }
+                                    onDoubleClicked: {
+                                        rawViewport.zoom = 1.0
                                         interactionDenoiseTimer.restart()
                                     }
                                 }                                

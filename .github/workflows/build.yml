@@ -43,7 +43,7 @@ jobs:
             libxcb-cursor0 libxcb-xinerama0 libxcb-xinput0 libxcb-icccm4 \
             libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 \
             libwayland-client0 libwayland-cursor0 libwayland-egl1 libxkbcommon-x11-0 \
-            libwayland-dev wayland-protocols \
+            libwayland-dev wayland-protocols libwayland-server0 \
             imagemagick
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage

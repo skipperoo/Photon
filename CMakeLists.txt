@@ -135,7 +135,7 @@ qt_add_qml_module(Photon
         content/components/Button.qml
         content/components/Switch.qml
         content/components/Input.qml
-        content/components/Slider.qml
+        content/components/PhotonSlider.qml
         content/components/Card.qml
         content/components/Collapsible.qml
         content/components/ControlGroup.qml

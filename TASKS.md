@@ -210,6 +210,7 @@
   - [x] Configure Nightly builds for `develop` and Stable for `master`.
   - [x] Implement automated packaging: **Linux AppImage** (via linuxdeploy) and **Windows MSI** (via CPack/WiX).
   - [x] Fix YAML syntax and artifact collection in CI workflow.
+  - [x] Resolve QML naming conflicts (renamed Slider to PhotonSlider) to fix AppImage crashes.
 - [x] **Cross-Platform Compatibility**
   - [x] Make all `.PhotonData` path handling OS-agnostic using `QDir::toNativeSeparators`.
   - [x] Update CMake for vcpkg/MSVC compatibility on Windows.

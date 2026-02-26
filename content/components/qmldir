@@ -4,5 +4,5 @@ Card 1.0 Card.qml
 Collapsible 1.0 Collapsible.qml
 ControlGroup 1.0 ControlGroup.qml
 Input 1.0 Input.qml
-Slider 1.0 Slider.qml
+PhotonSlider 1.0 PhotonSlider.qml
 Histogram 1.0 Histogram.qml

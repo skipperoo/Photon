@@ -225,6 +225,22 @@ Control {
                 }
             }
             
+            Item { height: 20 }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: Theme.border
+                opacity: 0.5
+            }
+
+            Text {
+                text: "Photon v" + AppState.version
+                font: Theme.fontSmall
+                color: Theme.mutedFg
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+            
             Item { height: 40 } // Bottom padding
         }
     }

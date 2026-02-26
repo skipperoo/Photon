@@ -1,4 +1,5 @@
 #include "AppStateManager.h"
+#include "Version.h"
 
 #include <vulkan/vulkan.h>
 
@@ -65,6 +66,10 @@ void AppStateManager::detectGpus() {
     qWarning() << "Failed to create Vulkan instance for GPU detection";
   }
   emit availableGpusChanged();
+}
+
+QString AppStateManager::version() const {
+    return PHOTON_VERSION_STRING;
 }
 
 void AppStateManager::loadSettings() {

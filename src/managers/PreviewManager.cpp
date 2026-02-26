@@ -35,7 +35,7 @@ QString PreviewManager::getCachePath(const QString& rawPath) const {
   QFileInfo fileInfo(rawPath);
   QString folder = fileInfo.absolutePath();
   QString filename = fileInfo.fileName() + ".preview.jpg";
-  return folder + "/.PhotonData/cache/previews/" + filename;
+  return QDir::toNativeSeparators(folder + "/.PhotonData/cache/previews/" + filename);
 }
 
 bool PreviewManager::isPreviewValid(const QString& rawPath) const {
@@ -44,8 +44,8 @@ bool PreviewManager::isPreviewValid(const QString& rawPath) const {
   if (!cacheInfo.exists()) return false;
 
   QFileInfo rawInfo(rawPath);
-  QString editsPath = rawInfo.absolutePath() + "/.PhotonData/edits/" +
-                      rawInfo.fileName() + ".json";
+  QString editsPath = QDir::toNativeSeparators(rawInfo.absolutePath() + "/.PhotonData/edits/" +
+                      rawInfo.fileName() + ".json");
   QFileInfo editsInfo(editsPath);
 
   // Valid if newer than RAW AND newer than sidecar
@@ -150,8 +150,8 @@ void PreviewManager::processItem(const QString& rawPath) {
   QString cachePath = getCachePath(rawPath);
 
   // 1. Load Sidecar Edits
-  QString editsPath = fileInfo.absolutePath() + "/.PhotonData/edits/" +
-                      fileInfo.fileName() + ".json";
+  QString editsPath = QDir::toNativeSeparators(fileInfo.absolutePath() + "/.PhotonData/edits/" +
+                      fileInfo.fileName() + ".json");
   QJsonObject lastState;
   if (QFile::exists(editsPath)) {
     LogManager::instance()->log(QString("[ PreviewManager ] - Loading sidecar: %1").arg(editsPath), "DEBUG");

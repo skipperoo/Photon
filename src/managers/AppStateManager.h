@@ -47,6 +47,7 @@ class AppStateManager : public QObject {
       QString logLevel READ logLevel WRITE setLogLevel NOTIFY logLevelChanged)
   Q_PROPERTY(int cacheSizeGB READ cacheSizeGB WRITE setCacheSizeGB NOTIFY
                  cacheSizeGBChanged)
+  Q_PROPERTY(QString version READ version CONSTANT)
 
  public:
   enum class ViewState { Welcome, Library, Develop, Settings };
@@ -80,6 +81,7 @@ class AppStateManager : public QObject {
   QString logLocation() const;
   QString logLevel() const;
   int cacheSizeGB() const { return m_cacheSizeGB; }
+  QString version() const;
 
   // Settings operations
   Q_INVOKABLE void loadSettings();

@@ -72,7 +72,7 @@
   - [x] Add `applySettings` batch logic to `RawEngine`.
   - [x] Create core `PresetPanel.qml` logic.
 
-## Phase 9: Advanced Sidebar & Tool Selection [IN PROGRESS]
+## Phase 9: Advanced Sidebar & Tool Selection [DONE]
 
 - [x] **Sidebar Refactoring**
   - [x] Implement right-side Section Switcher (Icon-sized navigation).
@@ -183,21 +183,37 @@
   - [ ] Ensure non-blocking UI (independent Vulkan compute queue).
   - [ ] Handle edge cases (memory limits, driver timeouts).
 
-## Phase 21: Effects & Slider Refinements [IN PROGRESS]
+## Phase 21: Effects & Slider Refinements [DONE]
 
-- [ ] **UI Refinements**
-  - [ ] Map Contrast slider range to [-100, 100] in UI.
-  - [ ] Implement Effects section sliders: Clarity, Dehaze, Structure, Centrè.
-  - [ ] Update Sharpening slider in Detail section with range [0, 100].
-- [ ] **Engine & Shader Implementation**
-  - [ ] Expose new adjustment properties in `RawEngine` and `RawViewport`.
-  - [ ] Implement `apply_local_contrast` utility in `RawViewport.frag`.
-  - [ ] Implement `apply_dehaze` in `RawViewport.frag`.
-  - [ ] Implement `apply_centre` (radial tonal/color) in `RawViewport.frag`.
-  - [ ] **Viewport Performance Optimization**
-  - [ ] Implement texture caching in \`RawViewport\` to decouple panning from texture uploads.
-  - [ ] Optimize 16-bit to 8-bit conversion/upload path.
-  - [ ] Throttled UI updates during pan.
+- [x] **UI Refinements**
+  - [x] Map Contrast slider range to [-100, 100] in UI.
+  - [x] Implement Effects section sliders: Clarity, Dehaze, Structure, Centrè.
+  - [x] Update Sharpening slider in Detail section with range [0, 100].
+- [x] **Engine & Shader Implementation**
+  - [x] Expose new adjustment properties in `RawEngine` and `RawViewport`.
+  - [x] Implement `apply_local_contrast` utility in `RawViewport.frag`.
+  - [x] Implement `apply_dehaze` in `RawViewport.frag`.
+  - [x] Implement `apply_centre` (radial tonal/color) in `RawViewport.frag`.
+- [x] **Viewport Performance Optimization**
+  - [x] Implement texture caching in `RawViewport` to decouple panning from texture uploads.
+  - [x] Optimize 16-bit to 8-bit conversion/upload path.
+  - [x] Throttled UI updates during pan.
+
+## Phase 22: Deployment & Versioning [DONE]
+
+- [x] **Versioning System**
+  - [x] Create `Version.h.in` template for CMake.
+  - [x] Display version string in Settings footer.
+  - [x] Implement `tag_release.sh` for automated tagging.
+- [x] **CI/CD Infrastructure**
+  - [x] Create GitHub Actions workflow for cross-platform builds.
+  - [x] Configure Nightly builds for `develop` and Stable for `master`.
+  - [x] Implement automated packaging: **Linux AppImage** (via linuxdeploy) and **Windows MSI** (via CPack/WiX).
+- [x] **Cross-Platform Compatibility**
+  - [x] Make all `.PhotonData` path handling OS-agnostic using `QDir::toNativeSeparators`.
+  - [x] Update CMake for vcpkg/MSVC compatibility on Windows.
+- [x] **Performance Optimization**
+  - [x] Implement high-performance compiler flags (-O3, LTO, AVX2/FMA) for Release builds.
 
 ## Backlog / Future
 

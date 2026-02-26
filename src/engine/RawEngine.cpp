@@ -1651,8 +1651,8 @@ void RawEngine::loadEdits() {
   if (m_source.isEmpty()) return;
 
   QFileInfo fileInfo(m_source);
-  QString editsPath = fileInfo.absolutePath() + "/.PhotonData/edits/" +
-                      fileInfo.fileName() + ".json";
+  QString editsPath = QDir::toNativeSeparators(fileInfo.absolutePath() + "/.PhotonData/edits/" +
+                      fileInfo.fileName() + ".json");
 
   m_editStack.clear();
 
@@ -1727,9 +1727,9 @@ void RawEngine::commitEdit() {
 
   // Save full stack to file
   QFileInfo fileInfo(m_source);
-  QString editsDir = fileInfo.absolutePath() + "/.PhotonData/edits";
+  QString editsDir = QDir::toNativeSeparators(fileInfo.absolutePath() + "/.PhotonData/edits");
   QDir().mkpath(editsDir);
-  QString editsPath = editsDir + "/" + fileInfo.fileName() + ".json";
+  QString editsPath = QDir::toNativeSeparators(editsDir + "/" + fileInfo.fileName() + ".json");
 
   QJsonArray arr;
   for (const auto& v : m_editStack) {

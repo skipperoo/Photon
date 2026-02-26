@@ -1,13 +1,25 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Photon VERSION 0.1 LANGUAGES CXX)
+project(Photon VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Configure version header
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/Version.h"
+)
+
 find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent GuiPrivate)
 find_package(Vulkan REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBRAW REQUIRED libraw)
+
+if(WIN32)
+    # Use find_package for vcpkg compatibility on Windows
+    find_package(LibRaw REQUIRED)
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBRAW REQUIRED libraw)
+endif()
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -171,6 +183,7 @@ target_include_directories(Photon PRIVATE
     src/engine
     src/components
     src/managers
+    ${CMAKE_CURRENT_BINARY_DIR}
     /usr/include/qt6/QtGui/6.10.1
     /usr/include/qt6/QtGui/6.10.1/QtGui
     ${LIBRAW_INCLUDE_DIRS}
@@ -181,12 +194,42 @@ set_target_properties(Photon PROPERTIES
     QT_QML_IMPORT_PATH "${CMAKE_BINARY_DIR}/Main"
 )
 
+# Performance Optimizations
+if(MSVC)
+    target_compile_options(Photon PRIVATE /O2 /arch:AVX2 /GL)
+    target_link_options(Photon PRIVATE /LTCG)
+else()
+    target_compile_options(Photon PRIVATE -O3 -mavx2 -mfma -flto=auto)
+    target_link_options(Photon PRIVATE -flto=auto)
+endif()
+
 include(GNUInstallDirs)
 install(TARGETS Photon
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# Install QML content
+install(DIRECTORY content/ DESTINATION ${CMAKE_INSTALL_BINDIR}/content)
+# Install Assets
+install(DIRECTORY assets/ DESTINATION ${CMAKE_INSTALL_BINDIR}/assets)
+
+if(WIN32)
+    set(CPACK_GENERATOR "WIX")
+    set(CPACK_WIX_UPGRADE_GUID "d2b3c4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e")
+    set(CPACK_PACKAGE_VENDOR "RBLabs")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "Photon")
+    set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+    set(CPACK_WIX_PRODUCT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.png")
+endif()
+
+set(CPACK_PACKAGE_NAME "Photon")
+set(CPACK_PACKAGE_CONTACT "support@rblabs.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "High-performance native RAW image editor")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+
+include(CPack)
 
 enable_testing()
 add_subdirectory(tests)

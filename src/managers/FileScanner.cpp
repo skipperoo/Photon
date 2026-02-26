@@ -39,9 +39,8 @@ QVariantList FileScanner::scanForRawFiles(const QString& folderPath) const {
 
       // Read rating from sidecar if it exists
       int rating = 0;
-      QString sidecarPath = fileInfo.absolutePath() + "/.PhotonData/edits/" +
-                            fileInfo.fileName() + ".json";
-      QFile sidecarFile(sidecarPath);
+            QString sidecarPath = QDir::toNativeSeparators(fileInfo.absolutePath() + "/.PhotonData/edits/" +
+                                fileInfo.fileName() + ".json");      QFile sidecarFile(sidecarPath);
       if (sidecarFile.open(QIODevice::ReadOnly)) {
         QJsonDocument doc = QJsonDocument::fromJson(sidecarFile.readAll());
         QJsonArray arr = doc.array();

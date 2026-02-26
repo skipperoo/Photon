@@ -27,7 +27,7 @@ QString ThumbnailProvider::getThumbnailCachePath(
     const QString& imagePath) const {
   QFileInfo fileInfo(imagePath);
   QString folder = fileInfo.absolutePath();
-  QString photonDataPath = folder + "/.PhotonData/cache/thumbnails";
+  QString photonDataPath = QDir::toNativeSeparators(folder + "/.PhotonData/cache/thumbnails");
 
   // Generate a hash of the filename to use as thumbnail name
   QByteArray hash = QCryptographicHash::hash(fileInfo.fileName().toUtf8(),

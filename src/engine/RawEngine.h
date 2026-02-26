@@ -55,6 +55,13 @@ class RawEngine : public QObject {
                  NOTIFY vignetteFeatherChanged)
   Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount
                  NOTIFY denoiseAmountChanged)
+  Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
+  Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
+  Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
+                 structureChanged)
+  Q_PROPERTY(float centre READ centre WRITE setCentre NOTIFY centreChanged)
+  Q_PROPERTY(float sharpness READ sharpness WRITE setSharpness NOTIFY
+                 sharpnessChanged)
 
   // HSL Panel Properties
   Q_PROPERTY(
@@ -243,6 +250,21 @@ class RawEngine : public QObject {
   float denoiseAmount() const { return m_denoiseAmount; }
   void setDenoiseAmount(float val);
 
+  float clarity() const { return m_clarity; }
+  void setClarity(float val);
+
+  float dehaze() const { return m_dehaze; }
+  void setDehaze(float val);
+
+  float structure() const { return m_structure; }
+  void setStructure(float val);
+
+  float centre() const { return m_centre; }
+  void setCentre(float val);
+
+  float sharpness() const { return m_sharpness; }
+  void setSharpness(float val);
+
   // HSL Getters & Setters
   float hslRedHue() const { return m_hslRedHue; }
   void setHslRedHue(float val);
@@ -398,6 +420,11 @@ class RawEngine : public QObject {
   void vignetteRoundnessChanged();
   void vignetteFeatherChanged();
   void denoiseAmountChanged();
+  void clarityChanged();
+  void dehazeChanged();
+  void structureChanged();
+  void centreChanged();
+  void sharpnessChanged();
 
   // HSL Signals
   void hslRedHueChanged();
@@ -493,6 +520,11 @@ class RawEngine : public QObject {
   float m_vignetteRoundness = 0.0f;
   float m_vignetteFeather = 0.5f;
   float m_denoiseAmount = 0.0f;
+  float m_clarity = 0.0f;
+  float m_dehaze = 0.0f;
+  float m_structure = 0.0f;
+  float m_centre = 0.0f;
+  float m_sharpness = 0.0f;
   bool m_denoiseEnabled = false;
 
   // HSL Member Variables

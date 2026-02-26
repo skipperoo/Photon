@@ -221,7 +221,7 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 **Accordion Sections:**
 
 1. **Light:**
-- _Sliders:_ Exposure, Contrast.
+- _Sliders:_ Exposure, Contrast (UI: -100 to 100, mapped to 0.5 - 1.5 multiplier).
 - _Tone:_ Highlights, Shadows, Whites, Blacks.
 - _Divider Line_
 - _Presence:_ Vibrance, Saturation.
@@ -239,14 +239,14 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 - Editable Parametric Curve (Highlights, Lights, Darks, Shadows) + Point Curve UI.
 
 5. **Effects:**
-- Clarity (Mid-tone contrast).
-- Dehaze (Atmospheric removal).
-- Structure (Local detail).
-- Vignette (Midpoint, Roundness, Feather).
+- Clarity: Local contrast enhancement targeting midtones.
+- Dehaze: Atmospheric haze removal using dark channel estimation.
+- Structure: Micro-contrast adjustment for texture enhancement.
+- Centrè: Radial tonal and color boost for subject emphasis.
 
 6. **Detail:**
-- Sharpening (Amount, Radius, Masking).
-- Noise Reduction (Luminance, Color).
+- Sharpening: Edge contrast enhancement (0 to 100).
+- Noise Reduction: Luminance (NLM/BM3D) and Color reduction.
 
 ### C. The Filmstrip (Bottom)
 

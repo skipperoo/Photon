@@ -104,7 +104,7 @@
     - [x] Add log file location selection to UI.
     - [x] Set default log location based on OS standards.
 
-  ## Phase 12: Hybrid Denoising Pipeline [IN PROGRESS]
+  ## Phase 12: Hybrid Denoising Pipeline [DONE]
 
   - [x] **Step 1: CPU Algorithm Refinement**
     - [x] Refactor `Denoiser.cpp` to use **Luma-only Block Matching**.
@@ -126,7 +126,7 @@
   - [x] Implement automatic abort logic when switching photos.
   - [x] Implement dynamic proxy scaling based on viewport size and zoom level.
 
-## Phase 13: High-Performance Denoise Control [IN PROGRESS]
+## Phase 13: High-Performance Denoise Control [DONE]
 
 - [x] **Explicit Execution Control**
   - [x] Add "Denoise" checkbox to UI.
@@ -182,6 +182,19 @@
   - [ ] Benchmark Vulkan vs CPU SIMD performance.
   - [ ] Ensure non-blocking UI (independent Vulkan compute queue).
   - [ ] Handle edge cases (memory limits, driver timeouts).
+
+## Phase 21: Effects & Slider Refinements [IN PROGRESS]
+
+- [ ] **UI Refinements**
+  - [ ] Map Contrast slider range to [-100, 100] in UI.
+  - [ ] Implement Effects section sliders: Clarity, Dehaze, Structure, Centrè.
+  - [ ] Update Sharpening slider in Detail section with range [0, 100].
+- [ ] **Engine & Shader Implementation**
+  - [ ] Expose new adjustment properties in `RawEngine` and `RawViewport`.
+  - [ ] Implement `apply_local_contrast` utility in `RawViewport.frag`.
+  - [ ] Implement `apply_dehaze` in `RawViewport.frag`.
+  - [ ] Implement `apply_centre` (radial tonal/color) in `RawViewport.frag`.
+  - [ ] Port RapidRAW's `apply_local_contrast` logic for Clarity, Structure, and Sharpening.
 
 ## Backlog / Future
 

@@ -32,6 +32,11 @@ layout(std140, binding = 0) uniform buf {
     float denoiseAmount;
     vec2 sourceSize;
     float isPreview;
+    float clarity;
+    float dehaze;
+    float structure;
+    float centre;
+    float sharpness;
     
     // HSL Panel (24 floats)
     float hslRedHue; float hslRedSaturation; float hslRedLuminance;
@@ -121,6 +126,85 @@ vec3 apply_white_balance(vec3 color, float temp, float tnt) {
     vec3 temp_mult = vec3(1.0 + temp * 0.2, 1.0 + temp * 0.05, 1.0 - temp * 0.2);
     vec3 tint_mult = vec3(1.0 + tnt * 0.25, 1.0 - tnt * 0.25, 1.0 + tnt * 0.25);
     return color * temp_mult * tint_mult;
+}
+
+// --- Local Contrast, Clarity, Dehaze & Centre (Ported from RapidRAW) ---
+
+vec3 apply_local_contrast(vec3 color_linear, vec3 blurred_linear, float amount, int mode) {
+    if (amount == 0.0) return color_linear;
+
+    // Doubling the action for Sharpening, Clarity and Structure
+    float effective_amount = amount * 2.0;
+
+    float center_luma = get_luma(color_linear);
+    float shadow_protection = smoothstep(0.0, 0.05, center_luma);
+    float highlight_protection = 1.0 - smoothstep(0.85, 1.0, center_luma);
+    float midtone_mask = shadow_protection * highlight_protection;
+    
+    if (midtone_mask < 0.001) return color_linear;
+
+    float blurred_luma = get_luma(blurred_linear);
+    float safe_center_luma = max(center_luma, 0.0001);
+    float safe_blurred_luma = max(blurred_luma, 0.0001);
+
+    vec3 final_color;
+    if (effective_amount < 0.0) {
+        vec3 blurred_projected = color_linear * (safe_blurred_luma / safe_center_luma);
+        float blur_amt = -effective_amount;
+        if (mode == 0) blur_amt *= 0.5; // Sharpening mode
+        final_color = mix(color_linear, blurred_projected, blur_amt);
+    } else {
+        float log_ratio = log2(safe_center_luma / safe_blurred_luma);
+        float adj_amount = effective_amount;
+        if (mode == 0) { // Sharpening mode
+            float edge_dampener = 1.0 - pow(clamp(abs(log_ratio) / 3.0, 0.0, 1.0), 0.5);
+            adj_amount = effective_amount * edge_dampener * 0.8;
+        }
+        final_color = color_linear * exp2(log_ratio * adj_amount);
+    }
+    
+    return mix(color_linear, final_color, midtone_mask);
+}
+
+vec3 apply_dehaze(vec3 color, float amount) {
+    if (amount == 0.0) return color;
+    
+    // Halving the effect
+    float effective_amount = amount * 0.5;
+    
+    vec3 atmospheric_light = vec3(0.95, 0.97, 1.0);
+    if (effective_amount > 0.0) {
+        float dark_channel = min(color.r, min(color.g, color.b));
+        float t = 1.0 - effective_amount * (1.0 - dark_channel);
+        vec3 recovered = (color - atmospheric_light) / max(t, 0.1) + atmospheric_light;
+        vec3 result = mix(color, recovered, effective_amount);
+        result = 0.5 + (result - 0.5) * (1.0 + effective_amount * 0.15);
+        float luma = get_luma(result);
+        return mix(vec3(luma), result, 1.0 + effective_amount * 0.1);
+    } else {
+        return mix(color, atmospheric_light, abs(effective_amount) * 0.7);
+    }
+}
+
+vec3 apply_centre_effects(vec3 color, float amount, vec2 imgCoord) {
+    if (amount == 0.0) return color;
+    
+    // Halving the effect
+    float effective_amount = amount * 0.5;
+    
+    vec2 uv_centered = (imgCoord - 0.5) * 2.0;
+    float d = length(uv_centered) * 0.5; // Simple circle for now
+    float centre_mask = 1.0 - smoothstep(0.1, 0.7, d);
+
+    // 1. Radial Exposure & Color
+    float exposure_boost = centre_mask * (effective_amount / 100.0) * 0.5;
+    color *= pow(2.0, exposure_boost);
+    
+    float vibrance_boost = centre_mask * (effective_amount / 100.0) * 0.4;
+    float gray = get_luma(color);
+    color = mix(vec3(gray), color, 1.0 + vibrance_boost);
+
+    return color;
 }
 
 // --- HSL Core Math ---
@@ -288,6 +372,30 @@ void main()
     
     // 0. Noise Reduction (Real-time GPU pass)
     color = apply_gpu_denoise(color, qt_TexCoord0, source, ubuf.denoiseAmount);
+
+    // --- Approximated Blur for Local Contrast (Clarity, Structure, Sharpness) ---
+    // We use a multi-tap sample to approximate a blurred version of the current pixel.
+    vec2 texelSize = 1.0 / ubuf.sourceSize;
+    vec3 blurred = color * 0.25;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, 1.5) * texelSize).rgb) * 0.1875;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, -1.5) * texelSize).rgb) * 0.1875;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, -1.5) * texelSize).rgb) * 0.1875;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, 1.5) * texelSize).rgb) * 0.1875;
+
+    // Apply Sharpening (Mode 0)
+    color = apply_local_contrast(color, blurred, ubuf.sharpness / 100.0, 0);
+    
+    // Apply Clarity (Mode 1)
+    color = apply_local_contrast(color, blurred, ubuf.clarity / 100.0, 1);
+    
+    // Apply Structure (Mode 1, but with different scaling/interpretation if needed)
+    color = apply_local_contrast(color, blurred, ubuf.structure / 100.0, 1);
+
+    // Apply Dehaze
+    color = apply_dehaze(color, ubuf.dehaze / 100.0);
+
+    // Apply Centre Effects
+    color = apply_centre_effects(color, ubuf.centre, imgCoord);
 
     // 1. White Balance
     color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0);

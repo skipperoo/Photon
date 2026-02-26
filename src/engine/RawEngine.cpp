@@ -435,6 +435,41 @@ void RawEngine::setDenoiseAmount(float val) {
   emit isDefaultChanged();
 }
 
+void RawEngine::setClarity(float val) {
+  if (qFuzzyCompare(m_clarity, val)) return;
+  m_clarity = val;
+  emit clarityChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setDehaze(float val) {
+  if (qFuzzyCompare(m_dehaze, val)) return;
+  m_dehaze = val;
+  emit dehazeChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setStructure(float val) {
+  if (qFuzzyCompare(m_structure, val)) return;
+  m_structure = val;
+  emit structureChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCentre(float val) {
+  if (qFuzzyCompare(m_centre, val)) return;
+  m_centre = val;
+  emit centreChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setSharpness(float val) {
+  if (qFuzzyCompare(m_sharpness, val)) return;
+  m_sharpness = val;
+  emit sharpnessChanged();
+  emit isDefaultChanged();
+}
+
 void RawEngine::setDenoiseEnabled(bool enabled) {
   if (m_denoiseEnabled == enabled) return;
   m_denoiseEnabled = enabled;
@@ -1387,6 +1422,11 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["vignetteFeather"] = e->vignetteFeather();
   obj["denoiseAmount"] = e->denoiseAmount();
   obj["denoiseEnabled"] = e->denoiseEnabled();
+  obj["clarity"] = e->clarity();
+  obj["dehaze"] = e->dehaze();
+  obj["structure"] = e->structure();
+  obj["centre"] = e->centre();
+  obj["sharpness"] = e->sharpness();
 
   obj["hslRedHue"] = e->hslRedHue();
   obj["hslRedSaturation"] = e->hslRedSaturation();
@@ -1461,6 +1501,11 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setDenoiseAmount(obj["denoiseAmount"].toDouble());
   if (obj.contains("denoiseEnabled"))
     e->setDenoiseEnabled(obj["denoiseEnabled"].toBool());
+  if (obj.contains("clarity")) e->setClarity(obj["clarity"].toDouble());
+  if (obj.contains("dehaze")) e->setDehaze(obj["dehaze"].toDouble());
+  if (obj.contains("structure")) e->setStructure(obj["structure"].toDouble());
+  if (obj.contains("centre")) e->setCentre(obj["centre"].toDouble());
+  if (obj.contains("sharpness")) e->setSharpness(obj["sharpness"].toDouble());
 
   if (obj.contains("hslRedHue")) e->setHslRedHue(obj["hslRedHue"].toDouble());
   if (obj.contains("hslRedSaturation"))
@@ -1554,6 +1599,11 @@ static void resetToDefaults(RawEngine* e) {
   e->setVignetteFeather(50.0f);
   e->setDenoiseAmount(0.0f);
   e->setDenoiseEnabled(false);
+  e->setClarity(0.0f);
+  e->setDehaze(0.0f);
+  e->setStructure(0.0f);
+  e->setCentre(0.0f);
+  e->setSharpness(0.0f);
 
   e->setHslRedHue(0.0f);
   e->setHslRedSaturation(0.0f);
@@ -1759,6 +1809,11 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyCompare(m_vignetteFeather, 50.0f)) return false;
   if (!qFuzzyIsNull(m_denoiseAmount)) return false;
   if (m_denoiseEnabled) return false;
+  if (!qFuzzyIsNull(m_clarity)) return false;
+  if (!qFuzzyIsNull(m_dehaze)) return false;
+  if (!qFuzzyIsNull(m_structure)) return false;
+  if (!qFuzzyIsNull(m_centre)) return false;
+  if (!qFuzzyIsNull(m_sharpness)) return false;
 
   // HSL checks
   if (!qFuzzyIsNull(m_hslRedHue) || !qFuzzyIsNull(m_hslRedSaturation) ||

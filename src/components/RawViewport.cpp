@@ -120,6 +120,26 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit denoiseAmountChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::clarityChanged, this, [this]() {
+    emit clarityChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::dehazeChanged, this, [this]() {
+    emit dehazeChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::structureChanged, this, [this]() {
+    emit structureChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::centreChanged, this, [this]() {
+    emit centreChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::sharpnessChanged, this, [this]() {
+    emit sharpnessChanged();
+    update();
+  });
   connect(&m_engine, &RawEngine::denoiseEnabledChanged, this, [this]() {
     emit denoiseEnabledChanged();
     update();
@@ -463,6 +483,41 @@ void RawViewport::setDenoiseAmount(float val) {
 
   m_engine.setDenoiseAmount(val);
   emit denoiseAmountChanged();
+  update();
+}
+
+void RawViewport::setClarity(float val) {
+  if (qFuzzyCompare(m_engine.clarity(), val)) return;
+  m_engine.setClarity(val);
+  emit clarityChanged();
+  update();
+}
+
+void RawViewport::setDehaze(float val) {
+  if (qFuzzyCompare(m_engine.dehaze(), val)) return;
+  m_engine.setDehaze(val);
+  emit dehazeChanged();
+  update();
+}
+
+void RawViewport::setStructure(float val) {
+  if (qFuzzyCompare(m_engine.structure(), val)) return;
+  m_engine.setStructure(val);
+  emit structureChanged();
+  update();
+}
+
+void RawViewport::setCentre(float val) {
+  if (qFuzzyCompare(m_engine.centre(), val)) return;
+  m_engine.setCentre(val);
+  emit centreChanged();
+  update();
+}
+
+void RawViewport::setSharpness(float val) {
+  if (qFuzzyCompare(m_engine.sharpness(), val)) return;
+  m_engine.setSharpness(val);
+  emit sharpnessChanged();
   update();
 }
 

@@ -182,7 +182,13 @@ Control {
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
                         ControlGroup { title: "Exposure"; value: root.viewport ? root.viewport.exposure : 0.0; from: -5; to: 5; onMoved: (v) => { if(root.viewport) root.viewport.exposure = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Contrast"; value: root.viewport ? root.viewport.contrast : 1.0; from: 0.5; to: 1.5; onMoved: (v) => { if(root.viewport) root.viewport.contrast = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { 
+                            title: "Contrast"; 
+                            value: root.viewport ? (root.viewport.contrast - 1.0) * 200.0 : 0.0; 
+                            from: -100; to: 100; 
+                            onMoved: (v) => { if(root.viewport) root.viewport.contrast = 1.0 + (v / 200.0) }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit() 
+                        }
                         
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
@@ -368,14 +374,39 @@ Control {
                 // --- Effects Section ---
                 Collapsible {
                     title: "Effects"
-                    expanded: false
+                    expanded: true
 
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 16
-                        ControlGroup { title: "Clarity"; value: 0; from: -100; to: 100 }
-                        ControlGroup { title: "Dehaze"; value: 0; from: -100; to: 100 }
-                        ControlGroup { title: "Structure"; value: 0; from: -100; to: 100 }
+                        ControlGroup { 
+                            title: "Clarity"; 
+                            value: root.viewport ? root.viewport.clarity : 0.0; 
+                            from: -100; to: 100;
+                            onMoved: (v) => { if(root.viewport) root.viewport.clarity = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Dehaze"; 
+                            value: root.viewport ? root.viewport.dehaze : 0.0; 
+                            from: -100; to: 100;
+                            onMoved: (v) => { if(root.viewport) root.viewport.dehaze = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Structure"; 
+                            value: root.viewport ? root.viewport.structure : 0.0; 
+                            from: -100; to: 100;
+                            onMoved: (v) => { if(root.viewport) root.viewport.structure = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Centrè"; 
+                            value: root.viewport ? root.viewport.centre : 0.0; 
+                            from: -100; to: 100;
+                            onMoved: (v) => { if(root.viewport) root.viewport.centre = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
                     }
                 }
 
@@ -412,7 +443,13 @@ Control {
                         Layout.fillWidth: true
                         spacing: 16
                         
-                        ControlGroup { title: "Sharpening"; value: 0; from: 0; to: 100 }
+                        ControlGroup { 
+                            title: "Sharpening"; 
+                            value: root.viewport ? root.viewport.sharpness : 0.0; 
+                            from: 0; to: 100;
+                            onMoved: (v) => { if(root.viewport) root.viewport.sharpness = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
 
                         RowLayout {
                             Layout.fillWidth: true

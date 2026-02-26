@@ -47,6 +47,13 @@ class RawViewport : public QQuickItem {
                  NOTIFY vignetteFeatherChanged)
   Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount
                  NOTIFY denoiseAmountChanged)
+  Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
+  Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
+  Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
+                 structureChanged)
+  Q_PROPERTY(float centre READ centre WRITE setCentre NOTIFY centreChanged)
+  Q_PROPERTY(float sharpness READ sharpness WRITE setSharpness NOTIFY
+                 sharpnessChanged)
   Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled
                  NOTIFY denoiseEnabledChanged)
   Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
@@ -227,6 +234,21 @@ class RawViewport : public QQuickItem {
   float denoiseAmount() const { return m_engine.denoiseAmount(); }
   void setDenoiseAmount(float val);
 
+  float clarity() const { return m_engine.clarity(); }
+  void setClarity(float val);
+
+  float dehaze() const { return m_engine.dehaze(); }
+  void setDehaze(float val);
+
+  float structure() const { return m_engine.structure(); }
+  void setStructure(float val);
+
+  float centre() const { return m_engine.centre(); }
+  void setCentre(float val);
+
+  float sharpness() const { return m_engine.sharpness(); }
+  void setSharpness(float val);
+
   bool denoiseEnabled() const { return m_engine.denoiseEnabled(); }
   void setDenoiseEnabled(bool enabled);
 
@@ -383,6 +405,11 @@ class RawViewport : public QQuickItem {
   void vignetteRoundnessChanged();
   void vignetteFeatherChanged();
   void denoiseAmountChanged();
+  void clarityChanged();
+  void dehazeChanged();
+  void structureChanged();
+  void centreChanged();
+  void sharpnessChanged();
   void denoiseEnabledChanged();
   void isDenoisingChanged();
   void isLoadingChanged();

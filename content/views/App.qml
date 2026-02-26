@@ -247,6 +247,11 @@ Window {
                             property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
                             property color backgroundColor: Theme.background
                             property real denoiseAmount: rawViewport.denoiseAmount
+                            property real clarity: rawViewport.clarity
+                            property real dehaze: rawViewport.dehaze
+                            property real structure: rawViewport.structure
+                            property real centre: rawViewport.centre
+                            property real sharpness: rawViewport.sharpness
                             property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
                             property real isPreview: rawViewport.showingPreview ? 1.0 : 0.0
                             property int orientation: rawViewport.orientation

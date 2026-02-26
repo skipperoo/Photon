@@ -1,6 +1,12 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Quick Concurrent Qml)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBRAW REQUIRED libraw)
+
+if(WIN32)
+    find_package(LibRaw REQUIRED)
+    set(LIBRAW_LIBRARIES LibRaw::LibRaw)
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBRAW REQUIRED libraw)
+endif()
 
 add_executable(tst_RawEngine
     auto/tst_RawEngine.cpp

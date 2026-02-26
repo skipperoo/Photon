@@ -96,9 +96,7 @@ Control {
                 }
             }
         }
-
         Item { Layout.fillHeight: true }
-
         // Progress Area
         ColumnLayout {
             Layout.fillWidth: true
@@ -110,6 +108,25 @@ Control {
                     text: "Exporting..."
                     color: Theme.foreground
                     font: Theme.fontSmall
+                }
+                Rectangle {
+                    width: 14; height: 14; color: "transparent"
+                    radius: 7
+                    Canvas {
+                        anchors.fill: parent
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            ctx.lineWidth = 1.5;
+                            ctx.strokeStyle = Theme.foreground;
+                            ctx.beginPath();
+                            ctx.arc(7, 7, 6, 0, Math.PI / 2);
+                            ctx.stroke();
+                        }
+                    }
+                    RotationAnimation on rotation {
+                        from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.parent.visible
+                    }
                 }
                 Item { Layout.fillWidth: true }
                 Text {

@@ -219,6 +219,10 @@
 
 ## Backlog / Future
 
+- [ ] **Usability**
+  - [ ] Automatic folder scanning every n seconds to check if new images have been loaded
+  - [ ] Before/after view + keybind to `\`
+  - [ ] Add change workspace button to the Library view
 - [ ] **Crop & Transform**
   - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
   - [ ] Straighten tool and arbitrary rotation.

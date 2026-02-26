@@ -38,7 +38,9 @@ target_link_libraries(tst_RawEngine
     PRIVATE ${LIBRAW_LIBRARIES}
     PRIVATE Vulkan::Vulkan
 )
-target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
+if(NOT MSVC)
+    target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
+endif()
 
 target_include_directories(tst_RawEngine PRIVATE
     ../src
@@ -80,7 +82,9 @@ target_link_libraries(tst_AppStateManager
     PRIVATE ${LIBRAW_LIBRARIES}
     PRIVATE Vulkan::Vulkan
 )
-target_compile_options(tst_AppStateManager PRIVATE -mavx2 -mfma)
+if(NOT MSVC)
+    target_compile_options(tst_AppStateManager PRIVATE -mavx2 -mfma)
+endif()
 
 target_include_directories(tst_AppStateManager PRIVATE
     ../src

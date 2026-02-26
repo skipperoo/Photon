@@ -9,6 +9,13 @@
 
 #include "GpuDenoiser.h"
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#define photon_popcount __popcnt
+#else
+#define photon_popcount __builtin_popcount
+#endif
+
 namespace photon {
 
 QImage Denoiser::denoise(
@@ -280,7 +287,7 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
           __m256 v_res = _mm256_and_ps(v_val, v_mask);
           _mm256_storeu_ps(&guide_stack[i], v_res);
           int mask = _mm256_movemask_ps(v_mask);
-          nonzero += __builtin_popcount(mask);
+          nonzero += photon_popcount(mask);
         }
         for (size_t i = 1; i < 8; ++i) {
           if (std::abs(guide_stack[i]) >= threshold)

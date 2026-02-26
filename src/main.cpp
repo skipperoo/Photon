@@ -1,4 +1,6 @@
+#ifndef Q_OS_WIN
 #include <dlfcn.h>
+#endif
 #include <vulkan/vulkan.h>
 
 #include <QCoreApplication>
@@ -53,7 +55,11 @@ int main(int argc, char* argv[]) {
         settings.value("performance/preferredGpu", "Auto").toString();
 
     if (preferredGpu != "Auto") {
+#ifndef Q_OS_WIN
       void* libvulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+#else
+      void* libvulkan = nullptr; // Windows implementation for GPU detection pending if needed
+#endif
       if (libvulkan) {
         auto vkCreateInstance_ptr =
             (PFN_vkCreateInstance_t)dlsym(libvulkan, "vkCreateInstance");
@@ -125,7 +131,9 @@ int main(int argc, char* argv[]) {
             vkDestroyInstance_ptr(instance, nullptr);
           }
         }
+#ifndef Q_OS_WIN
         dlclose(libvulkan);
+#endif
       }
     }
   }

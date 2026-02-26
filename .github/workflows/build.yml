@@ -64,7 +64,7 @@ jobs:
 
       - name: Build
         run: |
-          cmake --build build_dir --config Release -j2
+          cmake --build build_dir --config Release -j
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -86,16 +86,16 @@ jobs:
           export QML_SOURCES_PATHS="${{ github.workspace }}/content"
           # Explicitly request extra platform plugins for better compatibility
           export EXTRA_QT_PLUGINS="platforms,wayland-graphics-integration-client,wayland-shell-integration,imageformats"
-          
+
           # Run linuxdeploy
           ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
-          
+
           # Find the generated AppImage and ensure it's named Photon-x86_64.AppImage
           GENERATED_APPIMAGE=$(ls Photon-*.AppImage | grep -v "linuxdeploy" | head -n 1)
           if [ -n "$GENERATED_APPIMAGE" ] && [ "$GENERATED_APPIMAGE" != "Photon-x86_64.AppImage" ]; then
             mv "$GENERATED_APPIMAGE" Photon-x86_64.AppImage
           fi
-          
+
           # Remove linuxdeploy tools so they don't get uploaded
           rm linuxdeploy*.AppImage
 

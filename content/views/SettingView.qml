@@ -72,7 +72,7 @@ Control {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { text: "GPU Denoising"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
-                            Switch {
+                            PhotonSwitch {
                                 checked: AppState.useGpuDenoise
                                 onClicked: AppState.setUseGpuDenoise(checked)
                             }
@@ -92,7 +92,7 @@ Control {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { text: "Full Quality Denoise Preview"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
-                            Switch {
+                            PhotonSwitch {
                                 checked: AppState.previewDenoiseFull
                                 onClicked: AppState.setPreviewDenoiseFull(checked)
                             }
@@ -110,7 +110,7 @@ Control {
                         spacing: 12
                         Layout.fillWidth: true
                         Text { text: "Maintenance"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        Button {
+                        PhotonButton {
                             text: "Clear Thumbnail Cache"
                             variantOutline: true
                             enabled: AppState.currentFolder !== ""
@@ -139,7 +139,7 @@ Control {
                     RowLayout {
                         Layout.fillWidth: true
                         Text { text: "Dark Mode"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
-                        Switch {
+                        PhotonSwitch {
                             checked: AppState.isDarkMode
                             onClicked: AppState.setIsDarkMode(checked)
                         }
@@ -186,12 +186,12 @@ Control {
                         Text { text: "Log File Location"; font: Theme.fontRegular; color: Theme.mutedFg }
                         RowLayout {
                             Layout.fillWidth: true
-                            Input { 
+                            PhotonInput { 
                                 Layout.fillWidth: true
                                 text: AppState.logLocation
                                 readOnly: true 
                             }
-                            Button { 
+                            PhotonButton { 
                                 text: "Select Location"; 
                                 variantOutline: true 
                                 onClicked: logFileDialog.open()
@@ -217,7 +217,7 @@ Control {
                         }
                     }
 
-                    Button {
+                    PhotonButton {
                         text: "Clear Current Log"
                         variantOutline: true
                         onClicked: Logger.clearLog()

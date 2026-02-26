@@ -78,7 +78,7 @@ Item {
                     Item { height: Theme.spacingXl }
 
                     // Continue Session Button (conditional)
-                    Button {
+                    PhotonButton {
                         id: continueButton
                         Layout.fillWidth: true
                         text: "Continue Session"
@@ -87,7 +87,7 @@ Item {
                     }
 
                     // Open Folder Button
-                    Button {
+                    PhotonButton {
                         id: openFolderButton
                         Layout.fillWidth: true
                         text: "Open Folder"
@@ -98,7 +98,7 @@ Item {
                     Item { height: Theme.spacingXl }
 
                     // Settings Button
-                    Button {
+                    PhotonButton {
                         id: settingsButton
                         Layout.alignment: Qt.AlignHCenter
                         text: "⚙ Settings"

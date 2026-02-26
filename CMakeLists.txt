@@ -132,9 +132,9 @@ qt_add_qml_module(Photon
         content/views/LibraryView.qml
         content/views/DevelopView.qml
         content/views/SettingView.qml
-        content/components/Button.qml
-        content/components/Switch.qml
-        content/components/Input.qml
+        content/components/PhotonButton.qml
+        content/components/PhotonSwitch.qml
+        content/components/PhotonInput.qml
         content/components/PhotonSlider.qml
         content/components/Card.qml
         content/components/Collapsible.qml

@@ -208,7 +208,7 @@ Control {
                                 color: Theme.foreground
                                 Layout.fillWidth: true
                             }
-                            Switch { 
+                            PhotonSwitch { 
                                 checked: root.viewport ? root.viewport.tonemappingEnabled : false
                                 onClicked: if(root.viewport) { root.viewport.tonemappingEnabled = checked; root.viewport.commitEdit(); }
                             }

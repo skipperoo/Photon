@@ -56,7 +56,7 @@ Control {
                     visible: formatCombo.currentText === "JPG"
                     Text { text: "Quality"; color: Theme.mutedFg; font: Theme.fontSmall }
                     RowLayout {
-                        Slider {
+                        PhotonSlider {
                             id: qualitySlider
                             from: 10; to: 100; value: 90
                             Layout.fillWidth: true
@@ -76,12 +76,12 @@ Control {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
-                    Input {
+                    PhotonInput {
                         id: folderInput
                         text: AppState.currentFolder + "/Export"
                         Layout.fillWidth: true
                     }
-                    Button {
+                    PhotonButton {
                         Layout.preferredWidth: 40
                         Layout.preferredHeight: 40
                         variantOutline: true
@@ -159,14 +159,14 @@ Control {
             Layout.alignment: Qt.AlignRight
             spacing: 10
 
-            Button {
+            PhotonButton {
                 text: "Cancel"
                 variantOutline: true
                 enabled: ExportManager.isExporting
                 onClicked: ExportManager.cancelExport()
             }
 
-            Button {
+            PhotonButton {
                 text: "Start Export"
                 enabled: !ExportManager.isExporting && AppState.selectionCount > 0
                 onClicked: {

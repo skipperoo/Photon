@@ -114,7 +114,7 @@ Control {
             Item { Layout.fillWidth: true } // Spacer
 
             // Filter Control
-            Button {
+            PhotonButton {
                 id: filterButton
                 text: "Filter: " + (root.ratingFilter === 0 ? "All" : root.operatorLabels[root.ratingOperator] + " " + root.ratingFilter + "★")
                 variantOutline: true
@@ -140,7 +140,7 @@ Control {
                         RowLayout {
                             spacing: 8
                             
-                            Button {
+                            PhotonButton {
                                 text: root.operatorLabels[root.ratingOperator]
                                 Layout.preferredWidth: 40
                                 Layout.preferredHeight: 40
@@ -155,7 +155,7 @@ Control {
                                 spacing: 2
                                 Repeater {
                                     model: 6
-                                    Button {
+                                    PhotonButton {
                                         text: index === 0 ? "Off" : "★"
                                         Layout.preferredWidth: 40
                                         Layout.preferredHeight: 40
@@ -174,9 +174,9 @@ Control {
             
             Item { width: 20 } // Spacer
 
-            Button { text: "Date"; variantOutline: true }
-            Button { text: "Name"; variantOutline: true }
-            Button { text: "Rating"; variantOutline: true }
+            PhotonButton { text: "Date"; variantOutline: true }
+            PhotonButton { text: "Name"; variantOutline: true }
+            PhotonButton { text: "Rating"; variantOutline: true }
         }
 
         // --- Central Grid ---

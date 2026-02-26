@@ -1,8 +1,12 @@
 module Main
-Button 1.0 Button.qml
+PhotonButton 1.0 PhotonButton.qml
 Card 1.0 Card.qml
 Collapsible 1.0 Collapsible.qml
 ControlGroup 1.0 ControlGroup.qml
-Input 1.0 Input.qml
+PhotonInput 1.0 PhotonInput.qml
 PhotonSlider 1.0 PhotonSlider.qml
 Histogram 1.0 Histogram.qml
+PhotonSwitch 1.0 PhotonSwitch.qml
+PresetPanel 1.0 PresetPanel.qml
+MetadataPanel 1.0 MetadataPanel.qml
+ExportPanel 1.0 ExportPanel.qml

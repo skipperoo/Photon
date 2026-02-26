@@ -30,7 +30,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
-          version: '6.8.*'
+          version: '6.7.2'
           arch: ${{ matrix.qt_arch }}
           modules: 'qtshadertools'
 
@@ -38,7 +38,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libraw-dev libvulkan-dev libfuse2
+          sudo apt-get install -y libraw-dev libvulkan-dev libfuse2 libgl1-mesa-dev
           # Download linuxdeploy
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
@@ -64,19 +64,20 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cd build_dir/Release
-          # Gather Qt dependencies
           windeployqt --qmldir ../../content Photon.exe
-          # Generate MSI using CPack
           cd ..
           cpack -G WIX -C Release
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          export QMAKE=$(which qmake)
-          # Use linuxdeploy to create AppImage
+          # Ensure linuxdeploy can find the Qt installation
+          export PATH=$QT_ROOT/bin:$PATH
+          export LD_LIBRARY_PATH=$QT_ROOT/lib:$LD_LIBRARY_PATH
+          export QMAKE=$QT_ROOT/bin/qmake
+          
+          # Run linuxdeploy
           ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
-          # Rename output for consistent artifact naming
           mv Photon-*.AppImage Photon-x86_64.AppImage
 
       - name: Upload Artifacts

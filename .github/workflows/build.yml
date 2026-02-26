@@ -62,42 +62,38 @@ jobs:
 
       - name: Build
         run: |
-          cmake --build build_dir --config Release -j
+          cmake --build build_dir --config Release -j2
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
           cd build_dir/Release
+          # Gather Qt dependencies
           windeployqt --qmldir ../../content Photon.exe
           cd ..
           cpack -G WIX -C Release
 
-                  - name: Package (Linux)
-                    if: runner.os == 'Linux'
-                    run: |
-                      # Find qmake dynamically
-                      export QMAKE=$(find ${{ github.workspace }}/../Qt -name qmake | head -n 1)
-                      # Pass version to linuxdeploy for better naming
-                      export VERSION=$(git describe --tags --always)
-                      
-                      # Run linuxdeploy
-                      ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
-                      
-                      # Debug: list files to see what was generated
-                      ls -lh
-                      
-                      # Find the generated AppImage and ensure it's named Photon-x86_64.AppImage
-                      GENERATED_APPIMAGE=$(ls Photon-*.AppImage | grep -v "linuxdeploy" | head -n 1)
-                      echo "Detected AppImage: $GENERATED_APPIMAGE"
-                      if [ -n "$GENERATED_APPIMAGE" ] && [ "$GENERATED_APPIMAGE" != "Photon-x86_64.AppImage" ]; then
-                        mv "$GENERATED_APPIMAGE" Photon-x86_64.AppImage
-                      fi
-                      
-                      # Remove linuxdeploy tools so they don't get uploaded
-                      rm linuxdeploy*.AppImage
-                      
-                      # Final check
-                      ls -lh Photon-x86_64.AppImage      - name: Upload Artifacts
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          # Find qmake dynamically
+          export QMAKE=$(find ${{ github.workspace }}/../Qt -name qmake | head -n 1)
+          # Pass version to linuxdeploy for better naming
+          export VERSION=$(git describe --tags --always)
+          
+          # Run linuxdeploy
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
+          
+          # Find the generated AppImage and ensure it's named Photon-x86_64.AppImage
+          GENERATED_APPIMAGE=$(ls Photon-*.AppImage | grep -v "linuxdeploy" | head -n 1)
+          if [ -n "$GENERATED_APPIMAGE" ] && [ "$GENERATED_APPIMAGE" != "Photon-x86_64.AppImage" ]; then
+            mv "$GENERATED_APPIMAGE" Photon-x86_64.AppImage
+          fi
+          
+          # Remove linuxdeploy tools so they don't get uploaded
+          rm linuxdeploy*.AppImage
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Photon-${{ runner.os }}

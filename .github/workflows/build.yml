@@ -34,6 +34,30 @@ jobs:
           version: ${{ matrix.qt_ver }}
           arch: ${{ matrix.qt_arch }}
           modules: "qtshadertools"
+          cache: true
+
+      - name: Cache vcpkg packages (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-${{ runner.os }}-libraw-vulkan
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Cache vcpkg packages (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-${{ runner.os }}-libraw-vulkan
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Cache CMake build
+        uses: actions/cache@v4
+        with:
+          path: build_dir
+          key: cmake-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'src/**', 'content/**') }}
+          restore-keys: cmake-${{ runner.os }}-
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'

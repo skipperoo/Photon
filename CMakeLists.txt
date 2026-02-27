@@ -217,14 +217,6 @@ set_target_properties(Photon PROPERTIES
     QT_QML_IMPORT_PATH "${CMAKE_BINARY_DIR}/Main"
 )
 
-# Performance Optimizations
-if(MSVC)
-    target_compile_options(Photon PRIVATE /O2 /arch:AVX2 /GL)
-    target_link_options(Photon PRIVATE /LTCG)
-else()
-    target_compile_options(Photon PRIVATE -O3 -mavx2 -mfma -flto=auto)
-    target_link_options(Photon PRIVATE -flto=auto)
-endif()
 
 include(GNUInstallDirs)
 install(TARGETS Photon
@@ -233,6 +225,19 @@ install(TARGETS Photon
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+qt_generate_deploy_app_script(
+    TARGET Photon
+    OUTPUT_SCRIPT deploy_script
+    NO_UNSUPPORTED_PLATFORM_ERROR
+)
+
+install(SCRIPT ${deploy_script})
+
+qt_generate_deploy_qml_app_script(
+    TARGET Photon
+    OUTPUT_SCRIPT deploy_script
+)
+install(SCRIPT ${deploy_script})
 # Install QML content
 install(DIRECTORY content/ DESTINATION ${CMAKE_INSTALL_BINDIR}/content)
 # Install Assets

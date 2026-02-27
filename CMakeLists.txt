@@ -290,8 +290,10 @@ if(WIN32)
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "Photon")
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
     set(CPACK_WIX_PRODUCT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.png")
-    # Set the install prefix for CPack to match our staging directory
     set(CPACK_PACKAGING_INSTALL_PREFIX "")
+    # Declare exactly one component so CPack/WIX don't create per-component subdirectories
+    set(CPACK_COMPONENTS_ALL Runtime)
+    set(CPACK_WIX_COMPONENT_INSTALL ON)
 endif()
 
 set(CPACK_PACKAGE_NAME "Photon")

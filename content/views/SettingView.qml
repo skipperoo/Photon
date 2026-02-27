@@ -17,6 +17,7 @@ Control {
         anchors.fill: parent
         anchors.topMargin: root.viewTopPadding
         contentWidth: availableWidth
+        ScrollBar.vertical: PhotonScrollBar {}
 
         ColumnLayout {
             width: Math.min(parent.width - 80, 600)

@@ -4,6 +4,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Basic as T
 import QtQuick.Dialogs
 import Main 1.0
+import "../components"
 
 Window {
     id: window
@@ -667,6 +668,22 @@ Window {
                         orientation: ListView.Horizontal
                         spacing: 10
                         model: rawFilesModel
+                        ScrollBar.horizontal: PhotonScrollBar { orientation: Qt.Horizontal }
+                        
+                        // Handle mouse wheel for horizontal scrolling
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.NoButton // Pass clicks to delegates
+                            onWheel: (wheel) => {
+                                if (wheel.angleDelta.y !== 0) {
+                                    filmstripList.contentX = Math.max(0, Math.min(filmstripList.contentWidth - parent.width, filmstripList.contentX - wheel.angleDelta.y));
+                                    wheel.accepted = true;
+                                } else {
+                                    wheel.accepted = false;
+                                }
+                            }
+                        }
+
                         delegate: Rectangle {
                             width: 150
                             height: 100

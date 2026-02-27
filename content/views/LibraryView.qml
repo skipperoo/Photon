@@ -187,6 +187,7 @@ Control {
             cellWidth: 220
             cellHeight: 200
             clip: true
+            ScrollBar.vertical: PhotonScrollBar {}
 
             model: rawFilesModel
 

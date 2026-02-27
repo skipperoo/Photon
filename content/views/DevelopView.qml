@@ -161,6 +161,7 @@ Control {
             Layout.fillHeight: true
             clip: true
             contentWidth: availableWidth
+            ScrollBar.vertical: PhotonScrollBar {}
 
             ColumnLayout {
                 width: parent.width

@@ -95,6 +95,7 @@ Rectangle {
                 model: PresetManager.presets
                 spacing: 4
                 clip: true
+                T.ScrollBar.vertical: PhotonScrollBar {}
 
                 delegate: T.ItemDelegate {
                     width: presetList.width

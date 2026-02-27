@@ -231,3 +231,4 @@
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Tone Curve (Spline UI).
 - [ ] Multi-image batch processing.
+- [ ] [DaVinci Tone Mapping DCTL](https://github.com/thatcherfreeman/utility-dctls?tab=readme-ov-file#davinci-tone-mapping-dctl)

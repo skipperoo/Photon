@@ -247,17 +247,19 @@ if(WIN32)
         file(GLOB LIBRAW_DLL "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
     endif()
     if(LIBRAW_DLL)
-        install(FILES ${LIBRAW_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
+        install(FILES ${LIBRAW_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
     endif()
 
     # Find and install all vcpkg DLLs (but not raw.dll again)
     file(GLOB VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/*.dll")
     if(VCPKG_DLLS)
         list(REMOVE_ITEM VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
-        install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
+        install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
     endif()
 
-    # Run windeployqt as part of the install step so CPack picks up Qt DLLs
+    # Run windeployqt as the last install step for the Runtime component.
+    # Because all rules above share COMPONENT Runtime, Photon.exe is guaranteed
+    # to be staged before this code executes.
     find_program(WINDEPLOYQT windeployqt
         HINTS "${Qt6_DIR}/../../../bin"
     )

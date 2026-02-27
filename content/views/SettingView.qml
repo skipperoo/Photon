@@ -246,10 +246,10 @@ Control {
         }
     }
 
-    FileDialog {
-        id: logFileDialog
-        title: "Select Log File Location"
-        fileMode: FileDialog.SaveFile
-        onAccepted: AppState.setLogLocation(selectedFile.toString().replace("file://", ""))
-    }
+FileDialog {
+    id: logFileDialog
+    title: "Select Log File Location"
+    fileMode: FileDialog.SaveFile
+    onAccepted: AppState.setLogLocation(selectedFile)
+  }
 }

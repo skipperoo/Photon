@@ -110,13 +110,13 @@ Item {
         }
     }
 
-    FolderDialog {
-        id: folderDialog
-        title: "Select a folder containing RAW images"
-        onAccepted: {
-            // Set the current folder and switch to Library view
-            AppState.setCurrentFolder(selectedFolder.toString().replace("file://", ""))
-            AppState.setCurrentView(AppState.ViewState.Library)
-        }
+FolderDialog {
+    id: folderDialog
+    title: "Select a folder containing RAW images"
+    onAccepted: {
+      // Set the current folder and switch to Library view
+      AppState.setCurrentFolder(selectedFolder)
+      AppState.setCurrentView(AppState.ViewState.Library)
     }
+  }
 }

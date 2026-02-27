@@ -1,15 +1,16 @@
 #include "PresetManager.h"
 
 #include <QDebug>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 
 PresetManager::PresetManager(QObject* parent) : QObject(parent) {
-  m_presetsPath =
+  m_presetsPath = QDir::toNativeSeparators(
       QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) +
-      "/presets";
+      "/presets");
   QDir().mkpath(m_presetsPath);
   refreshPresets();
 }
@@ -22,7 +23,8 @@ void PresetManager::savePreset(const QString& name,
 
   QString safeName = name;
   safeName.replace("/", "_").replace("\\", "_");
-  QString filePath = m_presetsPath + "/" + safeName + ".json";
+  QString filePath =
+      QDir::toNativeSeparators(m_presetsPath + "/" + safeName + ".json");
 
   QFile file(filePath);
   if (file.open(QIODevice::WriteOnly)) {
@@ -33,14 +35,16 @@ void PresetManager::savePreset(const QString& name,
 }
 
 void PresetManager::deletePreset(const QString& name) {
-  QString filePath = m_presetsPath + "/" + name + ".json";
+  QString filePath =
+      QDir::toNativeSeparators(m_presetsPath + "/" + name + ".json");
   if (QFile::remove(filePath)) {
     refreshPresets();
   }
 }
 
 QVariantMap PresetManager::loadPreset(const QString& name) const {
-  QString filePath = m_presetsPath + "/" + name + ".json";
+  QString filePath =
+      QDir::toNativeSeparators(m_presetsPath + "/" + name + ".json");
   QFile file(filePath);
   if (file.open(QIODevice::ReadOnly)) {
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll());

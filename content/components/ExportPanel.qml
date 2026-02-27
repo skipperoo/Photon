@@ -13,14 +13,14 @@ Control {
         radius: Theme.radius
     }
 
-    FolderDialog {
-        id: folderDialog
-        title: "Select Export Folder"
-        currentFolder: AppState.currentFolder
-        onAccepted: {
-            folderInput.text = folderDialog.selectedFolder.toString().replace("file://", "")
-        }
+FolderDialog {
+    id: folderDialog
+    title: "Select Export Folder"
+    currentFolder: AppState.currentFolder
+    onAccepted: {
+      folderInput.text = folderDialog.selectedFolder
     }
+  }
 
     ColumnLayout {
         anchors.fill: parent

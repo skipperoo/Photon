@@ -4,6 +4,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Basic as T
 import QtQuick.Dialogs
 import Main 1.0
+import "../components"
 
 Window {
     id: window
@@ -417,14 +418,19 @@ Window {
                                     opacity: 0.6
                                 }
 
-                                Slider {
+                                PhotonSlider {
                                     id: zoomSlider
                                     Layout.preferredWidth: 200
                                     from: 0.1
                                     to: 10.0
                                     value: rawViewport.zoom
+                                    defaultValue: 1.0
                                     onMoved: {
                                         rawViewport.zoom = value
+                                        interactionDenoiseTimer.restart()
+                                    }
+                                    onDoubleClicked: {
+                                        rawViewport.zoom = 1.0
                                         interactionDenoiseTimer.restart()
                                     }
                                 }                                
@@ -662,6 +668,22 @@ Window {
                         orientation: ListView.Horizontal
                         spacing: 10
                         model: rawFilesModel
+                        ScrollBar.horizontal: PhotonScrollBar { orientation: Qt.Horizontal }
+                        
+                        // Handle mouse wheel for horizontal scrolling
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.NoButton // Pass clicks to delegates
+                            onWheel: (wheel) => {
+                                if (wheel.angleDelta.y !== 0) {
+                                    filmstripList.contentX = Math.max(0, Math.min(filmstripList.contentWidth - parent.width, filmstripList.contentX - wheel.angleDelta.y));
+                                    wheel.accepted = true;
+                                } else {
+                                    wheel.accepted = false;
+                                }
+                            }
+                        }
+
                         delegate: Rectangle {
                             width: 150
                             height: 100
@@ -828,12 +850,11 @@ Window {
                 RowLayout {
                     spacing: 4
                     
-                    Button {
+                    PhotonButton {
                         text: "Library"
-                        flat: true
-                        font: Theme.fontMedium
-                        palette.buttonText: AppState.currentView === AppState.ViewState.Library ? Theme.foreground : Theme.mutedFg
+                        Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Library)
+                        variantOutline: AppState.currentView !== AppState.ViewState.Library
                         
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
@@ -842,12 +863,11 @@ Window {
                         }
                     }
 
-                    Button {
+                    PhotonButton {
                         text: "Develop"
-                        flat: true
-                        font: Theme.fontMedium
-                        palette.buttonText: AppState.currentView === AppState.ViewState.Develop ? Theme.foreground : Theme.mutedFg
+                        Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Develop)
+                        variantOutline: AppState.currentView !== AppState.ViewState.Develop
 
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
@@ -856,12 +876,11 @@ Window {
                         }
                     }
 
-                    Button {
+                    PhotonButton {
                         text: "Settings"
-                        flat: true
-                        font: Theme.fontMedium
-                        palette.buttonText: AppState.currentView === AppState.ViewState.Settings ? Theme.foreground : Theme.mutedFg
+                        Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Settings)
+                        variantOutline: AppState.currentView !== AppState.ViewState.Settings
 
                         Rectangle {
                             anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter

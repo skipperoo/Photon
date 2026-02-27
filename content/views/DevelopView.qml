@@ -161,6 +161,7 @@ Control {
             Layout.fillHeight: true
             clip: true
             contentWidth: availableWidth
+            ScrollBar.vertical: PhotonScrollBar {}
 
             ColumnLayout {
                 width: parent.width
@@ -208,7 +209,7 @@ Control {
                                 color: Theme.foreground
                                 Layout.fillWidth: true
                             }
-                            Switch { 
+                            PhotonSwitch { 
                                 checked: root.viewport ? root.viewport.tonemappingEnabled : false
                                 onClicked: if(root.viewport) { root.viewport.tonemappingEnabled = checked; root.viewport.commitEdit(); }
                             }
@@ -471,11 +472,11 @@ Control {
                                 text: "Denoise"
                                 font: Theme.fontRegular
                                 color: Theme.foreground
-                                Layout.fillWidth: false
+                                Layout.fillWidth: true
                             }
-                            CheckBox {
+                            PhotonSwitch {
                                 checked: root.viewport ? root.viewport.denoiseEnabled : false
-                                onToggled: if(root.viewport) { root.viewport.denoiseEnabled = checked; root.viewport.commitEdit(); }
+                                onClicked: if(root.viewport) { root.viewport.denoiseEnabled = checked; root.viewport.commitEdit(); }
                             }
                         }
 

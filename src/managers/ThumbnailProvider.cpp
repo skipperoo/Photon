@@ -27,14 +27,15 @@ QString ThumbnailProvider::getThumbnailCachePath(
     const QString& imagePath) const {
   QFileInfo fileInfo(imagePath);
   QString folder = fileInfo.absolutePath();
-  QString photonDataPath = folder + "/.PhotonData/cache/thumbnails";
+  QString photonDataPath =
+      QDir::toNativeSeparators(folder + "/.PhotonData/cache/thumbnails");
 
   // Generate a hash of the filename to use as thumbnail name
   QByteArray hash = QCryptographicHash::hash(fileInfo.fileName().toUtf8(),
                                              QCryptographicHash::Md5);
   QString filename = QString(hash.toHex()) + ".jpg";
 
-  return photonDataPath + "/" + filename;
+  return QDir::toNativeSeparators(photonDataPath + "/" + filename);
 }
 
 bool ThumbnailProvider::saveThumbnailToCache(const QString& imagePath,
@@ -84,7 +85,7 @@ QImage ThumbnailProvider::getThumbnail(const QString& imagePath) {
   {
     QMutexLocker locker(&m_cacheMutex);
     // First check if we have it in memory cache
-    if (m_thumbnailCache.contains(imagePath)) 
+    if (m_thumbnailCache.contains(imagePath))
       return m_thumbnailCache[imagePath];
   }
 

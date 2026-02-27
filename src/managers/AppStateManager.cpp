@@ -8,9 +8,11 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMutexLocker>
+#include <QUrl>
 
 #include "LogManager.h"
 #include "PreviewManager.h"
+#include "Version.h"
 
 using namespace photon;
 
@@ -67,6 +69,8 @@ void AppStateManager::detectGpus() {
   emit availableGpusChanged();
 }
 
+QString AppStateManager::version() const { return PHOTON_VERSION_STRING; }
+
 void AppStateManager::loadSettings() {
   QMutexLocker locker(&m_mutex);
   m_lastOpenedFolder = m_settings.value(KEY_LAST_FOLDER, QString()).toString();
@@ -119,7 +123,8 @@ void AppStateManager::continueSession() {
 void AppStateManager::clearThumbnailCache() {
   if (m_currentFolder.isEmpty()) return;
 
-  QString thumbCachePath = m_currentFolder + "/.PhotonData/cache/thumbnails";
+  QString thumbCachePath = QDir::toNativeSeparators(
+      m_currentFolder + "/.PhotonData/cache/thumbnails");
   QDir thumbDir(thumbCachePath);
   if (thumbDir.exists()) {
     thumbDir.removeRecursively();
@@ -137,15 +142,29 @@ void AppStateManager::setCurrentView(ViewState view) {
 }
 
 void AppStateManager::setCurrentFolder(const QString& folder) {
-  if (m_currentFolder != folder) {
-    m_currentFolder = folder;
+  // Convert file:// URLs to local paths (handles both QUrl objects and string
+  // URLs)
+  QString localPath = folder;
+  if (folder.startsWith("file://")) {
+    QUrl url(folder);
+    if (url.isValid()) {
+      localPath = url.toLocalFile();
+    }
+  }
 
-    if (!folder.isEmpty()) {
+  // Ensure native path separators for cross-platform compatibility
+  localPath = QDir::toNativeSeparators(localPath);
+
+  if (m_currentFolder != localPath) {
+    m_currentFolder = localPath;
+
+    if (!localPath.isEmpty()) {
       // Create .PhotonData folder structure if it doesn't exist
-      QDir folderDir(folder);
+      QDir folderDir(localPath);
       if (folderDir.exists()) {
-        m_lastOpenedFolder = folder;
-        QString photonDataPath = folder + "/.PhotonData";
+        m_lastOpenedFolder = localPath;
+        QString photonDataPath =
+            QDir::toNativeSeparators(localPath + "/.PhotonData");
 
         // Create .PhotonData directory
         QDir photonDir(photonDataPath);
@@ -167,7 +186,7 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
           PreviewManager::instance()->startFolderScan(m_currentFolder);
         }
       } else {
-        qWarning() << "Folder does not exist:" << folder;
+        qWarning() << "Folder does not exist:" << localPath;
       }
     }
 
@@ -258,9 +277,11 @@ void AppStateManager::setRatingForSelected(int rating) {
   for (const QString& path : m_selectedImages) {
     // Update sidecar file
     QFileInfo fileInfo(path);
-    QString editsDir = fileInfo.absolutePath() + "/.PhotonData/edits";
+    QString editsDir = QDir::toNativeSeparators(fileInfo.absolutePath() +
+                                                "/.PhotonData/edits");
     QDir().mkpath(editsDir);
-    QString editsPath = editsDir + "/" + fileInfo.fileName() + ".json";
+    QString editsPath = QDir::toNativeSeparators(editsDir + "/" +
+                                                 fileInfo.fileName() + ".json");
 
     QJsonArray arr;
     if (QFile::exists(editsPath)) {
@@ -344,9 +365,21 @@ QString AppStateManager::logLocation() const {
 }
 
 void AppStateManager::setLogLocation(const QString& location) {
-  LogManager::instance()->setLogLocation(location);
+  // Convert file:// URLs to local paths
+  QString localPath = location;
+  if (location.startsWith("file://")) {
+    QUrl url(location);
+    if (url.isValid()) {
+      localPath = url.toLocalFile();
+    }
+  }
+
+  // Ensure native path separators for cross-platform compatibility
+  localPath = QDir::toNativeSeparators(localPath);
+
+  LogManager::instance()->setLogLocation(localPath);
   emit logLocationChanged();
-  m_settings.setValue("diagnostics/logLocation", location);
+  m_settings.setValue("diagnostics/logLocation", localPath);
   m_settings.sync();
 }
 

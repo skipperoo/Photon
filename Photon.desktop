@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Photon
+Comment=High-performance native RAW image editor
+Exec=Photon
+Icon=photon
+Categories=Graphics;Photography;
+Terminal=false

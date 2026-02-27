@@ -30,6 +30,7 @@ Rectangle {
             Layout.rightMargin: 20
             clip: true
             contentWidth: availableWidth
+            T.ScrollBar.vertical: PhotonScrollBar {}
 
             ColumnLayout {
                 width: parent.width

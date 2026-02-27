@@ -42,7 +42,7 @@ ColumnLayout {
         }
     }
 
-    Slider {
+    PhotonSlider {
         id: slider
         Layout.fillWidth: true
         from: root.from

@@ -65,8 +65,9 @@ void ExportManager::processExport(const QStringList& paths,
         outputFolder + "/" + fileInfo.baseName() + "." + format.toLower();
 
     // 1. Load Sidecar Edits
-    QString editsPath = fileInfo.absolutePath() + "/.PhotonData/edits/" +
-                        fileInfo.fileName() + ".json";
+    QString editsPath = QDir::toNativeSeparators(fileInfo.absolutePath() +
+                                                 "/.PhotonData/edits/" +
+                                                 fileInfo.fileName() + ".json");
     QJsonObject lastState;
     if (QFile::exists(editsPath)) {
       QFile file(editsPath);

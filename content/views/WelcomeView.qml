@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Dialogs
 import Main
+import "../components"
 
 Item {
     id: root
@@ -77,7 +78,7 @@ Item {
                     Item { height: Theme.spacingXl }
 
                     // Continue Session Button (conditional)
-                    Button {
+                    PhotonButton {
                         id: continueButton
                         Layout.fillWidth: true
                         text: "Continue Session"
@@ -86,7 +87,7 @@ Item {
                     }
 
                     // Open Folder Button
-                    Button {
+                    PhotonButton {
                         id: openFolderButton
                         Layout.fillWidth: true
                         text: "Open Folder"
@@ -97,7 +98,7 @@ Item {
                     Item { height: Theme.spacingXl }
 
                     // Settings Button
-                    Button {
+                    PhotonButton {
                         id: settingsButton
                         Layout.alignment: Qt.AlignHCenter
                         text: "⚙ Settings"
@@ -109,13 +110,13 @@ Item {
         }
     }
 
-    FolderDialog {
-        id: folderDialog
-        title: "Select a folder containing RAW images"
-        onAccepted: {
-            // Set the current folder and switch to Library view
-            AppState.setCurrentFolder(selectedFolder.toString().replace("file://", ""))
-            AppState.setCurrentView(AppState.ViewState.Library)
-        }
+FolderDialog {
+    id: folderDialog
+    title: "Select a folder containing RAW images"
+    onAccepted: {
+      // Set the current folder and switch to Library view
+      AppState.setCurrentFolder(selectedFolder)
+      AppState.setCurrentView(AppState.ViewState.Library)
     }
+  }
 }

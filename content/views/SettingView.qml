@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Dialogs
 import Main
+import "../components"
 
 Control {
     id: root
@@ -16,6 +17,7 @@ Control {
         anchors.fill: parent
         anchors.topMargin: root.viewTopPadding
         contentWidth: availableWidth
+        ScrollBar.vertical: PhotonScrollBar {}
 
         ColumnLayout {
             width: Math.min(parent.width - 80, 600)
@@ -71,7 +73,7 @@ Control {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { text: "GPU Denoising"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
-                            Switch {
+                            PhotonSwitch {
                                 checked: AppState.useGpuDenoise
                                 onClicked: AppState.setUseGpuDenoise(checked)
                             }
@@ -91,7 +93,7 @@ Control {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { text: "Full Quality Denoise Preview"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
-                            Switch {
+                            PhotonSwitch {
                                 checked: AppState.previewDenoiseFull
                                 onClicked: AppState.setPreviewDenoiseFull(checked)
                             }
@@ -109,7 +111,7 @@ Control {
                         spacing: 12
                         Layout.fillWidth: true
                         Text { text: "Maintenance"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        Button {
+                        PhotonButton {
                             text: "Clear Thumbnail Cache"
                             variantOutline: true
                             enabled: AppState.currentFolder !== ""
@@ -138,7 +140,7 @@ Control {
                     RowLayout {
                         Layout.fillWidth: true
                         Text { text: "Dark Mode"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
-                        Switch {
+                        PhotonSwitch {
                             checked: AppState.isDarkMode
                             onClicked: AppState.setIsDarkMode(checked)
                         }
@@ -185,12 +187,12 @@ Control {
                         Text { text: "Log File Location"; font: Theme.fontRegular; color: Theme.mutedFg }
                         RowLayout {
                             Layout.fillWidth: true
-                            Input { 
+                            PhotonInput { 
                                 Layout.fillWidth: true
                                 text: AppState.logLocation
                                 readOnly: true 
                             }
-                            Button { 
+                            PhotonButton { 
                                 text: "Select Location"; 
                                 variantOutline: true 
                                 onClicked: logFileDialog.open()
@@ -216,7 +218,7 @@ Control {
                         }
                     }
 
-                    Button {
+                    PhotonButton {
                         text: "Clear Current Log"
                         variantOutline: true
                         onClicked: Logger.clearLog()
@@ -225,14 +227,30 @@ Control {
                 }
             }
             
+            Item { height: 20 }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: Theme.border
+                opacity: 0.5
+            }
+
+            Text {
+                text: "Photon v" + AppState.version
+                font: Theme.fontSmall
+                color: Theme.mutedFg
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+            
             Item { height: 40 } // Bottom padding
         }
     }
 
-    FileDialog {
-        id: logFileDialog
-        title: "Select Log File Location"
-        fileMode: FileDialog.SaveFile
-        onAccepted: AppState.setLogLocation(selectedFile.toString().replace("file://", ""))
-    }
+FileDialog {
+    id: logFileDialog
+    title: "Select Log File Location"
+    fileMode: FileDialog.SaveFile
+    onAccepted: AppState.setLogLocation(selectedFile)
+  }
 }

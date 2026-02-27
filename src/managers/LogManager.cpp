@@ -1,6 +1,7 @@
 #include "LogManager.h"
 
 #include <QDebug>
+#include <QDir>
 #include <QMutexLocker>
 
 namespace photon {
@@ -12,7 +13,7 @@ LogManager::LogManager(QObject* parent) : QObject(parent) {
   QString defaultDir =
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
   QDir().mkpath(defaultDir);
-  m_logLocation = defaultDir + "/photon.log";
+  m_logLocation = QDir::toNativeSeparators(defaultDir + "/photon.log");
   openLogFile();
 }
 
@@ -74,8 +75,7 @@ void LogManager::log(const QString& message, const QString& level) {
   QTextStream out(&m_logFile);
   QString timestamp =
       QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
-  out << QString("[%1] [%2] %3\n")
-             .arg(timestamp, level, message);
+  out << QString("[%1] [%2] %3\n").arg(timestamp, level, message);
   out.flush();
 }
 

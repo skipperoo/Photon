@@ -240,11 +240,20 @@ install(DIRECTORY assets/ DESTINATION ${CMAKE_INSTALL_BINDIR}/assets)
 
 # Install vcpkg DLLs on Windows
 if(WIN32)
-    # Install LibRaw DLL and its dependencies
-    install(FILES ${LibRaw_LIBRARIES} DESTINATION ${CMAKE_INSTALL_BINDIR})
-    # Find and install all vcpkg DLLs
+    # Find LibRaw DLL based on build configuration
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        file(GLOB LIBRAW_DLL "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin/rawd.dll")
+    else()
+        file(GLOB LIBRAW_DLL "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
+    endif()
+    if(LIBRAW_DLL)
+        install(FILES ${LIBRAW_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+    
+    # Find and install all vcpkg DLLs (but not raw.dll again)
     file(GLOB VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/*.dll")
     if(VCPKG_DLLS)
+        list(REMOVE_ITEM VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
         install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
     endif()
 endif()
@@ -256,10 +265,12 @@ if(WIN32)
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "Photon")
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
     set(CPACK_WIX_PRODUCT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.png")
+    # Set the install prefix for CPack to match our staging directory
+    set(CPACK_PACKAGING_INSTALL_PREFIX "")
 endif()
 
 set(CPACK_PACKAGE_NAME "Photon")
-set(CPACK_PACKAGE_CONTACT "support@rblabs.com")
+set(CPACK_PACKAGE_CONTACT "support@rblabs.net")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "High-performance native RAW image editor")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 

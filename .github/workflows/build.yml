@@ -66,23 +66,26 @@ jobs:
         run: |
           cmake --build build_dir --config Release -j
 
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Install to a staging directory first
-          cmake --install build_dir --config Release --prefix install
-
-          # Add Qt and vcpkg to PATH so windeployqt can find all dependencies
-          $env:PATH = "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin;C:\vcpkg\installed\x64-windows\bin;" + $env:PATH
-
-          # Gather Qt dependencies for the installed executable
-          Set-Location install\bin
-          windeployqt --qmldir ..\..\..\content --release Photon.exe
-
-          # Go back and create the package from the install directory
-          Set-Location ..\..
-          cpack -G WIX -C Release
+- name: Package (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        # Install to a staging directory first
+        cmake --install build_dir --config Release --prefix install
+        
+        # Add Qt and vcpkg to PATH so windeployqt can find all dependencies
+        $env:PATH = "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin;C:\vcpkg\installed\x64-windows\bin;" + $env:PATH
+        
+        # Gather Qt dependencies for the installed executable
+        Set-Location install\bin
+        # Use full path to windeployqt and disable QML scanning to avoid JSON errors
+        & "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" --release Photon.exe --dir .
+        
+        # Go back and create the package from the install directory
+        Set-Location ..\..
+        # Run cpack from the build directory where CPackConfig.cmake is located
+        Set-Location build_dir
+        cpack -G WIX -C Release
 
       - name: Package (Linux)
         if: runner.os == 'Linux'

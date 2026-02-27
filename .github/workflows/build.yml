@@ -108,13 +108,21 @@ jobs:
           # Remove linuxdeploy tools so they don't get uploaded
           rm linuxdeploy*.AppImage
 
-      - name: Upload Artifacts
+      # For Windows
+      - name: Upload Artifact (Windows)
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: Photon-${{ runner.os }}
-          path: |
-            build_dir/*.msi
-            Photon-x86_64.AppImage
+          name: Photon-Windows
+          path: ${{ github.workspace }}\*.msi
+
+      # For Linux
+      - name: Upload Artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Photon-Linux
+          path: Photon-x86_64.AppImage
 
   release:
     name: Create Release

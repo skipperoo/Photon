@@ -73,8 +73,16 @@ jobs:
           $qtDir = "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64"
           $env:PATH = "$qtDir\bin;C:\vcpkg\installed\x64-windows\bin;" + $env:PATH
 
-          Set-Location build_dir
-          cpack -G WIX -C Release
+          # Install to a staging directory first
+          cmake --install build_dir --config Release --prefix install
+
+          # Run windeployqt to gather Qt dependencies
+          Set-Location install\bin
+          & "$qtDir\bin\windeployqt.exe" --release --qmldir "${{ github.workspace }}\content" --no-compiler-runtime Photon.exe
+
+          # Go back and create the package from the staging directory
+          Set-Location ..\..
+          cpack -G WIX -C Release --config build_dir/CPackConfig.cmake
 
       - name: Package (Linux)
         if: runner.os == 'Linux'

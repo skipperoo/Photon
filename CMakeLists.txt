@@ -257,42 +257,6 @@ if(WIN32)
     install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
   endif()
 endif()
-    if(LIBRAW_DLL)
-        install(FILES ${LIBRAW_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
-    endif()
-
-    # Find and install all vcpkg DLLs (but not raw.dll again)
-    file(GLOB VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/*.dll")
-    if(VCPKG_DLLS)
-        list(REMOVE_ITEM VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
-        install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
-    endif()
-
-    # Run windeployqt as the last install step for the Runtime component.
-    # Because all rules above share COMPONENT Runtime, Photon.exe is guaranteed
-    # to be staged before this code executes.
-    find_program(WINDEPLOYQT windeployqt
-        HINTS "${Qt6_DIR}/../../../bin"
-    )
-    if(WINDEPLOYQT)
-        install(CODE "
-            message(STATUS \"Running windeployqt...\")
-            execute_process(
-                COMMAND \"${WINDEPLOYQT}\"
-                    --release
-                    --qmldir \"${CMAKE_SOURCE_DIR}/content\"
-                    --no-compiler-runtime
-                    \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/Photon.exe\"
-                RESULT_VARIABLE WINDEPLOYQT_RESULT
-            )
-            if(NOT WINDEPLOYQT_RESULT EQUAL 0)
-                message(FATAL_ERROR \"windeployqt failed: \${WINDEPLOYQT_RESULT}\")
-            endif()
-        " COMPONENT Runtime)
-    else()
-        message(WARNING "windeployqt not found — Qt DLLs will NOT be bundled")
-    endif()
-endif()
 
 if(WIN32)
   set(CPACK_GENERATOR "WIX")

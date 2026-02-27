@@ -2,6 +2,8 @@
 
 ---
 
+[![Build and Release](https://github.com/skipperoo/Photon/actions/workflows/build.yml/badge.svg)](https://github.com/skipperoo/Photon/actions/workflows/build.yml)
+
 Photon is an open source alternative to Adobe Lightroom®, focused on ease of use and performance.
 It features a minimal interface with all the controls you would expect from a Raw photo editor:
 

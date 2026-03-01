@@ -37,8 +37,8 @@ class RawEngine : public QObject {
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
                  temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
-  Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE
-                 setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
+  Q_PROPERTY(int tonemappingMode READ tonemappingMode WRITE
+                 setTonemappingMode NOTIFY tonemappingModeChanged)
   Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY
                  grainAmountChanged)
   Q_PROPERTY(
@@ -223,8 +223,8 @@ class RawEngine : public QObject {
   float tint() const { return m_tint; }
   void setTint(float val);
 
-  bool tonemappingEnabled() const { return m_tonemappingEnabled; }
-  void setTonemappingEnabled(bool enabled);
+  int tonemappingMode() const { return m_tonemappingMode; }
+  void setTonemappingMode(int mode);
 
   float grainAmount() const { return m_grainAmount; }
   void setGrainAmount(float val);
@@ -411,7 +411,7 @@ class RawEngine : public QObject {
   void saturationChanged();
   void temperatureChanged();
   void tintChanged();
-  void tonemappingEnabledChanged();
+  void tonemappingModeChanged();
   void grainAmountChanged();
   void grainSizeChanged();
   void grainRoughnessChanged();
@@ -511,7 +511,7 @@ class RawEngine : public QObject {
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;
   float m_tint = 0.0f;
-  bool m_tonemappingEnabled = false;
+  int m_tonemappingMode = 0;
   float m_grainAmount = 0.0f;
   float m_grainSize = 1.0f;
   float m_grainRoughness = 0.5f;

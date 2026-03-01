@@ -44,9 +44,9 @@ void TestRawEngine::testProperties() {
   QCOMPARE(engine.tint(), -10.0f);
   QCOMPARE(tintSpy.count(), 1);
 
-  QSignalSpy toneSpy(&engine, &RawEngine::tonemappingEnabledChanged);
-  engine.setTonemappingEnabled(true);
-  QCOMPARE(engine.tonemappingEnabled(), true);
+  QSignalSpy toneSpy(&engine, &RawEngine::tonemappingModeChanged);
+  engine.setTonemappingMode(2);
+  QCOMPARE(engine.tonemappingMode(), 2);
   QCOMPARE(toneSpy.count(), 1);
 
   QSignalSpy grainSpy(&engine, &RawEngine::grainAmountChanged);

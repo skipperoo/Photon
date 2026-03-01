@@ -371,10 +371,10 @@ void RawEngine::setTint(float val) {
   emit isDefaultChanged();
 }
 
-void RawEngine::setTonemappingEnabled(bool enabled) {
-  if (m_tonemappingEnabled == enabled) return;
-  m_tonemappingEnabled = enabled;
-  emit tonemappingEnabledChanged();
+void RawEngine::setTonemappingMode(int mode) {
+  if (m_tonemappingMode == mode) return;
+  m_tonemappingMode = mode;
+  emit tonemappingModeChanged();
   emit isDefaultChanged();
 }
 
@@ -1412,7 +1412,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["saturation"] = e->saturation();
   obj["temperature"] = e->temperature();
   obj["tint"] = e->tint();
-  obj["tonemappingEnabled"] = e->tonemappingEnabled();
+  obj["tonemappingMode"] = e->tonemappingMode();
   obj["grainAmount"] = e->grainAmount();
   obj["grainSize"] = e->grainSize();
   obj["grainRoughness"] = e->grainRoughness();
@@ -1482,8 +1482,10 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("temperature"))
     e->setTemperature(obj["temperature"].toDouble());
   if (obj.contains("tint")) e->setTint(obj["tint"].toDouble());
-  if (obj.contains("tonemappingEnabled"))
-    e->setTonemappingEnabled(obj["tonemappingEnabled"].toBool());
+  if (obj.contains("tonemappingMode"))
+    e->setTonemappingMode(obj["tonemappingMode"].toInt());
+  else if (obj.contains("tonemappingEnabled"))
+    e->setTonemappingMode(obj["tonemappingEnabled"].toBool() ? 1 : 0);
   if (obj.contains("grainAmount"))
     e->setGrainAmount(obj["grainAmount"].toDouble());
   if (obj.contains("grainSize")) e->setGrainSize(obj["grainSize"].toDouble());
@@ -1589,7 +1591,7 @@ static void resetToDefaults(RawEngine* e) {
   e->setSaturation(0.0f);
   e->setTemperature(0.0f);
   e->setTint(0.0f);
-  e->setTonemappingEnabled(false);
+  e->setTonemappingMode(0);
   e->setGrainAmount(0.0f);
   e->setGrainSize(1.0f);
   e->setGrainRoughness(0.5f);
@@ -1801,7 +1803,7 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_saturation)) return false;
   if (!qFuzzyIsNull(m_temperature)) return false;
   if (!qFuzzyIsNull(m_tint)) return false;
-  if (m_tonemappingEnabled) return false;
+  if (m_tonemappingMode != 0) return false;
   if (!qFuzzyIsNull(m_grainAmount)) return false;
   if (!qFuzzyIsNull(m_vignetteAmount)) return false;
   if (!qFuzzyCompare(m_vignetteMidpoint, 50.0f)) return false;

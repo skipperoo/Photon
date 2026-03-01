@@ -18,7 +18,7 @@ layout(std140, binding = 0) uniform buf {
     float saturation;
     float temperature;
     float tint;
-    float tonemappingEnabled;
+    float tonemappingMode;
     float grainAmount;
     float grainSize;
     float grainRoughness;
@@ -329,6 +329,31 @@ vec3 agx_tonemap(vec3 color) {
     return AgX_Out * tonemapped_linear;
 }
 
+// --- DaVinci Tonemapping ---
+float davinci_rolloff(float x, float a, float b) {
+    return a * (x / (x + b));
+}
+
+vec3 davinci_tonemap(vec3 color, float exposure_val) {
+    color *= pow(2.0, exposure_val);
+
+    float input_white = 16.0;
+    float output_white = 1.0;
+    float adaptation = 9.0;
+
+    float b = (input_white - (adaptation / 100.0) * (input_white / output_white))
+            / ((input_white / output_white) - 1.0);
+    float a = output_white / (input_white / (input_white + b));
+
+    color = min(color, vec3(input_white));
+
+    color.r = davinci_rolloff(color.r, a, b);
+    color.g = davinci_rolloff(color.g, a, b);
+    color.b = davinci_rolloff(color.b, a, b);
+
+    return clamp(color, vec3(0.0), vec3(output_white));
+}
+
 // --- Film Grain & Noise ---
 float hash(vec2 p) {
     vec3 p3  = fract(vec3(p.xyx) * .1031);
@@ -400,8 +425,10 @@ void main()
     // 1. White Balance
     color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0);
 
-    // 2. Exposure
-    color *= pow(2.0, ubuf.exposure);
+    // 2. Exposure (DaVinci mode integrates exposure into its rolloff)
+    if (ubuf.tonemappingMode < 1.5) {
+        color *= pow(2.0, ubuf.exposure);
+    }
     
     // 3. Contrast
     color = max(vec3(0.0), color);
@@ -497,7 +524,9 @@ void main()
     color = mix(color, vec3(max_color), amt);
 
     // 7. Tonemapping
-    if (ubuf.tonemappingEnabled > 0.5) {
+    if (ubuf.tonemappingMode > 1.5) {
+        color = davinci_tonemap(color, ubuf.exposure);
+    } else if (ubuf.tonemappingMode > 0.5) {
         color = agx_tonemap(color);
     }
 

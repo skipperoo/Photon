@@ -108,6 +108,33 @@ static float get_luma_cpp(float r, float g, float b) {
   return 0.2126f * r + 0.7152f * g + 0.0722f * b;
 }
 
+static void davinci_tonemap(float& r, float& g, float& b, float exposure_val) {
+  float exp_mult = std::pow(2.0f, exposure_val);
+  r *= exp_mult;
+  g *= exp_mult;
+  b *= exp_mult;
+
+  const float input_white = 16.0f;
+  const float output_white = 1.0f;
+  const float adaptation = 9.0f;
+
+  float bv = (input_white - (adaptation / 100.0f) * (input_white / output_white))
+           / ((input_white / output_white) - 1.0f);
+  float a = output_white / (input_white / (input_white + bv));
+
+  r = std::min(r, input_white);
+  g = std::min(g, input_white);
+  b = std::min(b, input_white);
+
+  r = a * (r / (r + bv));
+  g = a * (g / (g + bv));
+  b = a * (b / (b + bv));
+
+  r = std::clamp(r, 0.0f, output_white);
+  g = std::clamp(g, 0.0f, output_white);
+  b = std::clamp(b, 0.0f, output_white);
+}
+
 QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                const QJsonObject& obj, QRhi* rhi,
                                QQuickWindow* window) {
@@ -134,7 +161,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float tint = obj["tint"].toDouble() / 100.0f;
   float sat_global = obj["saturation"].toDouble();
   float vib_global = obj["vibrance"].toDouble();
-  bool agx_enabled = obj["tonemappingEnabled"].toBool();
+  int tonemapping_mode = obj.contains("tonemappingMode")
+      ? obj["tonemappingMode"].toInt()
+      : (obj["tonemappingEnabled"].toBool() ? 1 : 0);
   float denoiseAmount = obj["denoiseAmount"].toDouble();
   bool denoiseEnabled = obj["denoiseEnabled"].toBool();
   // When exporting we ALWAYS want to perform the second pass
@@ -207,10 +236,16 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       g = srgb_to_linear_f(g);
       b = srgb_to_linear_f(b);
 
-      // 1. WB & Exposure
-      r *= r_wb * exp_mult;
-      g *= g_wb * exp_mult;
-      b *= b_wb * exp_mult;
+      // 1. WB & Exposure (DaVinci mode defers exposure to tonemapping)
+      if (tonemapping_mode == 2) {
+        r *= r_wb;
+        g *= g_wb;
+        b *= b_wb;
+      } else {
+        r *= r_wb * exp_mult;
+        g *= g_wb * exp_mult;
+        b *= b_wb * exp_mult;
+      }
 
       // 2. Contrast
       r = std::max(0.0f, r);
@@ -337,7 +372,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       b = mix(b, c_max, v_amt);
 
       // 8. Tonemapping
-      if (agx_enabled) {
+      if (tonemapping_mode == 2) {
+        davinci_tonemap(r, g, b, exp);
+      } else if (tonemapping_mode == 1) {
         agx_tonemap(r, g, b);
       }
 

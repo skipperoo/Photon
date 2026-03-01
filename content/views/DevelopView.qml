@@ -204,14 +204,17 @@ Control {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { 
-                                text: "AgX Tonemapping"
+                                text: "Tonemapping"
                                 font: Theme.fontRegular
                                 color: Theme.foreground
                                 Layout.fillWidth: true
                             }
-                            PhotonSwitch { 
-                                checked: root.viewport ? root.viewport.tonemappingEnabled : false
-                                onClicked: if(root.viewport) { root.viewport.tonemappingEnabled = checked; root.viewport.commitEdit(); }
+                            ComboBox {
+                                id: tonemappingCombo
+                                model: ["Off", "AgX", "DaVinci"]
+                                currentIndex: root.viewport ? root.viewport.tonemappingMode : 0
+                                onActivated: (index) => { if(root.viewport) { root.viewport.tonemappingMode = index; root.viewport.commitEdit(); } }
+                                implicitWidth: 100
                             }
                         }
                     }

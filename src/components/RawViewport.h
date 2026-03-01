@@ -29,8 +29,8 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
                  temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
-  Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE
-                 setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
+  Q_PROPERTY(int tonemappingMode READ tonemappingMode WRITE
+                 setTonemappingMode NOTIFY tonemappingModeChanged)
   Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY
                  grainAmountChanged)
   Q_PROPERTY(
@@ -207,8 +207,8 @@ class RawViewport : public QQuickItem {
   float tint() const { return m_engine.tint(); }
   void setTint(float val);
 
-  bool tonemappingEnabled() const { return m_engine.tonemappingEnabled(); }
-  void setTonemappingEnabled(bool enabled);
+  int tonemappingMode() const { return m_engine.tonemappingMode(); }
+  void setTonemappingMode(int mode);
 
   float grainAmount() const { return m_engine.grainAmount(); }
   void setGrainAmount(float val);
@@ -396,7 +396,7 @@ class RawViewport : public QQuickItem {
   void saturationChanged();
   void temperatureChanged();
   void tintChanged();
-  void tonemappingEnabledChanged();
+  void tonemappingModeChanged();
   void grainAmountChanged();
   void grainSizeChanged();
   void grainRoughnessChanged();

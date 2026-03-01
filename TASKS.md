@@ -232,3 +232,4 @@
 - [ ] Tone Curve (Spline UI).
 - [ ] Multi-image batch processing.
 - [ ] [DaVinci Tone Mapping DCTL](https://github.com/thatcherfreeman/utility-dctls?tab=readme-ov-file#davinci-tone-mapping-dctl)
+- [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView

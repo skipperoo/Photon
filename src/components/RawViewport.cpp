@@ -80,8 +80,8 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit tintChanged();
     update();
   });
-  connect(&m_engine, &RawEngine::tonemappingEnabledChanged, this, [this]() {
-    emit tonemappingEnabledChanged();
+  connect(&m_engine, &RawEngine::tonemappingModeChanged, this, [this]() {
+    emit tonemappingModeChanged();
     update();
   });
   connect(&m_engine, &RawEngine::isDefaultChanged, this,
@@ -421,10 +421,10 @@ void RawViewport::setTint(float val) {
   m_engine.requestHistogramUpdate();
 }
 
-void RawViewport::setTonemappingEnabled(bool enabled) {
-  if (m_engine.tonemappingEnabled() == enabled) return;
-  m_engine.setTonemappingEnabled(enabled);
-  emit tonemappingEnabledChanged();
+void RawViewport::setTonemappingMode(int mode) {
+  if (m_engine.tonemappingMode() == mode) return;
+  m_engine.setTonemappingMode(mode);
+  emit tonemappingModeChanged();
   m_engine.requestHistogramUpdate();
 }
 

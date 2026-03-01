@@ -236,7 +236,7 @@ Window {
                             property real saturation: rawViewport.saturation
                             property real temperature: rawViewport.temperature
                             property real tint: rawViewport.tint
-                            property real tonemappingEnabled: rawViewport.tonemappingEnabled ? 1.0 : 0.0
+                            property real tonemappingMode: rawViewport.tonemappingMode
                             property real grainAmount: rawViewport.grainAmount
                             property real grainSize: rawViewport.grainSize
                             property real grainRoughness: rawViewport.grainRoughness

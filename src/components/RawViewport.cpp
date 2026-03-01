@@ -4,6 +4,7 @@
 #include <QRgba64>
 #include <QSGTexture>
 #include <QtMath>
+#include <cstdio>
 
 #include "managers/AppStateManager.h"
 #include "managers/LogManager.h"
@@ -62,6 +63,11 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   });
   connect(&m_engine, &RawEngine::blacksChanged, this, [this]() {
     emit blacksChanged();
+    update();
+  });
+
+  connect(&m_engine, &RawEngine::adaptationChanged, this, [this]() {
+    emit adaptationChanged();
     update();
   });
   connect(&m_engine, &RawEngine::vibranceChanged, this, [this]() {
@@ -390,6 +396,13 @@ void RawViewport::setBlacks(float val) {
   if (qFuzzyCompare(m_engine.blacks(), val)) return;
   m_engine.setBlacks(val);
   emit blacksChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setAdaptation(float val) {
+  if (qFuzzyCompare(m_engine.adaptation(), val)) return;
+  m_engine.setAdaptation(val);
+  emit adaptationChanged();
   m_engine.requestHistogramUpdate();
 }
 

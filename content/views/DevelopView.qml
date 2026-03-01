@@ -198,6 +198,7 @@ Control {
                         ControlGroup { title: "Shadows"; value: root.viewport ? root.viewport.shadows : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.shadows = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         ControlGroup { title: "Whites"; value: root.viewport ? root.viewport.whites : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.whites = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         ControlGroup { title: "Blacks"; value: root.viewport ? root.viewport.blacks : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.blacks = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Adaptation"; value: root.viewport ? root.viewport.adaptation : 9.0; from: 0; to: 100; defaultValue: 9.0; onMoved: (v) => { if(root.viewport) root.viewport.adaptation = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
@@ -220,7 +221,7 @@ Control {
                 // --- Presence Section ---
                 Collapsible {
                     title: "Presence"
-                    expanded: true
+                    expanded: false
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -234,7 +235,7 @@ Control {
                 // --- Color Section (HSL) ---
                 Collapsible {
                     title: "Color"
-                    expanded: true
+                    expanded: false
 
                     ColumnLayout {
                         id: colorSection
@@ -305,7 +306,7 @@ Control {
                 // --- Color Grading Section ---
                 Collapsible {
                     title: "Color Grading"
-                    expanded: true
+                    expanded: false
 
                     ColumnLayout {
                         id: gradingSection
@@ -384,7 +385,7 @@ Control {
                 // --- Effects Section ---
                 Collapsible {
                     title: "Effects"
-                    expanded: true
+                    expanded: false
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -427,7 +428,7 @@ Control {
                 // --- Creative Section ---
                 Collapsible {
                     title: "Creative"
-                    expanded: true
+                    expanded: false
 
                     ColumnLayout {
                         Layout.fillWidth: true

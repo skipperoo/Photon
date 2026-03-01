@@ -236,3 +236,4 @@
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Tone Curve (Spline UI).
 - [ ] Multi-image batch processing.
+- [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView

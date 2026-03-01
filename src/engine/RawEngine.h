@@ -30,6 +30,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(float shadows READ shadows WRITE setShadows NOTIFY shadowsChanged)
   Q_PROPERTY(float whites READ whites WRITE setWhites NOTIFY whitesChanged)
   Q_PROPERTY(float blacks READ blacks WRITE setBlacks NOTIFY blacksChanged)
+  Q_PROPERTY(float adaptation READ adaptation WRITE setAdaptation NOTIFY adaptationChanged)
   Q_PROPERTY(
       float vibrance READ vibrance WRITE setVibrance NOTIFY vibranceChanged)
   Q_PROPERTY(float saturation READ saturation WRITE setSaturation NOTIFY
@@ -210,6 +211,9 @@ class RawEngine : public QObject {
 
   float blacks() const { return m_blacks; }
   void setBlacks(float val);
+
+  float adaptation() const { return m_adaptation; }
+  void setAdaptation(float val);
 
   float vibrance() const { return m_vibrance; }
   void setVibrance(float val);
@@ -407,6 +411,7 @@ class RawEngine : public QObject {
   void shadowsChanged();
   void whitesChanged();
   void blacksChanged();
+  void adaptationChanged();
   void vibranceChanged();
   void saturationChanged();
   void temperatureChanged();
@@ -507,6 +512,7 @@ class RawEngine : public QObject {
   float m_shadows = 0.0f;
   float m_whites = 0.0f;
   float m_blacks = 0.0f;
+  float m_adaptation = 0.0f;
   float m_vibrance = 0.0f;
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;

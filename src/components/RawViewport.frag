@@ -14,6 +14,7 @@ layout(std140, binding = 0) uniform buf {
     float shadows;
     float whites;
     float blacks;
+    float adaptation;
     float vibrance;
     float saturation;
     float temperature;
@@ -298,6 +299,48 @@ float agx_apply_curve_channel(float x) {
     }
 }
 
+vec3 aces_tonemap(vec3 color) {
+    // Narkowicz 2015 ACES approximation
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    
+    // Apply the polynomial curve
+    color = (color * (a * color + b)) / (color * (c * color + d) + e);
+    
+    return clamp(color, 0.0, 1.0);
+}
+
+// --- DaVinci Tonemapping ---
+float davinci_rolloff(float x, float a, float b) {
+    return a * (x / (x + b));
+}
+
+vec3 davinci_tonemap(vec3 color, float adaptation) {
+
+    float input_white = 16.0;
+    float output_white = 1.0;
+    // float adaptation = 12.0;
+
+    if (input_white <= output_white) {
+        return min(color, vec3(output_white));
+    }
+
+    float b = (input_white - (adaptation / 100.0) * (input_white / output_white))
+            / ((input_white / output_white) - 1.0);
+    float a = output_white / (input_white / (input_white + b));
+
+    color = min(color, vec3(input_white));
+
+    color.r = davinci_rolloff(color.r, a, b);
+    color.g = davinci_rolloff(color.g, a, b);
+    color.b = davinci_rolloff(color.b, a, b);
+
+    return clamp(color, vec3(0.0), vec3(output_white));
+}
+
 vec3 agx_tonemap(vec3 color) {
     const mat3 AgX_Inset = mat3(
         0.856627153315983, 0.137318972929847, 0.11189821299995,
@@ -402,6 +445,8 @@ void main()
 
     // 2. Exposure
     color *= pow(2.0, ubuf.exposure);
+    
+    color = davinci_tonemap(color, ubuf.adaptation);
     
     // 3. Contrast
     color = max(vec3(0.0), color);

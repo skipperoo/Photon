@@ -232,6 +232,7 @@ Window {
                             property real shadows: rawViewport.shadows
                             property real whites: rawViewport.whites
                             property real blacks: rawViewport.blacks
+                            property real adaptation: rawViewport.adaptation
                             property real vibrance: rawViewport.vibrance
                             property real saturation: rawViewport.saturation
                             property real temperature: rawViewport.temperature

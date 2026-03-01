@@ -343,6 +343,13 @@ void RawEngine::setBlacks(float val) {
   emit isDefaultChanged();
 }
 
+void RawEngine::setAdaptation(float val) {
+  if (qFuzzyCompare(m_adaptation, val)) return;
+  m_adaptation = val;
+  emit adaptationChanged();
+  emit isDefaultChanged();
+}
+
 void RawEngine::setVibrance(float val) {
   if (qFuzzyCompare(m_vibrance, val)) return;
   m_vibrance = val;
@@ -1408,6 +1415,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["shadows"] = e->shadows();
   obj["whites"] = e->whites();
   obj["blacks"] = e->blacks();
+  obj["adaptation"] = e->adaptation();
   obj["vibrance"] = e->vibrance();
   obj["saturation"] = e->saturation();
   obj["temperature"] = e->temperature();
@@ -1476,6 +1484,7 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("shadows")) e->setShadows(obj["shadows"].toDouble());
   if (obj.contains("whites")) e->setWhites(obj["whites"].toDouble());
   if (obj.contains("blacks")) e->setBlacks(obj["blacks"].toDouble());
+  if (obj.contains("adaptation")) e->setAdaptation(obj["adaptation"].toDouble());
   if (obj.contains("vibrance")) e->setVibrance(obj["vibrance"].toDouble());
   if (obj.contains("saturation"))
     e->setSaturation(obj["saturation"].toDouble());
@@ -1585,6 +1594,7 @@ static void resetToDefaults(RawEngine* e) {
   e->setShadows(0.0f);
   e->setWhites(0.0f);
   e->setBlacks(0.0f);
+  e->setAdaptation(9.0f);
   e->setVibrance(0.0f);
   e->setSaturation(0.0f);
   e->setTemperature(0.0f);
@@ -1797,6 +1807,7 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_shadows)) return false;
   if (!qFuzzyIsNull(m_whites)) return false;
   if (!qFuzzyIsNull(m_blacks)) return false;
+  if (!qFuzzyCompare(m_adaptation, 9.0f)) return false;
   if (!qFuzzyIsNull(m_vibrance)) return false;
   if (!qFuzzyIsNull(m_saturation)) return false;
   if (!qFuzzyIsNull(m_temperature)) return false;

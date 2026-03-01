@@ -3,6 +3,7 @@
 #include <QString>
 #include <QThread>
 #include <QtConcurrent>
+#include <cstdio>
 #include <numeric>
 
 #include "../managers/LogManager.h"
@@ -54,6 +55,27 @@ static float agx_apply_curve_channel(float x) {
   } else {
     return agx_scaled_sigmoid(x, SH_SCALE, SLOPE, SH_POWER, SH_TX, SH_TY);
   }
+}
+
+static void davinci_tonemap(float& r, float& g, float& b, float adaptation) {
+  const float input_white = 16.0f;
+  const float output_white = 1.0f;
+
+  float bv = (input_white - (adaptation / 100.0f) * (input_white / output_white))
+           / ((input_white / output_white) - 1.0f);
+  float a = output_white / (input_white / (input_white + bv));
+
+  r = std::min(r, input_white);
+  g = std::min(g, input_white);
+  b = std::min(b, input_white);
+
+  r = a * (r / (r + bv));
+  g = a * (g / (g + bv));
+  b = a * (b / (b + bv));
+
+  r = std::clamp(r, 0.0f, output_white);
+  g = std::clamp(g, 0.0f, output_white);
+  b = std::clamp(b, 0.0f, output_white);
 }
 
 static void agx_tonemap(float& r, float& g, float& b) {
@@ -130,6 +152,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float shad = obj["shadows"].toDouble();
   float whites = obj["whites"].toDouble();
   float blacks = obj["blacks"].toDouble();
+  float adaptation = obj["adaptation"].toDouble();
   float temp = obj["temperature"].toDouble() / 100.0f;
   float tint = obj["tint"].toDouble() / 100.0f;
   float sat_global = obj["saturation"].toDouble();
@@ -137,8 +160,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   bool agx_enabled = obj["tonemappingEnabled"].toBool();
   float denoiseAmount = obj["denoiseAmount"].toDouble();
   bool denoiseEnabled = obj["denoiseEnabled"].toBool();
-  // When exporting we ALWAYS want to perform the second pass
-  bool denoiseSecondPass = true;
+  bool denoiseSecondPass = obj["denoiseSecondPass"].toBool();
 
   LogManager::instance()->log(
       QString("[ ImageDeveloper ] - Params: exp=%1 con=%2 high=%3 shad=%4 denoise=%5")
@@ -211,6 +233,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       r *= r_wb * exp_mult;
       g *= g_wb * exp_mult;
       b *= b_wb * exp_mult;
+
+      // DaVinci tonemapping to smoothen the highlights
+      davinci_tonemap(r, g, b, adaptation);
 
       // 2. Contrast
       r = std::max(0.0f, r);

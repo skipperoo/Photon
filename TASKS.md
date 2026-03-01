@@ -217,6 +217,11 @@
 - [x] **Performance Optimization**
   - [x] Implement high-performance compiler flags (-O3, LTO, AVX2/FMA) for Release builds.
 
+## Phase 23: Adjust basic Tonemapping and Fix Denoise
+
+- [x] [DaVinci Tone Mapping DCTL](https://github.com/thatcherfreeman/utility-dctls?tab=readme-ov-file#davinci-tone-mapping-dctl)
+- [ ] Finally fix the GpuDenoiser
+
 ## Backlog / Future
 
 - [ ] **Usability**
@@ -231,5 +236,4 @@
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Tone Curve (Spline UI).
 - [ ] Multi-image batch processing.
-- [ ] [DaVinci Tone Mapping DCTL](https://github.com/thatcherfreeman/utility-dctls?tab=readme-ov-file#davinci-tone-mapping-dctl)
 - [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView

@@ -136,6 +136,7 @@ vec3 apply_local_contrast(vec3 color_linear, vec3 blurred_linear, float amount, 
 
     // Doubling the action for Sharpening, Clarity and Structure
     float effective_amount = amount * 2.0;
+    if (mode == 0) effective_amount = amount * 10.0; // 5x stronger sharpening
 
     float center_luma = get_luma(color_linear);
     float shadow_protection = smoothstep(0.0, 0.05, center_luma);
@@ -159,7 +160,7 @@ vec3 apply_local_contrast(vec3 color_linear, vec3 blurred_linear, float amount, 
         float adj_amount = effective_amount;
         if (mode == 0) { // Sharpening mode
             float edge_dampener = 1.0 - pow(clamp(abs(log_ratio) / 3.0, 0.0, 1.0), 0.5);
-            adj_amount = effective_amount * edge_dampener * 0.8;
+            adj_amount = effective_amount * edge_dampener;
         }
         final_color = color_linear * exp2(log_ratio * adj_amount);
     }
@@ -417,13 +418,24 @@ void main()
     color = apply_gpu_denoise(color, qt_TexCoord0, source, ubuf.denoiseAmount);
 
     // --- Approximated Blur for Local Contrast (Clarity, Structure, Sharpness) ---
-    // We use a multi-tap sample to approximate a blurred version of the current pixel.
+    // Dual-radius multi-tap blur for effective unsharp mask on denoised images.
     vec2 texelSize = 1.0 / ubuf.sourceSize;
-    vec3 blurred = color * 0.25;
-    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, 1.5) * texelSize).rgb) * 0.1875;
-    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, -1.5) * texelSize).rgb) * 0.1875;
-    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, -1.5) * texelSize).rgb) * 0.1875;
-    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, 1.5) * texelSize).rgb) * 0.1875;
+    // Inner ring (1.5 texels) — fine detail
+    vec3 blurred = color * 0.12;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, 1.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, -1.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, -1.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, 1.5) * texelSize).rgb) * 0.07;
+    // Outer axis ring (6.0 texels) — captures mid-frequency on denoised images
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(6.0, 0.0) * texelSize).rgb) * 0.08;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-6.0, 0.0) * texelSize).rgb) * 0.08;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(0.0, 6.0) * texelSize).rgb) * 0.08;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(0.0, -6.0) * texelSize).rgb) * 0.08;
+    // Outer diagonal ring (4.5 texels)
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(4.5, 4.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-4.5, -4.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(4.5, -4.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-4.5, 4.5) * texelSize).rgb) * 0.07;
 
     // Apply Sharpening (Mode 0)
     color = apply_local_contrast(color, blurred, ubuf.sharpness / 100.0, 0);

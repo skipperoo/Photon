@@ -530,22 +530,49 @@ Control {
                             }
                         }
 
-                        ControlGroup {
-                            title: "Group Size"
-                            value: root.viewport ? root.viewport.denoiseGroupSize : 16
-                            from: 4; to: 16; stepSize: 4
-                            defaultValue: 16
+                        RowLayout {
+                            Layout.fillWidth: true
                             enabled: root.viewport ? root.viewport.denoiseEnabled : false
                             opacity: enabled ? 1.0 : 0.5
-                            onMoved: (v) => {
-                                if(root.viewport) root.viewport.denoiseGroupSize = Math.round(v);
+
+                            Text {
+                                text: "Group Size"
+                                font: Theme.fontRegular
+                                color: Theme.foreground
                             }
-                            onReleased: {
-                                if(root.viewport) {
-                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
-                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                            Item { Layout.fillWidth: true }
+                            ComboBox {
+                                id: groupSizeCombo
+                                model: [4, 8, 16]
+                                currentIndex: {
+                                    let v = root.viewport ? root.viewport.denoiseGroupSize : 16;
+                                    return v === 4 ? 0 : (v === 8 ? 1 : 2);
+                                }
+                                implicitWidth: 70
+                                implicitHeight: 28
+                                font: Theme.fontSmall
+                                onActivated: (index) => {
+                                    if (root.viewport) {
+                                        root.viewport.denoiseGroupSize = model[index];
+                                        if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                            root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                        }
+                                        root.viewport.commitEdit();
                                     }
-                                    root.viewport.commitEdit();
+                                }
+                                background: Rectangle {
+                                    radius: 4
+                                    color: Theme.secondary
+                                    border.color: groupSizeCombo.activeFocus ? Theme.primary : Theme.border
+                                    border.width: 1
+                                }
+                                contentItem: Text {
+                                    text: groupSizeCombo.displayText
+                                    font: Theme.fontSmall
+                                    color: Theme.foreground
+                                    verticalAlignment: Text.AlignVCenter
+                                    horizontalAlignment: Text.AlignHCenter
+                                    leftPadding: 8
                                 }
                             }
                         }

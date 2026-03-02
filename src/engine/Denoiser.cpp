@@ -1,4 +1,5 @@
 #include "Denoiser.h"
+#include "GpuChromaFilter.h"
 
 #include <immintrin.h>
 
@@ -142,7 +143,6 @@ QImage Denoiser::denoiseCpu(
     float chromaSigmaScale = std::clamp(dparams.chromaBm3d, 0.0f, 100.0f) / 100.0f;
     Bm3dParams chromaParams = params;
     chromaParams.sigma *= chromaSigmaScale;
-    chromaParams.max_dist_hard *= chromaSigmaScale;
 
     std::vector<std::vector<float>> cbcr_input = {cb_ch, cr_ch};
     auto cbcr_denoised = bm3d_process_joint(
@@ -156,14 +156,25 @@ QImage Denoiser::denoiseCpu(
   }
 
   // Multi-scale guided filter on Cb and Cr using denoised Y as guide
+  // Try GPU path first, fall back to CPU
   std::vector<float> cb_denoised(size), cr_denoised(size);
-  multiscale_guided_filter(y_clean.data(), cb_bm3d.data(), cb_denoised.data(),
-                            width, height, dparams.chromaRadius,
-                            dparams.chromaDenoise);
-  if (abort && abort->load()) return input;
-  multiscale_guided_filter(y_clean.data(), cr_bm3d.data(), cr_denoised.data(),
-                            width, height, dparams.chromaRadius,
-                            dparams.chromaDenoise);
+  bool gpuOk = GpuChromaFilter::run(y_clean.data(), cb_bm3d.data(),
+                                     cb_denoised.data(), width, height,
+                                     dparams.chromaRadius, dparams.chromaDenoise);
+  if (gpuOk) {
+    gpuOk = GpuChromaFilter::run(y_clean.data(), cr_bm3d.data(),
+                                  cr_denoised.data(), width, height,
+                                  dparams.chromaRadius, dparams.chromaDenoise);
+  }
+  if (!gpuOk) {
+    multiscale_guided_filter(y_clean.data(), cb_bm3d.data(), cb_denoised.data(),
+                              width, height, dparams.chromaRadius,
+                              dparams.chromaDenoise);
+    if (abort && abort->load()) return input;
+    multiscale_guided_filter(y_clean.data(), cr_bm3d.data(), cr_denoised.data(),
+                              width, height, dparams.chromaRadius,
+                              dparams.chromaDenoise);
+  }
   if (abort && abort->load()) return input;
 
   // Convert YCbCr → RGB
@@ -1055,10 +1066,9 @@ void Denoiser::multiscale_guided_filter(const float* guide, const float* input,
   int r1 = std::max(1, baseRadius / 2);
   int r2 = baseRadius;
   int r3 = baseRadius * 2;
-  int r4 = baseRadius * 4;
 
-  // Epsilons scaled for [0-255] Cb/Cr range (variance in hundreds)
-  // Scale 1: Fine detail
+  // Epsilons tuned for [0-255] Cb/Cr range (typical noise variance ~10-60)
+  // Scale 1: Fine detail — preserve edges, smooth small speckle
   std::vector<float> pass1(size);
   guided_filter(guide, input, pass1.data(), width, height, r1, 1.0f * epsScale);
 
@@ -1067,11 +1077,7 @@ void Denoiser::multiscale_guided_filter(const float* guide, const float* input,
   guided_filter(guide, pass1.data(), pass2.data(), width, height, r2, 4.0f * epsScale);
 
   // Scale 3: Coarse blotches
-  std::vector<float> pass3(size);
-  guided_filter(guide, pass2.data(), pass3.data(), width, height, r3, 10.0f * epsScale);
-
-  // Scale 4: Broadband chroma cleanup
-  guided_filter(guide, pass3.data(), output, width, height, r4, 25.0f * epsScale);
+  guided_filter(guide, pass2.data(), output, width, height, r3, 10.0f * epsScale);
 }
 
 }  // namespace photon

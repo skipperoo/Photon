@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <mutex>
 #include <vector>
 #include <string>
 #include <QString>
@@ -46,6 +47,7 @@ struct VulkanFunctions {
     PFN_vkDestroyImageView DestroyImageView;
     PFN_vkAllocateCommandBuffers AllocateCommandBuffers;
     PFN_vkFreeCommandBuffers FreeCommandBuffers;
+    PFN_vkCmdPipelineBarrier CmdPipelineBarrier;
 };
 
 class VulkanComputeContext {
@@ -74,6 +76,9 @@ public:
     VkCommandBuffer beginSingleTimeCommands();
     void endSingleTimeCommands(VkCommandBuffer commandBuffer);
 
+    // Serialize all GPU compute operations across threads
+    std::mutex& computeMutex() { return m_computeMutex; }
+
 private:
     VulkanComputeContext() = default;
     ~VulkanComputeContext() { cleanup(); }
@@ -84,6 +89,7 @@ private:
     VkQueue m_computeQueue = VK_NULL_HANDLE;
     uint32_t m_computeQueueFamily = 0;
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
+    std::mutex m_computeMutex;
     
     VulkanFunctions f;
     static VulkanComputeContext* s_instance;

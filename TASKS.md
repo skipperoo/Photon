@@ -253,6 +253,25 @@
   - [x] Sliders: Search Window (9-39, step 2), Group Size (4-16, step 4), Chroma Radius (1-16), Chroma Denoise (0-100).
   - [x] Added `stepSize` property passthrough in `ControlGroup` → `PhotonSlider`.
 
+## Phase 26: GPU Chroma Filter & Sharpness Fix [DONE]
+
+- [x] **GPU-Accelerated Guided Filter (`GpuChromaFilter`)**
+  - [x] Created `box_filter.comp` — separable horizontal/vertical box filter with coalesced memory access.
+  - [x] Created `guided_ops.comp` — element-wise operations: multiply, compute a/b coefficients, final output.
+  - [x] Created `GpuChromaFilter` class following `GpuSearcher` Vulkan compute pattern.
+  - [x] Single command buffer records all 51 dispatches (3 passes × 17 ops) with pipeline barriers.
+  - [x] Automatic CPU SIMD fallback when Vulkan is unavailable.
+  - [x] Integrated into `Denoiser::denoiseCpu()` — GPU path tried first for Cb and Cr channels.
+- [x] **Sharpness Slider Fix**
+  - [x] Widened fragment shader blur kernel from 5-tap (1.5 texel radius) to 13-tap dual-radius (1.5 + 3.0–4.0 texels).
+  - [x] Effective unsharp mask now works on BM3D-denoised images.
+- [x] **Build & Infrastructure**
+  - [x] Added `box_filter.comp` and `guided_ops.comp` to CMakeLists compute_shaders target.
+  - [x] Added `GpuChromaFilter.cpp/.h` to main and test CMakeLists.
+  - [x] Added `CmdPipelineBarrier` to `VulkanFunctions` struct and loader.
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md denoising pipeline section.
+
 ## Backlog / Future
 
 - [ ] **Usability**

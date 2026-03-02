@@ -11,6 +11,7 @@ ColumnLayout {
     property real to: 100
     property real defaultValue: 0.0
     property real stepSize: 0
+    property int snapMode: 0
     signal moved(real val)
     signal released()
 
@@ -50,6 +51,7 @@ ColumnLayout {
         to: root.to
         value: root.value
         stepSize: root.stepSize
+        snapMode: root.snapMode
         defaultValue: root.defaultValue
         onMoved: root.moved(value)
         onReleased: root.released()

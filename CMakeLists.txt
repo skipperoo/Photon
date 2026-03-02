@@ -38,6 +38,8 @@ qt_add_executable(Photon
     src/engine/Denoiser.h
     src/engine/GpuSearcher.cpp
     src/engine/GpuSearcher.h
+    src/engine/GpuChromaFilter.cpp
+    src/engine/GpuChromaFilter.h
     src/engine/ImageDeveloper.cpp
     src/engine/ImageDeveloper.h
     src/engine/VulkanComputeContext.cpp
@@ -88,6 +90,8 @@ qt6_add_shaders(Photon "compute_shaders"
     ESSL "0"
     FILES
         src/engine/patch_search.comp
+        src/engine/box_filter.comp
+        src/engine/guided_ops.comp
 )
 
 qt_add_qml_module(Photon
@@ -103,6 +107,8 @@ qt_add_qml_module(Photon
         src/engine/Denoiser.h
         src/engine/GpuSearcher.cpp
         src/engine/GpuSearcher.h
+        src/engine/GpuChromaFilter.cpp
+        src/engine/GpuChromaFilter.h
         src/engine/ImageDeveloper.cpp
         src/engine/ImageDeveloper.h
         src/engine/VulkanComputeContext.cpp

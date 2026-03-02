@@ -65,6 +65,7 @@ bool VulkanComputeContext::init(QRhi* rhi) {
     LOAD_DEVICE_FUNC(DestroyImageView);
     LOAD_DEVICE_FUNC(AllocateCommandBuffers);
     LOAD_DEVICE_FUNC(FreeCommandBuffers);
+    LOAD_DEVICE_FUNC(CmdPipelineBarrier);
 
     // Find compute queue family
     uint32_t queueFamilyCount = 0;

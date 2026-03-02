@@ -25,6 +25,17 @@ class GpuDenoiser : public QObject {
 
   void setWindow(QQuickWindow* window) { m_window = window; }
 
+  struct ComputePipeline {
+    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    VkShaderModule shaderModule = VK_NULL_HANDLE;
+
+    void cleanup(VkDevice device, const struct VulkanFunctions& f);
+  };
+
   /**
    * @brief Performs full BM3D denoising on the GPU.
    */
@@ -42,22 +53,8 @@ class GpuDenoiser : public QObject {
     float kaiser[64];
   };
 
-  struct ComputePipeline {
-    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
-    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkPipeline pipeline = VK_NULL_HANDLE;
-    VkShaderModule shaderModule = VK_NULL_HANDLE;
-
-    void cleanup(VkDevice device, const struct VulkanFunctions& f);
-  };
-
   QRhi* m_rhi;
   QQuickWindow* m_window = nullptr;
-  
-  // Internal Vulkan resource management helpers
-  // (Actual implementation will use VulkanComputeContext)
 };
 
 } // namespace photon

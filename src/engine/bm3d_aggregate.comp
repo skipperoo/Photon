@@ -7,7 +7,7 @@ layout(std430, binding = 0) readonly buffer FilteredBuffer {
 };
 
 layout(std430, binding = 1) buffer Accumulator {
-    ivec2 data[]; // (sum * 1000, weight * 1000) - fixed point to avoid float atomics
+    ivec2 data[]; // (sum * 100000, weight * 100000) - fixed point to avoid float atomics
 } accumulator;
 
 layout(std430, binding = 2) readonly buffer DctTables {
@@ -75,13 +75,21 @@ void main() {
     // Weight calculation
     float weight = nonzero_count > 0 ? 1.0 / float(nonzero_count) : 1.0;
 
-    // 2. Inverse 1D WHT (Placeholder)
+    // 2. Inverse 1D WHT (butterfly + 1/n scaling)
     for (int j = 0; j < 64; j++) {
-        for (int i = 0; i < pcs.groupSize; i++) group_stack[i * 64 + j] /= float(pcs.groupSize);
+        if (pcs.groupSize == 2) {
+            float a = group_stack[0 * 64 + j];
+            float b = group_stack[1 * 64 + j];
+            group_stack[0 * 64 + j] = (a + b) * 0.5;
+            group_stack[1 * 64 + j] = (a - b) * 0.5;
+        } else {
+            for (int i = 0; i < pcs.groupSize; i++)
+                group_stack[i * 64 + j] /= float(pcs.groupSize);
+        }
     }
 
     // 3. Inverse 2D DCT and Aggregate
-    float scale = 1000.0;
+    float scale = 100000.0;
     for (int i = 0; i < pcs.groupSize; i++) {
         float block[64];
         for (int j = 0; j < 64; j++) block[j] = group_stack[i * 64 + j];

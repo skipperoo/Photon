@@ -161,11 +161,10 @@ Photon supports professional asset management workflows:
 Non-destructive edits are applied during the export process:
 
 1. **Engine:** A dedicated `ExportManager` handles background processing without blocking the UI.
-2. **Pipeline:** RAW -> Apply Kelvin WB -> Linear Exposure -> Processing Stack -> AgX Tonemapping -> Dithering -> Format Conversion.
-3. **Formats:**
+2. **Pipeline:** RAW -> Apply Kelvin WB -> Linear Exposure -> Processing Stack -> DaVinci Tonemapping (default) -> Optional AgX Tonemapping -> Dithering -> Format Conversion. Formats:
    - **JPEG:** 8-bit, configurable quality (1-100).
    - **TIFF:** 8-bit or 16-bit for maximum archival quality.
-4. **Batching:** Multiple selected images can be exported in parallel using a worker thread pool.
+3. **Batching:** Multiple selected images can be exported in parallel using a worker thread pool.
 
 ### Responsive Preview System (Phase 16-17)
 
@@ -207,8 +206,8 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 10. **Denoising Pipeline (Phase 12):** Photon employs a hybrid GPU/CPU architecture designed for professional performance:
     - **GPU Preview (NLM):** A real-time **Non-Local Means (NLM)** filter runs in the fragment shader. It uses 3x3 patch comparisons within a 7x7 search window, providing high-fidelity spatial denoising at 60fps.
     - **Full Quality Toggle:** A user preference in settings allows forcing the high-fidelity 2-step denoiser even during the preview phase.
-    - **Vulkan-Native Search Offload:** To ensure zero interference with the UI rendering, the computationally expensive patch-matching phase of the BM3D algorithm is offloaded to a dedicated **plain Vulkan** compute pipeline. It bypasses Qt's RHI to run on an independent compute queue, using the same physical device as the UI. This pipeline computes the Sum of Squared Differences (SSD) using 3x3 patches and generates a spatial similarity index.
-    - **CPU Transform & Filter (SIMD):** The collaborative filtering is performed on the CPU using **AVX2 and FMA** instructions, protected by a `QMutex` to ensure thread safety with the LibRaw processor.
+    - **Full GPU BM3D Pipeline:** When GPU denoise is enabled, the entire BM3D algorithm—patch search, block grouping, 3D transform (DCT + Walsh-Hadamard), collaborative hard-thresholding, and weighted aggregation—runs on a dedicated **plain Vulkan** compute pipeline. Five compute shaders (`patch_search`, `bm3d_grouping`, `bm3d_transform`, `bm3d_filter`, `bm3d_aggregate`) are dispatched sequentially with pipeline memory barriers within a single command buffer, processing each color channel independently while sharing luma-based search results. The pipeline bypasses Qt's RHI to run on an independent compute queue, using the same physical device as the UI. An optional second pass re-runs the pipeline with reduced thresholds on the basic estimate for refinement.
+    - **CPU Fallback (SIMD):** When GPU compute is unavailable or disabled, the full BM3D collaborative filtering falls back to the CPU using **AVX2 and FMA** instructions, protected by a `QMutex` to ensure thread safety with the LibRaw processor.
     - **Adaptive Proxy Scaling:** Preview denoising resolution dynamically adjusts based on the viewport size and zoom level (`viewport * zoom * 1.5`), ensuring zero pixelation even at 400% zoom.
     - **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.
     - **ROI-Driven Refinement (Phase 13):** When zoomed in, the engine prioritizes high-quality re-rendering of the visible Region of Interest (ROI) before triggering the background denoiser on that specific area, ensuring maximum sharpness and speed.

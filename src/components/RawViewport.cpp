@@ -4,7 +4,6 @@
 #include <QRgba64>
 #include <QSGTexture>
 #include <QtMath>
-#include <cstdio>
 
 #include "managers/AppStateManager.h"
 #include "managers/LogManager.h"

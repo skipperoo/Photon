@@ -61,9 +61,14 @@ static void davinci_tonemap(float& r, float& g, float& b, float adaptation) {
   const float input_white = 16.0f;
   const float output_white = 1.0f;
 
-  float bv = (input_white - (adaptation / 100.0f) * (input_white / output_white))
+  const float adaptation_clamped = std::clamp(adaptation, 0.0f, 99.999f);
+  float bv = (input_white - (adaptation_clamped / 100.0f) * (input_white / output_white))
            / ((input_white / output_white) - 1.0f);
-  float a = output_white / (input_white / (input_white + bv));
+  // Ensure bv is not zero (or extremely close), to avoid 0/0 in rolloff x/(x + bv).
+  const float bv_epsilon = 1e-6f;
+  if (std::fabs(bv) < bv_epsilon) {
+    bv = (bv >= 0.0f ? bv_epsilon : -bv_epsilon);
+  }  float a = output_white / (input_white / (input_white + bv));
 
   r = std::min(r, input_white);
   g = std::min(g, input_white);

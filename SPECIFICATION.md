@@ -217,7 +217,7 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
     - **Sharpness Enhancement (Phase 26):** The fragment shader uses a dual-radius 13-tap blur kernel (inner ring at 1.5 texels + outer ring at 3.0–4.0 texels) for effective unsharp masking even on heavily denoised images.
     - **Edge-Selective Sharpening Mask (Phase 27):** A **Scharr-based edge detection** operator computes per-pixel edge strength from the luminance channel in the fragment shader. The `sharpenMask` parameter (0–100) controls a threshold/gain curve that progressively isolates stronger edges: at 0 the full image is sharpened, at 100 only the strongest edges receive sharpening. The mask uses a smooth Hermite interpolation (`mask² × (3 − 2×mask)`) for natural transitions. An **Alt+drag preview mode** (`showSharpenMask` uniform) renders the combined mask as a grayscale overlay. The `KeyTracker` C++ singleton installs a global event filter to reliably detect Alt key state across all QML elements.
       - **Mask Feather (0–100):** Spatially smooths the edge mask by averaging the mask value at 4 cardinal neighbor positions (radius 1–6 texels). Produces gradual transitions at mask boundaries, preventing harsh sharpening cutoffs.
-      - **Focus Detection (0–100):** Gates the sharpening mask by local contrast (`|color − blurred|`), which correlates with in-focus vs. out-of-focus regions. Higher values progressively restrict sharpening to high-contrast (in-focus) areas, effectively excluding bokeh and smooth backgrounds. Uses the already-computed unsharp mask blur — zero additional texture samples.
+      - **Focus Detection (0–100):** Gates the sharpening mask by **local luminance variance** computed over 13 sparse samples in a ~12-texel radius (3 rings: center, half-radius cardinals, full-radius cardinals+diagonals). Variance = E[L²] − E[L]² measures texture density: in-focus regions have high variance, bokeh/OOF regions have near-zero variance. Quadratic strength ramp ensures subtle effect at low slider values.
     - **Adaptive Proxy Scaling:** Preview denoising resolution dynamically adjusts based on the viewport size and zoom level (`viewport * zoom * 1.5`), ensuring zero pixelation even at 400% zoom.
     - **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.
     - **ROI-Driven Refinement (Phase 13):** When zoomed in, the engine prioritizes high-quality re-rendering of the visible Region of Interest (ROI) before triggering the background denoiser on that specific area, ensuring maximum sharpness and speed.
@@ -227,6 +227,30 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
       - **Deterministic Teardown:** Singletons (`LogManager`, `AppStateManager`) are parented to the `QGuiApplication` instance and reset their internal static pointers to `nullptr` upon destruction to prevent dangling pointer access during final process cleanup.
       - **GPU Resource Release:** `RawViewport` implements the `releaseResources()` protocol to ensure all RHI-allocated textures and buffers are freed on the render thread while the graphics context is still valid.
       - **Instance Scoping:** The `QVulkanInstance` is managed as a local variable in `main()` to ensure it persists until all QML-related teardown is complete but is destroyed before the application exits.
+
+    #### 10a. Multi-Scale Guided Filter (Chroma Denoising Algorithm)
+    The guided filter is an edge-preserving smoother where the output $q$ is a linear transform of a guide image $I$ in each local window:
+    - Compute `mean_I`, `mean_p` (guide and noisy chroma means via box filter).
+    - Compute `mean_II`, `mean_Ip` (guide² and guide×chroma).
+    - Variance: `var_I = mean_II − mean_I²`.
+    - Covariance: `cov_Ip = mean_Ip − mean_I · mean_p`.
+    - Coefficients: `a = cov_Ip / (var_I + ε)`, `b = mean_p − a · mean_I`.
+    - Smooth coefficients: `mean_a`, `mean_b` via box filter.
+    - Output: `Chroma_out = mean_a · Guide + mean_b`.
+
+    Applied at three scales with increasing radius/epsilon to target fine-to-coarse color noise (r/2, r, r×2 with ε=1.0/4.0/10.0 scaled by chroma strength). The box filter uses a separable horizontal+vertical pass for O(1) per-pixel complexity. GPU path records all 51 dispatches (3 passes × 17 ops) in a single Vulkan command buffer with pipeline barriers.
+
+    #### 10b. Selective Sharpening Mask (Edge Detection Algorithm)
+    The masking pipeline generates a grayscale edge mask where edges are white (full sharpening) and flat areas are black (no sharpening):
+    1. **Luminance extraction:** `Y = 0.2126R + 0.7152G + 0.0722B` (Rec. 709 on linear data).
+    2. **Gradient detection (Scharr):** 3×3 Scharr kernels for Gx/Gy, magnitude `G = √(Gx² + Gy²)`. Preferred over Sobel for better rotational symmetry.
+    3. **Selective thresholding:** `mask = clamp((G − threshold) × gain, 0, 1)` where threshold/gain scale with the Masking slider.
+    4. **Smoothing:** Hermite interpolation `mask² × (3 − 2×mask)` for natural fall-off.
+    5. **Feathering (optional):** Spatial blur via 5-point cardinal average at configurable radius.
+    6. **Focus gating (optional):** Local luminance variance over 13 sparse samples at ~12-texel radius. Low variance = out-of-focus → gate to zero.
+    7. **Application:** `Output = mix(Original, Sharpened, finalMask)` where `finalMask = edgeMask × focusGate`.
+
+    Unlike Canny edge detection (binary single-pixel lines), the Scharr approach provides a grayscale gradient with natural fall-off — the center of an edge is sharpened intensely while strength tapers toward flat textures.
 
 **Accordion Sections:**
 
@@ -264,7 +288,7 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 - Sharpening: Edge contrast enhancement (0 to 100).
 - Masking: Edge-selective sharpening mask (0 to 100). At 0, sharpening is applied uniformly; at 100, only the strongest edges are sharpened. Hold Alt while dragging to preview the mask as a grayscale overlay.
 - Feather: Spatial smoothing of the sharpening mask (0 to 100). Higher values produce softer mask transitions.
-- Focus: Local-contrast gating (0 to 100). Restricts sharpening to in-focus areas by detecting local contrast; out-of-focus/bokeh regions are excluded.
+- Focus: Local luminance variance gating (0 to 100). Restricts sharpening to in-focus areas by measuring texture density over a wide neighborhood; out-of-focus/bokeh regions are excluded.
 - Noise Reduction: Luminance (NLM/BM3D) and Color reduction.
 
 ### C. The Filmstrip (Bottom)

@@ -7,7 +7,6 @@
 #include <cmath>
 #include <numeric>
 
-#include "GpuDenoiser.h"
 
 #ifdef _WIN32
 static int photon_popcount(unsigned int n) {
@@ -24,30 +23,8 @@ namespace photon {
 QImage Denoiser::denoise(
     const QImage& input, float intensity, std::atomic<bool>* abort, bool step2,
     int stride, const std::vector<GpuSearcher::SearchResult>& gpuMatches,
-    QRhi* rhi, bool useGpu, QQuickWindow* window) {
-  if (useGpu && rhi != nullptr) {
-    // Use full GPU denoising pipeline
-    QImage result =
-        denoiseGpu(input, intensity, abort, step2, stride, gpuMatches, rhi, window);
-    if (!result.isNull()) {
-      return result;
-    }
-  }
-  // Fallback to CPU denoising
-  return denoiseCpu(input, intensity, abort, step2, stride, gpuMatches);
-}
-
-QImage Denoiser::denoiseGpu(
-    const QImage& input, float intensity, std::atomic<bool>* abort, bool step2,
-    int stride, const std::vector<GpuSearcher::SearchResult>& gpuMatches,
-    QRhi* rhi, QQuickWindow* window) {
-  if (rhi == nullptr || !GpuDenoiser::isAvailable(rhi)) {
-    return QImage();  // Return null image to indicate failure
-  }
-
-  GpuDenoiser gpuDenoiser(rhi);
-  gpuDenoiser.setWindow(window);
-  return gpuDenoiser.denoise(input, intensity, abort, step2, stride, gpuMatches);
+    const DenoiseParams& params) {
+  return denoiseCpu(input, intensity, abort, step2, stride, gpuMatches, params);
 }
 
 Denoiser::DctTables::DctTables() {
@@ -100,7 +77,8 @@ std::vector<float> Denoiser::AtomicAccumulator::toVector() const {
 
 QImage Denoiser::denoiseCpu(
     const QImage& input, float intensity, std::atomic<bool>* abort, bool step2,
-    int stride, const std::vector<GpuSearcher::SearchResult>& gpuMatches) {
+    int stride, const std::vector<GpuSearcher::SearchResult>& gpuMatches,
+    const DenoiseParams& dparams) {
   if (input.isNull() || intensity <= 0.0f) return input;
   if (abort && abort->load()) return input;
 
@@ -108,43 +86,91 @@ QImage Denoiser::denoiseCpu(
   int height = input.height();
   int size = width * height;
 
-  std::vector<std::vector<float>> channels(3, std::vector<float>(size));
+  // Extract RGB channels from input image
+  std::vector<float> r_ch(size), g_ch(size), b_ch(size);
   if (input.format() == QImage::Format_RGBX64 ||
       input.format() == QImage::Format_RGBA64) {
     const QRgba64* bits = reinterpret_cast<const QRgba64*>(input.constBits());
-    // Parallelize conversion for large images
     const int grain = 4096;
     int numChunks = (size + grain - 1) / grain;
     std::vector<int> chunks(numChunks);
     std::iota(chunks.begin(), chunks.end(), 0);
 
-    QtConcurrent::blockingMap(chunks, [=, &channels](int chunk) {
+    QtConcurrent::blockingMap(chunks, [=, &r_ch, &g_ch, &b_ch](int chunk) {
       int start = chunk * grain;
       int end = std::min(size, start + grain);
       for (int i = start; i < end; ++i) {
-        channels[0][i] = bits[i].red() / 257.0f;  // Scale to 0-255
-        channels[1][i] = bits[i].green() / 257.0f;
-        channels[2][i] = bits[i].blue() / 257.0f;
+        r_ch[i] = bits[i].red() / 257.0f;
+        g_ch[i] = bits[i].green() / 257.0f;
+        b_ch[i] = bits[i].blue() / 257.0f;
       }
     });
   } else {
     QImage converted = input.convertToFormat(QImage::Format_RGB888);
     const uchar* bits = converted.constBits();
     for (int i = 0; i < size; ++i) {
-      channels[0][i] = bits[i * 3];
-      channels[1][i] = bits[i * 3 + 1];
-      channels[2][i] = bits[i * 3 + 2];
+      r_ch[i] = bits[i * 3];
+      g_ch[i] = bits[i * 3 + 1];
+      b_ch[i] = bits[i * 3 + 2];
     }
   }
 
+  if (abort && abort->load()) return input;
+
+  // Convert RGB → YCbCr
+  std::vector<float> y_ch(size), cb_ch(size), cr_ch(size);
+  rgb_to_ycbcr(r_ch, g_ch, b_ch, y_ch, cb_ch, cr_ch);
+
+  if (abort && abort->load()) return input;
+
+  // BM3D on Y channel only
   Bm3dParams params = Bm3dParams::fromIntensity(intensity / 100.0f);
   DctTables tables;
 
-  auto denoised_channels =
-      bm3d_process_joint(channels, width, height, params, tables, abort, step2,
-                         stride, gpuMatches);
+  std::vector<std::vector<float>> y_input = {y_ch};
+  auto y_denoised = bm3d_process_joint(y_input, width, height, params, tables,
+                                        abort, step2, stride, gpuMatches,
+                                        dparams.searchWindow, dparams.groupSize);
   if (abort && abort->load()) return input;
 
+  const std::vector<float>& y_clean = y_denoised[0];
+
+  // BM3D on Cb/Cr using Y_clean as block-matching guide (reduced sigma)
+  std::vector<float> cb_bm3d = cb_ch;
+  std::vector<float> cr_bm3d = cr_ch;
+  if (dparams.chromaBm3d > 0.1f) {
+    float chromaSigmaScale = std::clamp(dparams.chromaBm3d, 0.0f, 100.0f) / 100.0f;
+    Bm3dParams chromaParams = params;
+    chromaParams.sigma *= chromaSigmaScale;
+    chromaParams.max_dist_hard *= chromaSigmaScale;
+
+    std::vector<std::vector<float>> cbcr_input = {cb_ch, cr_ch};
+    auto cbcr_denoised = bm3d_process_joint(
+        cbcr_input, width, height, chromaParams, tables,
+        abort, step2, stride, gpuMatches,
+        dparams.searchWindow, dparams.groupSize, &y_clean);
+    if (abort && abort->load()) return input;
+
+    cb_bm3d = std::move(cbcr_denoised[0]);
+    cr_bm3d = std::move(cbcr_denoised[1]);
+  }
+
+  // Multi-scale guided filter on Cb and Cr using denoised Y as guide
+  std::vector<float> cb_denoised(size), cr_denoised(size);
+  multiscale_guided_filter(y_clean.data(), cb_bm3d.data(), cb_denoised.data(),
+                            width, height, dparams.chromaRadius,
+                            dparams.chromaDenoise);
+  if (abort && abort->load()) return input;
+  multiscale_guided_filter(y_clean.data(), cr_bm3d.data(), cr_denoised.data(),
+                            width, height, dparams.chromaRadius,
+                            dparams.chromaDenoise);
+  if (abort && abort->load()) return input;
+
+  // Convert YCbCr → RGB
+  std::vector<float> r_out(size), g_out(size), b_out(size);
+  ycbcr_to_rgb(y_clean, cb_denoised, cr_denoised, r_out, g_out, b_out);
+
+  // Write output image
   QImage output(width, height, QImage::Format_RGBX64);
   QRgba64* out_bits = reinterpret_cast<QRgba64*>(output.bits());
 
@@ -153,16 +179,16 @@ QImage Denoiser::denoiseCpu(
   std::vector<int> chunksOut(numChunksOut);
   std::iota(chunksOut.begin(), chunksOut.end(), 0);
 
-  QtConcurrent::blockingMap(chunksOut, [=, &denoised_channels](int chunk) {
+  QtConcurrent::blockingMap(chunksOut, [=, &r_out, &g_out, &b_out](int chunk) {
     int start = chunk * grain_out;
     int end = std::min(size, start + grain_out);
     for (int i = start; i < end; ++i) {
       ushort r = static_cast<ushort>(
-          std::clamp(denoised_channels[0][i], 0.0f, 255.0f) * 257.0f);
+          std::clamp(r_out[i], 0.0f, 255.0f) * 257.0f);
       ushort g = static_cast<ushort>(
-          std::clamp(denoised_channels[1][i], 0.0f, 255.0f) * 257.0f);
+          std::clamp(g_out[i], 0.0f, 255.0f) * 257.0f);
       ushort b = static_cast<ushort>(
-          std::clamp(denoised_channels[2][i], 0.0f, 255.0f) * 257.0f);
+          std::clamp(b_out[i], 0.0f, 255.0f) * 257.0f);
       out_bits[i] = QRgba64::fromRgba64(r, g, b, 65535);
     }
   });
@@ -174,18 +200,22 @@ std::vector<std::vector<float>> Denoiser::bm3d_process_joint(
     const std::vector<std::vector<float>>& noisy_channels, int width,
     int height, const Bm3dParams& params, const DctTables& tables,
     std::atomic<bool>* abort, bool step2, int stride,
-    const std::vector<GpuSearcher::SearchResult>& gpuMatches) {
+    const std::vector<GpuSearcher::SearchResult>& gpuMatches,
+    int searchWindow, int maxGroupSize,
+    const std::vector<float>* lumaOverride) {
   // Step 1: Basic Estimate
   auto basic_estimate =
       run_bm3d_step_joint(noisy_channels, noisy_channels, width, height, params,
-                          true, tables, abort, stride, gpuMatches);
+                          true, tables, abort, stride, gpuMatches,
+                          searchWindow, maxGroupSize, lumaOverride);
   if (abort && abort->load()) return noisy_channels;
 
   if (!step2) return basic_estimate;
 
   // Step 2: Final Estimate (Wiener)
   return run_bm3d_step_joint(noisy_channels, basic_estimate, width, height,
-                             params, false, tables, abort, stride, gpuMatches);
+                             params, false, tables, abort, stride, gpuMatches,
+                             searchWindow, maxGroupSize, lumaOverride);
 }
 
 std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
@@ -193,35 +223,45 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     const std::vector<std::vector<float>>& guide, int width, int height,
     const Bm3dParams& params, bool is_step_1, const DctTables& tables,
     std::atomic<bool>* abort, int stride,
-    const std::vector<GpuSearcher::SearchResult>& gpuMatches) {
+    const std::vector<GpuSearcher::SearchResult>& gpuMatches,
+    int searchWindow, int maxGroupSize,
+    const std::vector<float>* lumaOverride) {
   int count = width * height;
-  std::vector<std::shared_ptr<AtomicAccumulator>> numerators(3);
-  std::vector<std::shared_ptr<AtomicAccumulator>> denominators(3);
-  for (int i = 0; i < 3; ++i) {
+  int num_channels = static_cast<int>(noisy.size());
+  std::vector<std::shared_ptr<AtomicAccumulator>> numerators(num_channels);
+  std::vector<std::shared_ptr<AtomicAccumulator>> denominators(num_channels);
+  for (int i = 0; i < num_channels; ++i) {
     numerators[i] = std::make_shared<AtomicAccumulator>(count);
     denominators[i] = std::make_shared<AtomicAccumulator>(count);
   }
 
-  // Pre-extract Luma for search (SIMD optimized)
-  std::vector<float> luma_buffer(count);
-  const float wr = 0.2126f;
-  const float wg = 0.7152f;
-  const float wb = 0.0722f;
-  __m256 v_wr = _mm256_set1_ps(wr);
-  __m256 v_wg = _mm256_set1_ps(wg);
-  __m256 v_wb = _mm256_set1_ps(wb);
+  // For block matching: use lumaOverride if provided, else compute from guide
+  std::vector<float> luma_buffer;
+  if (lumaOverride) {
+    luma_buffer = *lumaOverride;
+  } else if (num_channels == 1) {
+    luma_buffer = guide[0];
+  } else {
+    luma_buffer.resize(count);
+    const float wr = 0.2126f;
+    const float wg = 0.7152f;
+    const float wb = 0.0722f;
+    __m256 v_wr = _mm256_set1_ps(wr);
+    __m256 v_wg = _mm256_set1_ps(wg);
+    __m256 v_wb = _mm256_set1_ps(wb);
 
-  int i = 0;
-  for (; i <= count - 8; i += 8) {
-    __m256 r = _mm256_loadu_ps(&guide[0][i]);
-    __m256 g = _mm256_loadu_ps(&guide[1][i]);
-    __m256 b = _mm256_loadu_ps(&guide[2][i]);
-    __m256 luma = _mm256_fmadd_ps(
-        r, v_wr, _mm256_fmadd_ps(g, v_wg, _mm256_mul_ps(b, v_wb)));
-    _mm256_storeu_ps(&luma_buffer[i], luma);
-  }
-  for (; i < count; ++i) {
-    luma_buffer[i] = wr * guide[0][i] + wg * guide[1][i] + wb * guide[2][i];
+    int i = 0;
+    for (; i <= count - 8; i += 8) {
+      __m256 r = _mm256_loadu_ps(&guide[0][i]);
+      __m256 g = _mm256_loadu_ps(&guide[1][i]);
+      __m256 b = _mm256_loadu_ps(&guide[2][i]);
+      __m256 luma = _mm256_fmadd_ps(
+          r, v_wr, _mm256_fmadd_ps(g, v_wg, _mm256_mul_ps(b, v_wb)));
+      _mm256_storeu_ps(&luma_buffer[i], luma);
+    }
+    for (; i < count; ++i) {
+      luma_buffer[i] = wr * guide[0][i] + wg * guide[1][i] + wb * guide[2][i];
+    }
   }
   std::vector<std::vector<float>> search_channels = {luma_buffer};
 
@@ -246,9 +286,10 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     std::pair<int, int> group_locs_buf[MAX_GROUP_SIZE];
     int group_size =
         block_matching_joint(search_channels, width, height, rx, ry, is_step_1,
-                             params, group_locs_buf, gpuMatch);
+                             params, group_locs_buf, gpuMatch,
+                             searchWindow, maxGroupSize);
 
-    for (int ch = 0; ch < 3; ++ch) {
+    for (int ch = 0; ch < num_channels; ++ch) {
       const auto& guide_ch = guide[ch];
       const auto& noisy_ch = noisy[ch];
 
@@ -357,8 +398,8 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     }
   });
 
-  std::vector<std::vector<float>> results(3);
-  for (int ch = 0; ch < 3; ++ch) {
+  std::vector<std::vector<float>> results(num_channels);
+  for (int ch = 0; ch < num_channels; ++ch) {
     results[ch] = numerators[ch]->toVector();
     auto dens = denominators[ch]->toVector();
     for (int i = 0; i < count; ++i) {
@@ -375,7 +416,8 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
 int Denoiser::block_matching_joint(
     const std::vector<std::vector<float>>& channels, int w, int h, int rx,
     int ry, bool is_step_1, const Bm3dParams& params,
-    std::pair<int, int>* out_buf, const GpuSearcher::SearchResult* gpuMatch) {
+    std::pair<int, int>* out_buf, const GpuSearcher::SearchResult* gpuMatch,
+    int searchWindow, int maxGroupSize) {
   struct Match {
     float dist;
     int x, y;
@@ -389,7 +431,7 @@ int Denoiser::block_matching_joint(
   extract_patch(luma, w, rx, ry, ref_patch);
 
   std::vector<Match> candidates;
-  candidates.reserve(SEARCH_WINDOW * SEARCH_WINDOW);
+  candidates.reserve(searchWindow * searchWindow);
 
   // Seed with GPU match if available
   if (gpuMatch) {
@@ -404,7 +446,7 @@ int Denoiser::block_matching_joint(
     }
   }
 
-  int half_sw = SEARCH_WINDOW / 2;
+  int half_sw = searchWindow / 2;
   int sx_start = std::max(0, rx - half_sw);
   int sx_end = std::min(w - BLOCK_SIZE, rx + half_sw);
   int sy_start = std::max(0, ry - half_sw);
@@ -424,7 +466,7 @@ int Denoiser::block_matching_joint(
   std::sort(candidates.begin(), candidates.end(),
             [](const Match& a, const Match& b) { return a.dist < b.dist; });
 
-  int limit = std::min((int)candidates.size(), MAX_GROUP_SIZE);
+  int limit = std::min((int)candidates.size(), maxGroupSize);
   int p2_limit = 1;
   while (p2_limit * 2 <= limit) p2_limit *= 2;
 
@@ -755,6 +797,281 @@ void Denoiser::inverse_transform_3d(float* stack, int group_size,
   }
   for (int i = 0; i < group_size; ++i)
     idct_2d_8x8(stack + i * 64, tables.idct_coeff);
+}
+
+// --- RGB ↔ YCbCr Conversion (BT.601) ---
+
+void Denoiser::rgb_to_ycbcr(const std::vector<float>& r,
+                              const std::vector<float>& g,
+                              const std::vector<float>& b,
+                              std::vector<float>& y, std::vector<float>& cb,
+                              std::vector<float>& cr) {
+  int size = static_cast<int>(r.size());
+  y.resize(size);
+  cb.resize(size);
+  cr.resize(size);
+
+  // BT.601: Y = 0.299R + 0.587G + 0.114B
+  //         Cb = 128 + (-0.169R - 0.331G + 0.500B)
+  //         Cr = 128 + ( 0.500R - 0.419G - 0.081B)
+  __m256 v_yr = _mm256_set1_ps(0.299f);
+  __m256 v_yg = _mm256_set1_ps(0.587f);
+  __m256 v_yb = _mm256_set1_ps(0.114f);
+  __m256 v_cbr = _mm256_set1_ps(-0.168736f);
+  __m256 v_cbg = _mm256_set1_ps(-0.331264f);
+  __m256 v_cbb = _mm256_set1_ps(0.5f);
+  __m256 v_crr = _mm256_set1_ps(0.5f);
+  __m256 v_crg = _mm256_set1_ps(-0.418688f);
+  __m256 v_crb = _mm256_set1_ps(-0.081312f);
+  __m256 v_128 = _mm256_set1_ps(128.0f);
+
+  int i = 0;
+  for (; i <= size - 8; i += 8) {
+    __m256 vr = _mm256_loadu_ps(&r[i]);
+    __m256 vg = _mm256_loadu_ps(&g[i]);
+    __m256 vb = _mm256_loadu_ps(&b[i]);
+
+    __m256 vy = _mm256_fmadd_ps(vr, v_yr, _mm256_fmadd_ps(vg, v_yg, _mm256_mul_ps(vb, v_yb)));
+    __m256 vcb = _mm256_add_ps(v_128, _mm256_fmadd_ps(vr, v_cbr, _mm256_fmadd_ps(vg, v_cbg, _mm256_mul_ps(vb, v_cbb))));
+    __m256 vcr = _mm256_add_ps(v_128, _mm256_fmadd_ps(vr, v_crr, _mm256_fmadd_ps(vg, v_crg, _mm256_mul_ps(vb, v_crb))));
+
+    _mm256_storeu_ps(&y[i], vy);
+    _mm256_storeu_ps(&cb[i], vcb);
+    _mm256_storeu_ps(&cr[i], vcr);
+  }
+  for (; i < size; ++i) {
+    y[i] = 0.299f * r[i] + 0.587f * g[i] + 0.114f * b[i];
+    cb[i] = 128.0f + (-0.168736f * r[i] - 0.331264f * g[i] + 0.5f * b[i]);
+    cr[i] = 128.0f + (0.5f * r[i] - 0.418688f * g[i] - 0.081312f * b[i]);
+  }
+}
+
+void Denoiser::ycbcr_to_rgb(const std::vector<float>& y,
+                              const std::vector<float>& cb,
+                              const std::vector<float>& cr,
+                              std::vector<float>& r, std::vector<float>& g,
+                              std::vector<float>& b) {
+  int size = static_cast<int>(y.size());
+  r.resize(size);
+  g.resize(size);
+  b.resize(size);
+
+  // R = Y + 1.402 * (Cr - 128)
+  // G = Y - 0.344136 * (Cb - 128) - 0.714136 * (Cr - 128)
+  // B = Y + 1.772 * (Cb - 128)
+  __m256 v_128 = _mm256_set1_ps(128.0f);
+  __m256 v_cr_r = _mm256_set1_ps(1.402f);
+  __m256 v_cb_g = _mm256_set1_ps(-0.344136f);
+  __m256 v_cr_g = _mm256_set1_ps(-0.714136f);
+  __m256 v_cb_b = _mm256_set1_ps(1.772f);
+
+  int i = 0;
+  for (; i <= size - 8; i += 8) {
+    __m256 vy = _mm256_loadu_ps(&y[i]);
+    __m256 vcb = _mm256_sub_ps(_mm256_loadu_ps(&cb[i]), v_128);
+    __m256 vcr = _mm256_sub_ps(_mm256_loadu_ps(&cr[i]), v_128);
+
+    __m256 vr = _mm256_fmadd_ps(vcr, v_cr_r, vy);
+    __m256 vg = _mm256_fmadd_ps(vcb, v_cb_g, _mm256_fmadd_ps(vcr, v_cr_g, vy));
+    __m256 vb_val = _mm256_fmadd_ps(vcb, v_cb_b, vy);
+
+    _mm256_storeu_ps(&r[i], vr);
+    _mm256_storeu_ps(&g[i], vg);
+    _mm256_storeu_ps(&b[i], vb_val);
+  }
+  for (; i < size; ++i) {
+    float cb_off = cb[i] - 128.0f;
+    float cr_off = cr[i] - 128.0f;
+    r[i] = y[i] + 1.402f * cr_off;
+    g[i] = y[i] - 0.344136f * cb_off - 0.714136f * cr_off;
+    b[i] = y[i] + 1.772f * cb_off;
+  }
+}
+
+// --- Separable Box Filter (O(1) per pixel via running sums) ---
+
+void Denoiser::box_filter(const float* src, float* dst, int width, int height,
+                           int radius) {
+  int size = width * height;
+  std::vector<float> tmp(size);
+
+  // Horizontal pass: running sum along each row
+  for (int y = 0; y < height; ++y) {
+    const float* row_in = src + y * width;
+    float* row_out = tmp.data() + y * width;
+
+    float sum = 0.0f;
+    // Initialize window for first pixel
+    for (int x = 0; x <= radius && x < width; ++x) {
+      sum += row_in[x];
+    }
+    row_out[0] = sum / static_cast<float>(std::min(radius + 1, width));
+
+    for (int x = 1; x < width; ++x) {
+      int add_col = x + radius;
+      int rem_col = x - radius - 1;
+      if (add_col < width) sum += row_in[add_col];
+      if (rem_col >= 0) sum -= row_in[rem_col];
+      int left = std::max(0, x - radius);
+      int right = std::min(width - 1, x + radius);
+      row_out[x] = sum / static_cast<float>(right - left + 1);
+    }
+  }
+
+  // Vertical pass: running sum along each column
+  // Process 8 columns at a time with AVX2
+  int x = 0;
+  for (; x <= width - 8; x += 8) {
+    __m256 v_sum = _mm256_setzero_ps();
+    // Initialize window for first row
+    for (int y = 0; y <= radius && y < height; ++y) {
+      v_sum = _mm256_add_ps(v_sum, _mm256_loadu_ps(&tmp[y * width + x]));
+    }
+    float denom0 = 1.0f / static_cast<float>(std::min(radius + 1, height));
+    _mm256_storeu_ps(&dst[x], _mm256_mul_ps(v_sum, _mm256_set1_ps(denom0)));
+
+    for (int y = 1; y < height; ++y) {
+      int add_row = y + radius;
+      int rem_row = y - radius - 1;
+      if (add_row < height) {
+        v_sum = _mm256_add_ps(v_sum, _mm256_loadu_ps(&tmp[add_row * width + x]));
+      }
+      if (rem_row >= 0) {
+        v_sum = _mm256_sub_ps(v_sum, _mm256_loadu_ps(&tmp[rem_row * width + x]));
+      }
+      int top = std::max(0, y - radius);
+      int bottom = std::min(height - 1, y + radius);
+      float inv_count = 1.0f / static_cast<float>(bottom - top + 1);
+      _mm256_storeu_ps(&dst[y * width + x], _mm256_mul_ps(v_sum, _mm256_set1_ps(inv_count)));
+    }
+  }
+  // Scalar tail for remaining columns
+  for (; x < width; ++x) {
+    float sum = 0.0f;
+    for (int y = 0; y <= radius && y < height; ++y) {
+      sum += tmp[y * width + x];
+    }
+    dst[x] = sum / static_cast<float>(std::min(radius + 1, height));
+
+    for (int y = 1; y < height; ++y) {
+      int add_row = y + radius;
+      int rem_row = y - radius - 1;
+      if (add_row < height) sum += tmp[add_row * width + x];
+      if (rem_row >= 0) sum -= tmp[rem_row * width + x];
+      int top = std::max(0, y - radius);
+      int bottom = std::min(height - 1, y + radius);
+      dst[y * width + x] = sum / static_cast<float>(bottom - top + 1);
+    }
+  }
+}
+
+// --- Guided Filter ---
+
+void Denoiser::guided_filter(const float* guide, const float* input,
+                              float* output, int width, int height, int radius,
+                              float eps) {
+  int size = width * height;
+
+  std::vector<float> mean_I(size), mean_p(size);
+  std::vector<float> mean_II(size), mean_Ip(size);
+  std::vector<float> II(size), Ip(size);
+
+  // Compute I*I and I*p element-wise with SIMD
+  __m256 v_eps = _mm256_set1_ps(eps);
+  int i = 0;
+  for (; i <= size - 8; i += 8) {
+    __m256 vI = _mm256_loadu_ps(&guide[i]);
+    __m256 vp = _mm256_loadu_ps(&input[i]);
+    _mm256_storeu_ps(&II[i], _mm256_mul_ps(vI, vI));
+    _mm256_storeu_ps(&Ip[i], _mm256_mul_ps(vI, vp));
+  }
+  for (; i < size; ++i) {
+    II[i] = guide[i] * guide[i];
+    Ip[i] = guide[i] * input[i];
+  }
+
+  // Box filter all inputs
+  box_filter(guide, mean_I.data(), width, height, radius);
+  box_filter(input, mean_p.data(), width, height, radius);
+  box_filter(II.data(), mean_II.data(), width, height, radius);
+  box_filter(Ip.data(), mean_Ip.data(), width, height, radius);
+
+  // Compute a and b coefficients with SIMD
+  std::vector<float> a(size), b(size);
+  i = 0;
+  for (; i <= size - 8; i += 8) {
+    __m256 v_mI = _mm256_loadu_ps(&mean_I[i]);
+    __m256 v_mp = _mm256_loadu_ps(&mean_p[i]);
+    __m256 v_mII = _mm256_loadu_ps(&mean_II[i]);
+    __m256 v_mIp = _mm256_loadu_ps(&mean_Ip[i]);
+
+    // var_I = mean_II - mean_I^2
+    __m256 v_var = _mm256_sub_ps(v_mII, _mm256_mul_ps(v_mI, v_mI));
+    // cov_Ip = mean_Ip - mean_I * mean_p
+    __m256 v_cov = _mm256_sub_ps(v_mIp, _mm256_mul_ps(v_mI, v_mp));
+    // a = cov / (var + eps)
+    __m256 v_a = _mm256_div_ps(v_cov, _mm256_add_ps(v_var, v_eps));
+    // b = mean_p - a * mean_I
+    __m256 v_b = _mm256_sub_ps(v_mp, _mm256_mul_ps(v_a, v_mI));
+
+    _mm256_storeu_ps(&a[i], v_a);
+    _mm256_storeu_ps(&b[i], v_b);
+  }
+  for (; i < size; ++i) {
+    float var_I = mean_II[i] - mean_I[i] * mean_I[i];
+    float cov_Ip = mean_Ip[i] - mean_I[i] * mean_p[i];
+    a[i] = cov_Ip / (var_I + eps);
+    b[i] = mean_p[i] - a[i] * mean_I[i];
+  }
+
+  // Box filter a and b
+  std::vector<float> mean_a(size), mean_b(size);
+  box_filter(a.data(), mean_a.data(), width, height, radius);
+  box_filter(b.data(), mean_b.data(), width, height, radius);
+
+  // Output: q = mean_a * guide + mean_b
+  i = 0;
+  for (; i <= size - 8; i += 8) {
+    __m256 vI = _mm256_loadu_ps(&guide[i]);
+    __m256 v_ma = _mm256_loadu_ps(&mean_a[i]);
+    __m256 v_mb = _mm256_loadu_ps(&mean_b[i]);
+    __m256 vq = _mm256_fmadd_ps(v_ma, vI, v_mb);
+    _mm256_storeu_ps(&output[i], vq);
+  }
+  for (; i < size; ++i) {
+    output[i] = mean_a[i] * guide[i] + mean_b[i];
+  }
+}
+
+// --- Multi-Scale Guided Filter ---
+
+void Denoiser::multiscale_guided_filter(const float* guide, const float* input,
+                                         float* output, int width, int height,
+                                         int baseRadius, float chromaStrength) {
+  int size = width * height;
+  // Scale chromaStrength from 0-100 to an epsilon multiplier
+  float epsScale = std::clamp(chromaStrength, 0.0f, 100.0f) / 50.0f;
+
+  int r1 = std::max(1, baseRadius / 2);
+  int r2 = baseRadius;
+  int r3 = baseRadius * 2;
+  int r4 = baseRadius * 4;
+
+  // Epsilons scaled for [0-255] Cb/Cr range (variance in hundreds)
+  // Scale 1: Fine detail
+  std::vector<float> pass1(size);
+  guided_filter(guide, input, pass1.data(), width, height, r1, 1.0f * epsScale);
+
+  // Scale 2: Medium blotches
+  std::vector<float> pass2(size);
+  guided_filter(guide, pass1.data(), pass2.data(), width, height, r2, 4.0f * epsScale);
+
+  // Scale 3: Coarse blotches
+  std::vector<float> pass3(size);
+  guided_filter(guide, pass2.data(), pass3.data(), width, height, r3, 10.0f * epsScale);
+
+  // Scale 4: Broadband chroma cleanup
+  guided_filter(guide, pass3.data(), output, width, height, r4, 25.0f * epsScale);
 }
 
 }  // namespace photon

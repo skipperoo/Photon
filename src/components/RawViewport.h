@@ -48,6 +48,16 @@ class RawViewport : public QQuickItem {
                  NOTIFY vignetteFeatherChanged)
   Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount
                  NOTIFY denoiseAmountChanged)
+  Q_PROPERTY(int denoiseSearchWindow READ denoiseSearchWindow WRITE
+                 setDenoiseSearchWindow NOTIFY denoiseSearchWindowChanged)
+  Q_PROPERTY(int denoiseGroupSize READ denoiseGroupSize WRITE
+                 setDenoiseGroupSize NOTIFY denoiseGroupSizeChanged)
+  Q_PROPERTY(int denoiseChromaRadius READ denoiseChromaRadius WRITE
+                 setDenoiseChromaRadius NOTIFY denoiseChromaRadiusChanged)
+  Q_PROPERTY(float denoiseChromaAmount READ denoiseChromaAmount WRITE
+                 setDenoiseChromaAmount NOTIFY denoiseChromaAmountChanged)
+  Q_PROPERTY(float denoiseChromaBm3d READ denoiseChromaBm3d WRITE
+                 setDenoiseChromaBm3d NOTIFY denoiseChromaBm3dChanged)
   Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
   Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
   Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
@@ -238,6 +248,21 @@ class RawViewport : public QQuickItem {
   float denoiseAmount() const { return m_engine.denoiseAmount(); }
   void setDenoiseAmount(float val);
 
+  int denoiseSearchWindow() const { return m_engine.denoiseSearchWindow(); }
+  void setDenoiseSearchWindow(int val);
+
+  int denoiseGroupSize() const { return m_engine.denoiseGroupSize(); }
+  void setDenoiseGroupSize(int val);
+
+  int denoiseChromaRadius() const { return m_engine.denoiseChromaRadius(); }
+  void setDenoiseChromaRadius(int val);
+
+  float denoiseChromaAmount() const { return m_engine.denoiseChromaAmount(); }
+  void setDenoiseChromaAmount(float val);
+
+  float denoiseChromaBm3d() const { return m_engine.denoiseChromaBm3d(); }
+  void setDenoiseChromaBm3d(float val);
+
   float clarity() const { return m_engine.clarity(); }
   void setClarity(float val);
 
@@ -410,6 +435,11 @@ class RawViewport : public QQuickItem {
   void vignetteRoundnessChanged();
   void vignetteFeatherChanged();
   void denoiseAmountChanged();
+  void denoiseSearchWindowChanged();
+  void denoiseGroupSizeChanged();
+  void denoiseChromaRadiusChanged();
+  void denoiseChromaAmountChanged();
+  void denoiseChromaBm3dChanged();
   void clarityChanged();
   void dehazeChanged();
   void structureChanged();

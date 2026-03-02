@@ -56,6 +56,16 @@ class RawEngine : public QObject {
                  NOTIFY vignetteFeatherChanged)
   Q_PROPERTY(float denoiseAmount READ denoiseAmount WRITE setDenoiseAmount
                  NOTIFY denoiseAmountChanged)
+  Q_PROPERTY(int denoiseSearchWindow READ denoiseSearchWindow WRITE
+                 setDenoiseSearchWindow NOTIFY denoiseSearchWindowChanged)
+  Q_PROPERTY(int denoiseGroupSize READ denoiseGroupSize WRITE
+                 setDenoiseGroupSize NOTIFY denoiseGroupSizeChanged)
+  Q_PROPERTY(int denoiseChromaRadius READ denoiseChromaRadius WRITE
+                 setDenoiseChromaRadius NOTIFY denoiseChromaRadiusChanged)
+  Q_PROPERTY(float denoiseChromaAmount READ denoiseChromaAmount WRITE
+                 setDenoiseChromaAmount NOTIFY denoiseChromaAmountChanged)
+  Q_PROPERTY(float denoiseChromaBm3d READ denoiseChromaBm3d WRITE
+                 setDenoiseChromaBm3d NOTIFY denoiseChromaBm3dChanged)
   Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
   Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
   Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
@@ -254,6 +264,21 @@ class RawEngine : public QObject {
   float denoiseAmount() const { return m_denoiseAmount; }
   void setDenoiseAmount(float val);
 
+  int denoiseSearchWindow() const { return m_denoiseSearchWindow; }
+  void setDenoiseSearchWindow(int val);
+
+  int denoiseGroupSize() const { return m_denoiseGroupSize; }
+  void setDenoiseGroupSize(int val);
+
+  int denoiseChromaRadius() const { return m_denoiseChromaRadius; }
+  void setDenoiseChromaRadius(int val);
+
+  float denoiseChromaAmount() const { return m_denoiseChromaAmount; }
+  void setDenoiseChromaAmount(float val);
+
+  float denoiseChromaBm3d() const { return m_denoiseChromaBm3d; }
+  void setDenoiseChromaBm3d(float val);
+
   float clarity() const { return m_clarity; }
   void setClarity(float val);
 
@@ -425,6 +450,11 @@ class RawEngine : public QObject {
   void vignetteRoundnessChanged();
   void vignetteFeatherChanged();
   void denoiseAmountChanged();
+  void denoiseSearchWindowChanged();
+  void denoiseGroupSizeChanged();
+  void denoiseChromaRadiusChanged();
+  void denoiseChromaAmountChanged();
+  void denoiseChromaBm3dChanged();
   void clarityChanged();
   void dehazeChanged();
   void structureChanged();
@@ -526,6 +556,11 @@ class RawEngine : public QObject {
   float m_vignetteRoundness = 0.0f;
   float m_vignetteFeather = 0.5f;
   float m_denoiseAmount = 0.0f;
+  int m_denoiseSearchWindow = 19;
+  int m_denoiseGroupSize = 16;
+  int m_denoiseChromaRadius = 4;
+  float m_denoiseChromaAmount = 50.0f;
+  float m_denoiseChromaBm3d = 50.0f;
   float m_clarity = 0.0f;
   float m_dehaze = 0.0f;
   float m_structure = 0.0f;

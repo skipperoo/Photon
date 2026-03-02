@@ -161,6 +161,16 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float denoiseAmount = obj["denoiseAmount"].toDouble();
   bool denoiseEnabled = obj["denoiseEnabled"].toBool();
   bool denoiseSecondPass = obj["denoiseSecondPass"].toBool();
+  int denoiseSearchWindow = obj.contains("denoiseSearchWindow")
+                                ? obj["denoiseSearchWindow"].toInt() : 19;
+  int denoiseGroupSize = obj.contains("denoiseGroupSize")
+                             ? obj["denoiseGroupSize"].toInt() : 16;
+  int denoiseChromaRadius = obj.contains("denoiseChromaRadius")
+                                ? obj["denoiseChromaRadius"].toInt() : 4;
+  float denoiseChromaAmount = obj.contains("denoiseChromaAmount")
+                                  ? obj["denoiseChromaAmount"].toDouble() : 50.0f;
+  float denoiseChromaBm3d = obj.contains("denoiseChromaBm3d")
+                                ? obj["denoiseChromaBm3d"].toDouble() : 50.0f;
 
   LogManager::instance()->log(
       QString("[ ImageDeveloper ] - Params: exp=%1 con=%2 high=%3 shad=%4 denoise=%5")
@@ -416,8 +426,15 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         LogManager::instance()->log(QString("[ ImageDeveloper ] - GPU search successful: %1 matches").arg(gpuMatches.size()), "DEBUG");
       }
     }
+    photon::DenoiseParams dparams;
+    dparams.searchWindow = denoiseSearchWindow;
+    dparams.groupSize = denoiseGroupSize;
+    dparams.chromaRadius = denoiseChromaRadius;
+    dparams.chromaDenoise = denoiseChromaAmount;
+    dparams.chromaBm3d = denoiseChromaBm3d;
+
     output = Denoiser::denoise(output, denoiseAmount, nullptr, denoiseSecondPass,
-                               4, gpuMatches, rhi, false, window);
+                               4, gpuMatches, dparams);
 
     // Convert back to RGB888 if Denoiser changed format to RGBX64
     if (output.format() != QImage::Format_RGB888) {

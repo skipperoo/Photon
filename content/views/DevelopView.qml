@@ -500,6 +500,115 @@ Control {
                                 }
                             }
                         }
+
+                        // Advanced Denoise Parameters
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+                        Text {
+                            text: "Advanced"
+                            font: Theme.fontSmall
+                            color: Theme.mutedFg
+                            Layout.fillWidth: true
+                        }
+
+                        ControlGroup {
+                            title: "Search Window"
+                            value: root.viewport ? root.viewport.denoiseSearchWindow : 19
+                            from: 9; to: 39; stepSize: 2
+                            defaultValue: 19
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseSearchWindow = Math.round(v);
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Group Size"
+                            value: root.viewport ? root.viewport.denoiseGroupSize : 16
+                            from: 4; to: 16; stepSize: 4
+                            defaultValue: 16
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseGroupSize = Math.round(v);
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Chroma Radius"
+                            value: root.viewport ? root.viewport.denoiseChromaRadius : 4
+                            from: 1; to: 16; stepSize: 1
+                            defaultValue: 4
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseChromaRadius = Math.round(v);
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Chroma Denoise"
+                            value: root.viewport ? root.viewport.denoiseChromaAmount : 50.0
+                            from: 0; to: 100
+                            defaultValue: 50.0
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseChromaAmount = v;
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Chroma BM3D"
+                            value: root.viewport ? root.viewport.denoiseChromaBm3d : 50.0
+                            from: 0; to: 100
+                            defaultValue: 50.0
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseChromaBm3d = v;
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
                     }
                 }
 

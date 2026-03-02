@@ -159,10 +159,9 @@
 
 - [x] Export functionality (Save to JPEG/TIFF).
 
-## Phase 20: Full Vulkan BM3D Denoising [IN PROGRESS]
+## Phase 20: Full Vulkan BM3D Denoising [SUPERSEDED by Phase 24]
 
 - [x] **Architecture & Settings**
-  - [x] Add `useGpuDenoise` toggle setting in `AppStateManager`.
   - [x] Design `VulkanDenoiser` class architecture (plain Vulkan, compute shaders).
   - [x] Create compute shader infrastructure (grouping, transform, filter, aggregate).
 - [x] **Compute Shader Implementation**
@@ -171,17 +170,11 @@
   - [x] Implement `bm3d_filter.comp` - Hard thresholding (step 1) and Wiener filtering (step 2).
   - [x] Implement `bm3d_aggregate.comp` - Inverse transform and weighted aggregation.
 - [x] **Integration & Fallback**
-  - [x] Implement `GpuDenoiser` class using plain Vulkan.
-  - [x] Implement wrapper `denoise()` method in `Denoiser` class with automatic Vulkan/CPU selection.
+  - [x] Implement wrapper `denoise()` method in `Denoiser` class.
   - [x] Rename existing `denoise()` to `denoiseCpu()` for CPU-only path.
-  - [x] Add `denoiseGpu()` method for Vulkan-accelerated path.
   - [x] Integrate into `RawEngine` with async execution via `QtConcurrent`.
-  - [x] Implement CPU fallback when `useGpuDenoise` is false or Vulkan unavailable.
   - [x] Respect `previewDenoiseFull` setting for high-quality previews.
-- [ ] **Performance & Validation**
-  - [ ] Benchmark Vulkan vs CPU SIMD performance.
-  - [ ] Ensure non-blocking UI (independent Vulkan compute queue).
-  - [ ] Handle edge cases (memory limits, driver timeouts).
+- _Note: GPU full-denoise was removed due to stability issues. Phase 24 replaced it with an enhanced CPU pipeline (YCbCr + Multi-Scale Guided Filter). GpuSearcher (compute-queue patch matching) is retained._
 
 ## Phase 21: Effects & Slider Refinements [DONE]
 
@@ -217,10 +210,48 @@
 - [x] **Performance Optimization**
   - [x] Implement high-performance compiler flags (-O3, LTO, AVX2/FMA) for Release builds.
 
-## Phase 23: Adjust basic Tonemapping and Fix Denoise
+## Phase 23: Adjust basic Tonemapping
 
 - [x] [DaVinci Tone Mapping DCTL](https://github.com/thatcherfreeman/utility-dctls?tab=readme-ov-file#davinci-tone-mapping-dctl)
-- [ ] Finally fix the GpuDenoiser
+
+## Phase 24: Enhanced Denoiser — YCbCr + Multi-Scale Guided Filter [DONE]
+
+- [x] **YCbCr Pipeline Refactor**
+  - [x] Implement AVX2-optimized RGB↔YCbCr conversion (BT.601 coefficients).
+  - [x] Refactor `denoiseCpu()` to convert to YCbCr, run BM3D on Y only, guided filter on Cb/Cr.
+  - [x] Generalize `run_bm3d_step_joint()` to support arbitrary channel count (1 or 3).
+- [x] **SIMD Box Filter**
+  - [x] Implement O(1) separable box filter (horizontal + vertical running-sum passes).
+  - [x] AVX2 vectorized vertical pass (8 columns at a time).
+- [x] **Guided Filter Kernel**
+  - [x] Implement full guided filter math (mean_I, mean_p, var, cov, a, b coefficients).
+  - [x] All element-wise operations SIMD-optimized (AVX2/FMA).
+- [x] **Multi-Scale Integration**
+  - [x] Apply guided filter at 3 scales: Fine (r=2, ε=0.01), Medium (r=4, ε=0.04), Coarse (r=8, ε=0.1).
+- [x] **GpuDenoiser Cleanup**
+  - [x] Remove dead `denoiseGpu()` method and GPU denoise parameters from `Denoiser`.
+  - [x] Remove `useGpuDenoise` setting from `AppStateManager` and QML settings toggle.
+  - [x] Clean GpuDenoiser references from test CMakeLists.
+  - [x] Update SPECIFICATION.md to document new chroma pipeline architecture.
+
+## Phase 25: Configurable Denoise Parameters UI [DONE]
+
+- [x] **DenoiseParams Struct**
+  - [x] Added `DenoiseParams` struct with `searchWindow`, `groupSize`, `chromaRadius`, `chromaDenoise` fields.
+  - [x] Updated `block_matching_joint` to use parameterized search window and group size.
+  - [x] Updated `multiscale_guided_filter` to use parameterized radii and epsilon scaling.
+- [x] **RawEngine Integration**
+  - [x] Added 4 new Q_PROPERTY declarations: `denoiseSearchWindow`, `denoiseGroupSize`, `denoiseChromaRadius`, `denoiseChromaAmount`.
+  - [x] Setters with validation, clamping, and denoise result invalidation.
+  - [x] JSON serialization/deserialization for `.PhotonData` edit stacks.
+  - [x] Updated `resetToDefaults()` and `isDefault()`.
+  - [x] `startAsyncDenoise()` constructs `DenoiseParams` from member variables.
+- [x] **ImageDeveloper Integration**
+  - [x] Export path reads new params from JSON and passes `DenoiseParams` to `Denoiser::denoise()`.
+- [x] **QML UI**
+  - [x] Added "Advanced" subsection in Detail panel under Noise Reduction.
+  - [x] Sliders: Search Window (9-39, step 2), Group Size (4-16, step 4), Chroma Radius (1-16), Chroma Denoise (0-100).
+  - [x] Added `stepSize` property passthrough in `ControlGroup` → `PhotonSlider`.
 
 ## Backlog / Future
 

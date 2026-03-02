@@ -80,7 +80,6 @@ void AppStateManager::loadSettings() {
   m_accentColor = m_settings.value(KEY_ACCENT_COLOR, "#3b82f6").toString();
   m_previewDenoiseFull =
       m_settings.value(KEY_PREVIEW_DENOISE_FULL, false).toBool();
-  m_useGpuDenoise = m_settings.value(KEY_USE_GPU_DENOISE, true).toBool();
   QString level = m_settings.value("diagnostics/logLevel", "INFO").toString();
   LogManager::instance()->setMinLogLevel(level);
 
@@ -90,7 +89,6 @@ void AppStateManager::loadSettings() {
   emit isDarkModeChanged();
   emit accentColorChanged();
   emit cacheSizeGBChanged();
-  emit useGpuDenoiseChanged();
 }
 
 void AppStateManager::saveSettings() {
@@ -101,7 +99,6 @@ void AppStateManager::saveSettings() {
   m_settings.setValue(KEY_DARK_MODE, m_isDarkMode);
   m_settings.setValue(KEY_ACCENT_COLOR, m_accentColor);
   m_settings.setValue(KEY_PREVIEW_DENOISE_FULL, m_previewDenoiseFull);
-  m_settings.setValue(KEY_USE_GPU_DENOISE, m_useGpuDenoise);
   m_settings.sync();
 }
 
@@ -348,14 +345,6 @@ void AppStateManager::setPreviewDenoiseFull(bool full) {
   if (m_previewDenoiseFull != full) {
     m_previewDenoiseFull = full;
     emit previewDenoiseFullChanged();
-    saveSettings();
-  }
-}
-
-void AppStateManager::setUseGpuDenoise(bool use) {
-  if (m_useGpuDenoise != use) {
-    m_useGpuDenoise = use;
-    emit useGpuDenoiseChanged();
     saveSettings();
   }
 }

@@ -71,9 +71,10 @@ Photon provides advanced control over performance and aesthetics:
    - Allows users to select a specific GPU for RHI rendering.
    - Changes may require an application restart.
 2. **Denoising Engine:**
-   - **GPU Denoise Toggle:** Users can choose between GPU-accelerated BM3D (compute shaders) or CPU-only (AVX2/FMA SIMD).
-   - **Default:** GPU denoise is enabled by default on supported hardware.
-   - **Fallback:** Automatically falls back to CPU if GPU compute is unavailable or if manually disabled.
+   - **Full Quality Toggle:** Users can force the high-fidelity 2-step BM3D denoiser during preview (otherwise single-step is used for speed).
+   - **Architecture:** BM3D runs on the Y (luminance) channel only; chrominance (Cb/Cr) is denoised via a Multi-Scale Guided Filter using the denoised Y as structural guide.
+   - **GPU Search Offload:** Patch-matching is optionally offloaded to a Vulkan compute pipeline via `GpuSearcher`.
+   - **User-Tunable Parameters:** Exposed via QML sliders: Search Window (9-39), Group Size (4/8/16), Chroma Radius (1-16), Chroma Denoise (0-100). Serialized in `.PhotonData` edit stacks.
 3. **Aesthetics:**
    - **Theme:** Toggle between "Zinc Dark" and "Zinc Light".
    - **Accent Color:** Choose from a predefined palette of high-contrast colors (Blue, Rose, Green, Orange).
@@ -204,11 +205,13 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 7. **HSL Panel:** An **8-band HSL system** (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta) is implemented in the fragment shader. It uses weighted influence curves to allow targeted Hue, Saturation, and Luminance adjustments without causing artifacts.
 8. **Color Grading:** A professional **3-Way Color Grading** system is implemented, allowing independent tinting of **Shadows, Midtones, and Highlights**. It features global **Balance** and **Blending** controls to precisely manage tonal transitions.
 9. **Dithering:** High-quality dithering is implemented using a sine-based pseudo-random noise generator. It is applied to the final RGB output at a precision of 1/255 to mask banding artifacts and ensure smooth gradients on 8-bit displays.
-10. **Denoising Pipeline (Phase 12):** Photon employs a hybrid GPU/CPU architecture designed for professional performance:
+10. **Denoising Pipeline (Phase 12/24):** Photon employs a hybrid architecture for professional-grade noise reduction:
     - **GPU Preview (NLM):** A real-time **Non-Local Means (NLM)** filter runs in the fragment shader. It uses 3x3 patch comparisons within a 7x7 search window, providing high-fidelity spatial denoising at 60fps.
     - **Full Quality Toggle:** A user preference in settings allows forcing the high-fidelity 2-step denoiser even during the preview phase.
-    - **Vulkan-Native Search Offload:** To ensure zero interference with the UI rendering, the computationally expensive patch-matching phase of the BM3D algorithm is offloaded to a dedicated **plain Vulkan** compute pipeline. It bypasses Qt's RHI to run on an independent compute queue, using the same physical device as the UI. This pipeline computes the Sum of Squared Differences (SSD) using 3x3 patches and generates a spatial similarity index.
-    - **CPU Transform & Filter (SIMD):** The collaborative filtering is performed on the CPU using **AVX2 and FMA** instructions, protected by a `QMutex` to ensure thread safety with the LibRaw processor.
+    - **YCbCr Decoupled Processing (Phase 24):** The denoiser converts RGB to **YCbCr** color space. BM3D operates on the **Y (luminance)** channel only for ~3× speed improvement, while chrominance channels (Cb/Cr) are denoised via a **Multi-Scale Guided Filter** using the clean Y as a structural guide. This eliminates "color blotchiness" that joint-channel BM3D often misses.
+    - **Multi-Scale Guided Filter:** An edge-preserving smoothing operator applied at three scales (r=2/ε=0.01, r=4/ε=0.04, r=8/ε=0.1) to progressively remove fine-to-coarse chrominance noise while preserving luminance edges. Uses a SIMD-optimized O(1) separable box filter.
+    - **Vulkan-Native Search Offload:** The computationally expensive patch-matching phase is offloaded to a dedicated **plain Vulkan** compute pipeline via `GpuSearcher`. It bypasses Qt's RHI to run on an independent compute queue, computing SSD using 3x3 patches.
+    - **CPU Transform & Filter (SIMD):** All BM3D collaborative filtering, color space conversions, box filters, and guided filter coefficient computation use **AVX2 and FMA** instructions.
     - **Adaptive Proxy Scaling:** Preview denoising resolution dynamically adjusts based on the viewport size and zoom level (`viewport * zoom * 1.5`), ensuring zero pixelation even at 400% zoom.
     - **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.
     - **ROI-Driven Refinement (Phase 13):** When zoomed in, the engine prioritizes high-quality re-rendering of the visible Region of Interest (ROI) before triggering the background denoiser on that specific area, ensuring maximum sharpness and speed.

@@ -442,6 +442,52 @@ void RawEngine::setDenoiseAmount(float val) {
   emit isDefaultChanged();
 }
 
+void RawEngine::setDenoiseSearchWindow(int val) {
+  val = std::clamp(val, 9, 39);
+  if (m_denoiseSearchWindow == val) return;
+  m_denoiseSearchWindow = val;
+  m_hasDenoisedResult = false;
+  emit denoiseSearchWindowChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setDenoiseGroupSize(int val) {
+  // Snap to nearest power of 2 (4, 8, 16)
+  if (val <= 6) val = 4;
+  else if (val <= 12) val = 8;
+  else val = 16;
+  if (m_denoiseGroupSize == val) return;
+  m_denoiseGroupSize = val;
+  m_hasDenoisedResult = false;
+  emit denoiseGroupSizeChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setDenoiseChromaRadius(int val) {
+  val = std::clamp(val, 1, 16);
+  if (m_denoiseChromaRadius == val) return;
+  m_denoiseChromaRadius = val;
+  m_hasDenoisedResult = false;
+  emit denoiseChromaRadiusChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setDenoiseChromaAmount(float val) {
+  if (qFuzzyCompare(m_denoiseChromaAmount, val)) return;
+  m_denoiseChromaAmount = val;
+  m_hasDenoisedResult = false;
+  emit denoiseChromaAmountChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setDenoiseChromaBm3d(float val) {
+  if (qFuzzyCompare(m_denoiseChromaBm3d, val)) return;
+  m_denoiseChromaBm3d = val;
+  m_hasDenoisedResult = false;
+  emit denoiseChromaBm3dChanged();
+  emit isDefaultChanged();
+}
+
 void RawEngine::setClarity(float val) {
   if (qFuzzyCompare(m_clarity, val)) return;
   m_clarity = val;
@@ -677,21 +723,24 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
 
   bool useSecondPass =
       final || ::AppStateManager::instance()->previewDenoiseFull();
-  bool useGpuDenoise = ::AppStateManager::instance()->useGpuDenoise();
   std::atomic<bool>* abortPtr = &m_abortDenoise;
-  QRhi* rhi = m_rhi;  // Capture RHI for potential GPU denoise
-  QQuickWindow* window = m_window;
+
+  photon::DenoiseParams dparams;
+  dparams.searchWindow = m_denoiseSearchWindow;
+  dparams.groupSize = m_denoiseGroupSize;
+  dparams.chromaRadius = m_denoiseChromaRadius;
+  dparams.chromaDenoise = m_denoiseChromaAmount;
+  dparams.chromaBm3d = m_denoiseChromaBm3d;
 
   QFuture<QImage> future = QtConcurrent::run([img, amount, abortPtr,
                                               useSecondPass, stride, gpuMatches,
-                                              rhi, useGpuDenoise, window]() {
+                                              dparams]() {
     return photon::Denoiser::denoise(img, amount, abortPtr, useSecondPass,
-                                     stride, gpuMatches, rhi, useGpuDenoise, window);
+                                     stride, gpuMatches, dparams);
   });
   m_denoiseWatcher.setFuture(future);
   LogManager::instance()->log(
-      QString("[ RawEngine.cpp ] - Started denoise (useGpu=%1)")
-          .arg(useGpuDenoise));
+      QString("[ RawEngine.cpp ] - Started denoise"));
 }
 
 void RawEngine::clearDenoisedResult() {
@@ -1430,6 +1479,11 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["vignetteFeather"] = e->vignetteFeather();
   obj["denoiseAmount"] = e->denoiseAmount();
   obj["denoiseEnabled"] = e->denoiseEnabled();
+  obj["denoiseSearchWindow"] = e->denoiseSearchWindow();
+  obj["denoiseGroupSize"] = e->denoiseGroupSize();
+  obj["denoiseChromaRadius"] = e->denoiseChromaRadius();
+  obj["denoiseChromaAmount"] = e->denoiseChromaAmount();
+  obj["denoiseChromaBm3d"] = e->denoiseChromaBm3d();
   obj["clarity"] = e->clarity();
   obj["dehaze"] = e->dehaze();
   obj["structure"] = e->structure();
@@ -1510,6 +1564,16 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setDenoiseAmount(obj["denoiseAmount"].toDouble());
   if (obj.contains("denoiseEnabled"))
     e->setDenoiseEnabled(obj["denoiseEnabled"].toBool());
+  if (obj.contains("denoiseSearchWindow"))
+    e->setDenoiseSearchWindow(obj["denoiseSearchWindow"].toInt());
+  if (obj.contains("denoiseGroupSize"))
+    e->setDenoiseGroupSize(obj["denoiseGroupSize"].toInt());
+  if (obj.contains("denoiseChromaRadius"))
+    e->setDenoiseChromaRadius(obj["denoiseChromaRadius"].toInt());
+  if (obj.contains("denoiseChromaAmount"))
+    e->setDenoiseChromaAmount(obj["denoiseChromaAmount"].toDouble());
+  if (obj.contains("denoiseChromaBm3d"))
+    e->setDenoiseChromaBm3d(obj["denoiseChromaBm3d"].toDouble());
   if (obj.contains("clarity")) e->setClarity(obj["clarity"].toDouble());
   if (obj.contains("dehaze")) e->setDehaze(obj["dehaze"].toDouble());
   if (obj.contains("structure")) e->setStructure(obj["structure"].toDouble());
@@ -1609,6 +1673,11 @@ static void resetToDefaults(RawEngine* e) {
   e->setVignetteFeather(50.0f);
   e->setDenoiseAmount(0.0f);
   e->setDenoiseEnabled(false);
+  e->setDenoiseSearchWindow(19);
+  e->setDenoiseGroupSize(16);
+  e->setDenoiseChromaRadius(4);
+  e->setDenoiseChromaAmount(50.0f);
+  e->setDenoiseChromaBm3d(50.0f);
   e->setClarity(0.0f);
   e->setDehaze(0.0f);
   e->setStructure(0.0f);
@@ -1820,6 +1889,11 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyCompare(m_vignetteFeather, 50.0f)) return false;
   if (!qFuzzyIsNull(m_denoiseAmount)) return false;
   if (m_denoiseEnabled) return false;
+  if (m_denoiseSearchWindow != 19) return false;
+  if (m_denoiseGroupSize != 16) return false;
+  if (m_denoiseChromaRadius != 4) return false;
+  if (!qFuzzyCompare(m_denoiseChromaAmount, 50.0f)) return false;
+  if (!qFuzzyCompare(m_denoiseChromaBm3d, 50.0f)) return false;
   if (!qFuzzyIsNull(m_clarity)) return false;
   if (!qFuzzyIsNull(m_dehaze)) return false;
   if (!qFuzzyIsNull(m_structure)) return false;

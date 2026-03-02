@@ -15,8 +15,6 @@ add_executable(tst_RawEngine
     ../src/engine/Denoiser.h
  ../src/engine/GpuSearcher.cpp
  ../src/engine/GpuSearcher.h
- ../src/engine/GpuDenoiser.cpp
- ../src/engine/GpuDenoiser.h
  ../src/engine/ImageDeveloper.cpp
  ../src/engine/ImageDeveloper.h
  ../src/engine/VulkanComputeContext.cpp
@@ -84,8 +82,6 @@ add_executable(tst_AppStateManager
  ../src/engine/Denoiser.h
  ../src/engine/GpuSearcher.cpp
  ../src/engine/GpuSearcher.h
- ../src/engine/GpuDenoiser.cpp
- ../src/engine/GpuDenoiser.h
  ../src/engine/VulkanComputeContext.cpp
  ../src/engine/VulkanComputeContext.h
 )

@@ -41,8 +41,6 @@ class AppStateManager : public QObject {
                  logLocationChanged)
   Q_PROPERTY(bool previewDenoiseFull READ previewDenoiseFull WRITE
                  setPreviewDenoiseFull NOTIFY previewDenoiseFullChanged)
-  Q_PROPERTY(bool useGpuDenoise READ useGpuDenoise WRITE setUseGpuDenoise NOTIFY
-                 useGpuDenoiseChanged)
   Q_PROPERTY(
       QString logLevel READ logLevel WRITE setLogLevel NOTIFY logLevelChanged)
   Q_PROPERTY(int cacheSizeGB READ cacheSizeGB WRITE setCacheSizeGB NOTIFY
@@ -77,7 +75,6 @@ class AppStateManager : public QObject {
   bool isDarkMode() const { return m_isDarkMode; }
   QString accentColor() const { return m_accentColor; }
   bool previewDenoiseFull() const { return m_previewDenoiseFull; }
-  bool useGpuDenoise() const { return m_useGpuDenoise; }
   QString logLocation() const;
   QString logLevel() const;
   int cacheSizeGB() const { return m_cacheSizeGB; }
@@ -107,7 +104,6 @@ class AppStateManager : public QObject {
   void setIsDarkMode(bool dark);
   void setAccentColor(const QString& color);
   void setPreviewDenoiseFull(bool full);
-  void setUseGpuDenoise(bool use);
   void setLogLocation(const QString& location);
   void setLogLevel(const QString& level);
   void setCacheSizeGB(int size);
@@ -125,7 +121,6 @@ class AppStateManager : public QObject {
   void isDarkModeChanged();
   void accentColorChanged();
   void previewDenoiseFullChanged();
-  void useGpuDenoiseChanged();
   void logLocationChanged();
   void logLevelChanged();
   void cacheSizeGBChanged();
@@ -145,7 +140,6 @@ class AppStateManager : public QObject {
   bool m_isDarkMode = true;
   QString m_accentColor = "#3b82f6";  // Default Blue
   bool m_previewDenoiseFull = false;
-  bool m_useGpuDenoise = true;
   int m_cacheSizeGB = 10;
 
   QSettings m_settings;
@@ -158,6 +152,4 @@ class AppStateManager : public QObject {
   static constexpr const char* KEY_ACCENT_COLOR = "ui/accentColor";
   static constexpr const char* KEY_PREVIEW_DENOISE_FULL =
       "performance/previewDenoiseFull";
-  static constexpr const char* KEY_USE_GPU_DENOISE =
-      "performance/useGpuDenoise";
 };

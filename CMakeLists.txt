@@ -38,17 +38,11 @@ qt_add_executable(Photon
     src/engine/Denoiser.h
     src/engine/GpuSearcher.cpp
     src/engine/GpuSearcher.h
-    src/engine/GpuDenoiser.cpp
-    src/engine/GpuDenoiser.h
     src/engine/ImageDeveloper.cpp
     src/engine/ImageDeveloper.h
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
     src/engine/patch_search.comp
-    src/engine/bm3d_grouping.comp
-    src/engine/bm3d_transform.comp
-    src/engine/bm3d_filter.comp
-    src/engine/bm3d_aggregate.comp
     src/components/RawViewport.cpp
     src/components/RawViewport.h
     src/managers/AppStateManager.cpp
@@ -94,10 +88,6 @@ qt6_add_shaders(Photon "compute_shaders"
     ESSL "0"
     FILES
         src/engine/patch_search.comp
-        src/engine/bm3d_grouping.comp
-        src/engine/bm3d_transform.comp
-        src/engine/bm3d_filter.comp
-        src/engine/bm3d_aggregate.comp
 )
 
 qt_add_qml_module(Photon

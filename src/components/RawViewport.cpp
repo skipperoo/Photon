@@ -126,6 +126,26 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit denoiseAmountChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::denoiseSearchWindowChanged, this, [this]() {
+    emit denoiseSearchWindowChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseGroupSizeChanged, this, [this]() {
+    emit denoiseGroupSizeChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseChromaRadiusChanged, this, [this]() {
+    emit denoiseChromaRadiusChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseChromaAmountChanged, this, [this]() {
+    emit denoiseChromaAmountChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseChromaBm3dChanged, this, [this]() {
+    emit denoiseChromaBm3dChanged();
+    update();
+  });
   connect(&m_engine, &RawEngine::clarityChanged, this, [this]() {
     emit clarityChanged();
     update();
@@ -496,6 +516,46 @@ void RawViewport::setDenoiseAmount(float val) {
 
   m_engine.setDenoiseAmount(val);
   emit denoiseAmountChanged();
+  update();
+}
+
+void RawViewport::setDenoiseSearchWindow(int val) {
+  if (m_engine.denoiseSearchWindow() == val) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseSearchWindow(val);
+  emit denoiseSearchWindowChanged();
+  update();
+}
+
+void RawViewport::setDenoiseGroupSize(int val) {
+  if (m_engine.denoiseGroupSize() == val) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseGroupSize(val);
+  emit denoiseGroupSizeChanged();
+  update();
+}
+
+void RawViewport::setDenoiseChromaRadius(int val) {
+  if (m_engine.denoiseChromaRadius() == val) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseChromaRadius(val);
+  emit denoiseChromaRadiusChanged();
+  update();
+}
+
+void RawViewport::setDenoiseChromaAmount(float val) {
+  if (qFuzzyCompare(m_engine.denoiseChromaAmount(), val)) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseChromaAmount(val);
+  emit denoiseChromaAmountChanged();
+  update();
+}
+
+void RawViewport::setDenoiseChromaBm3d(float val) {
+  if (qFuzzyCompare(m_engine.denoiseChromaBm3d(), val)) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseChromaBm3d(val);
+  emit denoiseChromaBm3dChanged();
   update();
 }
 

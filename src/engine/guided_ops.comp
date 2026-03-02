@@ -1,0 +1,47 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer BufA { float buf_a[]; };
+layout(std430, binding = 1) readonly buffer BufB { float buf_b[]; };
+layout(std430, binding = 2) readonly buffer BufC { float buf_c[]; };
+layout(std430, binding = 3) readonly buffer BufD { float buf_d[]; };
+layout(std430, binding = 4) writeonly buffer BufOut { float buf_out[]; };
+
+layout(push_constant) uniform PushConstants {
+    int width;
+    int height;
+    int operation;
+    float epsilon;
+} pcs;
+
+// Operations:
+// 0: out = a * b                          (element multiply)
+// 1: out = (c - a*b) / (d - a*a + eps)    (compute a_coeff: a=mean_I, b=mean_p, c=mean_Ip, d=mean_II)
+// 2: out = b - a * c                      (compute b_coeff: a=a_coeff, b=mean_p, c=mean_I)
+// 3: out = a * b + c                      (final output: a=mean_a, b=guide, c=mean_b)
+
+void main() {
+    int idx = int(gl_GlobalInvocationID.x);
+    int total = pcs.width * pcs.height;
+    if (idx >= total) return;
+
+    float a = buf_a[idx];
+    float b = buf_b[idx];
+
+    if (pcs.operation == 0) {
+        buf_out[idx] = a * b;
+    } else if (pcs.operation == 1) {
+        float c = buf_c[idx];
+        float d = buf_d[idx];
+        float var_I = d - a * a;
+        float cov_Ip = c - a * b;
+        buf_out[idx] = cov_Ip / (var_I + pcs.epsilon);
+    } else if (pcs.operation == 2) {
+        float c = buf_c[idx];
+        buf_out[idx] = b - a * c;
+    } else if (pcs.operation == 3) {
+        float c = buf_c[idx];
+        buf_out[idx] = a * b + c;
+    }
+}

@@ -15,10 +15,20 @@ Window {
     color: Theme.background
 
     property bool showTopbar: true
+    property bool altKeyPressed: KeyTracker.altPressed
 
     // File scanner for finding RAW files in the current folder
     FileScanner {
         id: fileScanner
+    }
+
+    // Reset mask preview when Alt is released
+    Connections {
+        target: KeyTracker
+        function onAltPressedChanged() {
+            if (!KeyTracker.altPressed && rawViewport)
+                rawViewport.showSharpenMask = false;
+        }
     }
 
     // List model to hold the RAW files
@@ -254,6 +264,10 @@ Window {
                             property real structure: rawViewport.structure
                             property real centre: rawViewport.centre
                             property real sharpness: rawViewport.sharpness
+                            property real sharpenMask: rawViewport.sharpenMask
+                            property real maskFeather: rawViewport.maskFeather
+                            property real focusDetect: rawViewport.focusDetect
+                            property real showSharpenMask: rawViewport.showSharpenMask ? 1.0 : 0.0
                             property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
                             property real isPreview: rawViewport.showingPreview ? 1.0 : 0.0
                             property int orientation: rawViewport.orientation
@@ -538,6 +552,7 @@ Window {
                                 DevelopView {
                                     viewport: rawViewport
                                     viewTopPadding: 10
+                                    maskAltPressed: window.altKeyPressed
                                 }
 
                                 // 2: Crop

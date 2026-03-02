@@ -72,26 +72,6 @@ Control {
                         Layout.fillWidth: true
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { text: "GPU Denoising"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
-                            PhotonSwitch {
-                                checked: AppState.useGpuDenoise
-                                onClicked: AppState.setUseGpuDenoise(checked)
-                            }
-                        }
-                        Text {
-                            text: "If enabled, offloads heavy denoising calculations to the GPU using Vulkan compute shaders."
-                            font: Theme.fontSmall
-                            color: Theme.mutedFg
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    ColumnLayout {
-                        spacing: 8
-                        Layout.fillWidth: true
-                        RowLayout {
-                            Layout.fillWidth: true
                             Text { text: "Full Quality Denoise Preview"; font: Theme.fontRegular; color: Theme.foreground; Layout.fillWidth: true }
                             PhotonSwitch {
                                 checked: AppState.previewDenoiseFull

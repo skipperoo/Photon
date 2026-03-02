@@ -54,6 +54,12 @@ layout(std140, binding = 0) uniform buf {
     float cgMidtonesHue; float cgMidtonesSaturation; float cgMidtonesLuminance;
     float cgHighlightsHue; float cgHighlightsSaturation; float cgHighlightsLuminance;
     float cgBalance; float cgBlending;
+
+    // Sharpening Mask
+    float sharpenMask;
+    float maskFeather;
+    float focusDetect;
+    float showSharpenMask;
 } ubuf;
 
 const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
@@ -69,6 +75,111 @@ vec3 srgb_to_linear(vec3 c) {
 vec3 linear_to_srgb(vec3 c) {
     vec3 c_clamped = clamp(c, 0.0, 1.0);
     return mix(c_clamped * 12.92, 1.055 * pow(c_clamped, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c_clamped));
+}
+
+// --- Scharr Edge Detection for Sharpening Mask ---
+// Returns edge strength [0,1] at a single point.
+float compute_edge_mask_raw(sampler2D tex, vec2 uv, vec2 texelSize, float maskAmount) {
+    // Sample 3x3 neighborhood luminance
+    float tl = get_luma(srgb_to_linear(texture(tex, uv + vec2(-1.0, -1.0) * texelSize).rgb));
+    float tc = get_luma(srgb_to_linear(texture(tex, uv + vec2( 0.0, -1.0) * texelSize).rgb));
+    float tr = get_luma(srgb_to_linear(texture(tex, uv + vec2( 1.0, -1.0) * texelSize).rgb));
+    float ml = get_luma(srgb_to_linear(texture(tex, uv + vec2(-1.0,  0.0) * texelSize).rgb));
+    float mr = get_luma(srgb_to_linear(texture(tex, uv + vec2( 1.0,  0.0) * texelSize).rgb));
+    float bl = get_luma(srgb_to_linear(texture(tex, uv + vec2(-1.0,  1.0) * texelSize).rgb));
+    float bc = get_luma(srgb_to_linear(texture(tex, uv + vec2( 0.0,  1.0) * texelSize).rgb));
+    float br = get_luma(srgb_to_linear(texture(tex, uv + vec2( 1.0,  1.0) * texelSize).rgb));
+
+    // Scharr operator (better rotational symmetry than Sobel)
+    float gx = -3.0*tl + 3.0*tr - 10.0*ml + 10.0*mr - 3.0*bl + 3.0*br;
+    float gy = -3.0*tl - 10.0*tc - 3.0*tr + 3.0*bl + 10.0*bc + 3.0*br;
+    float gradient = sqrt(gx*gx + gy*gy);
+
+    // Threshold scales with maskAmount: higher = tighter mask
+    float threshold = maskAmount / 100.0 * 0.3;
+    float gain = 4.0 + maskAmount / 100.0 * 12.0;
+    float mask = clamp((gradient - threshold) * gain, 0.0, 1.0);
+
+    // Smooth the mask slightly to avoid aliasing at mask boundaries
+    return mask * mask * (3.0 - 2.0 * mask);
+}
+
+// Feathered edge mask: averages mask at center + 4 cardinal neighbors
+float compute_edge_mask(sampler2D tex, vec2 uv, vec2 texelSize, float maskAmount, float feather) {
+    if (maskAmount <= 0.0) return 1.0;
+
+    float center = compute_edge_mask_raw(tex, uv, texelSize, maskAmount);
+    if (feather <= 0.0) return center;
+
+    // Sample at 4 cardinal offsets scaled by feather amount (1–6 texels)
+    float r = 1.0 + feather / 100.0 * 5.0;
+    float n = compute_edge_mask_raw(tex, uv + vec2(0.0, -r) * texelSize, texelSize, maskAmount);
+    float s = compute_edge_mask_raw(tex, uv + vec2(0.0,  r) * texelSize, texelSize, maskAmount);
+    float w = compute_edge_mask_raw(tex, uv + vec2(-r, 0.0) * texelSize, texelSize, maskAmount);
+    float e = compute_edge_mask_raw(tex, uv + vec2( r, 0.0) * texelSize, texelSize, maskAmount);
+
+    // Weighted average: center 40%, neighbors 15% each
+    return center * 0.4 + (n + s + w + e) * 0.15;
+}
+
+// Focus detection via local luminance variance over a wide area.
+// In-focus regions have high variance; bokeh/OOF regions have low variance.
+float compute_focus_gate(sampler2D tex, vec2 uv, vec2 texelSize, float focusAmount) {
+    if (focusAmount <= 0.0) return 1.0;
+
+    // Sample luminance at 13 points in a wide sparse pattern (~12 texel radius)
+    float r = 12.0;
+    float sum = 0.0;
+    float sumSq = 0.0;
+    float L;
+
+    // Center
+    L = get_luma(srgb_to_linear(texture(tex, uv).rgb));
+    sum += L; sumSq += L * L;
+    // Cardinal directions at full radius
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2( r, 0.0) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2(-r, 0.0) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2(0.0,  r) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2(0.0, -r) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    // Diagonals at 0.7 * radius
+    float d = r * 0.7;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2( d,  d) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2(-d, -d) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2( d, -d) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2(-d,  d) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    // Inner ring at half radius for mid-frequency detail
+    float h = r * 0.5;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2( h, 0.0) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2(-h, 0.0) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2(0.0,  h) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+    L = get_luma(srgb_to_linear(texture(tex, uv + vec2(0.0, -h) * texelSize).rgb));
+    sum += L; sumSq += L * L;
+
+    // Variance = E[X^2] - E[X]^2
+    float mean = sum / 13.0;
+    float variance = max(sumSq / 13.0 - mean * mean, 0.0);
+    // Standard deviation as focus measure
+    float stddev = sqrt(variance);
+
+    float t = focusAmount / 100.0;
+    float strength = t * t;
+    // Threshold: higher focusAmount demands higher local variance to pass
+    float threshold = 0.005 + strength * 0.04;
+    float gain = 6.0 + strength * 20.0;
+    float gate = clamp((stddev - threshold) * gain, 0.0, 1.0);
+    gate = gate * gate * (3.0 - 2.0 * gate);
+    return mix(1.0, gate, strength);
 }
 
 // --- Real-time Non-Local Means (NLM) Noise Reduction ---
@@ -136,6 +247,7 @@ vec3 apply_local_contrast(vec3 color_linear, vec3 blurred_linear, float amount, 
 
     // Doubling the action for Sharpening, Clarity and Structure
     float effective_amount = amount * 2.0;
+    if (mode == 0) effective_amount = amount * 10.0; // 5x stronger sharpening
 
     float center_luma = get_luma(color_linear);
     float shadow_protection = smoothstep(0.0, 0.05, center_luma);
@@ -159,7 +271,7 @@ vec3 apply_local_contrast(vec3 color_linear, vec3 blurred_linear, float amount, 
         float adj_amount = effective_amount;
         if (mode == 0) { // Sharpening mode
             float edge_dampener = 1.0 - pow(clamp(abs(log_ratio) / 3.0, 0.0, 1.0), 0.5);
-            adj_amount = effective_amount * edge_dampener * 0.8;
+            adj_amount = effective_amount * edge_dampener;
         }
         final_color = color_linear * exp2(log_ratio * adj_amount);
     }
@@ -417,16 +529,40 @@ void main()
     color = apply_gpu_denoise(color, qt_TexCoord0, source, ubuf.denoiseAmount);
 
     // --- Approximated Blur for Local Contrast (Clarity, Structure, Sharpness) ---
-    // We use a multi-tap sample to approximate a blurred version of the current pixel.
+    // Dual-radius multi-tap blur for effective unsharp mask on denoised images.
     vec2 texelSize = 1.0 / ubuf.sourceSize;
-    vec3 blurred = color * 0.25;
-    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, 1.5) * texelSize).rgb) * 0.1875;
-    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, -1.5) * texelSize).rgb) * 0.1875;
-    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, -1.5) * texelSize).rgb) * 0.1875;
-    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, 1.5) * texelSize).rgb) * 0.1875;
+    // Inner ring (1.5 texels) — fine detail
+    vec3 blurred = color * 0.12;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, 1.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, -1.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(1.5, -1.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-1.5, 1.5) * texelSize).rgb) * 0.07;
+    // Outer axis ring (6.0 texels) — captures mid-frequency on denoised images
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(6.0, 0.0) * texelSize).rgb) * 0.08;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-6.0, 0.0) * texelSize).rgb) * 0.08;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(0.0, 6.0) * texelSize).rgb) * 0.08;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(0.0, -6.0) * texelSize).rgb) * 0.08;
+    // Outer diagonal ring (4.5 texels)
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(4.5, 4.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-4.5, -4.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(4.5, -4.5) * texelSize).rgb) * 0.07;
+    blurred += srgb_to_linear(texture(source, qt_TexCoord0 + vec2(-4.5, 4.5) * texelSize).rgb) * 0.07;
 
-    // Apply Sharpening (Mode 0)
+    // Compute edge mask with feathering, then gate by focus detection
+    float edgeMask = compute_edge_mask(source, qt_TexCoord0, texelSize, ubuf.sharpenMask, ubuf.maskFeather);
+    float focusGate = compute_focus_gate(source, qt_TexCoord0, texelSize, ubuf.focusDetect);
+    float finalMask = edgeMask * focusGate;
+
+    // Alt+drag mask preview: show combined mask as grayscale and return early
+    if (ubuf.showSharpenMask > 0.5 && (ubuf.sharpenMask > 0.0 || ubuf.focusDetect > 0.0)) {
+        fragColor = vec4(vec3(finalMask), 1.0);
+        return;
+    }
+
+    vec3 preSharp = color;
     color = apply_local_contrast(color, blurred, ubuf.sharpness / 100.0, 0);
+    // Blend sharpened vs original using combined mask
+    color = mix(preSharp, color, finalMask);
     
     // Apply Clarity (Mode 1)
     color = apply_local_contrast(color, blurred, ubuf.clarity / 100.0, 1);

@@ -1,0 +1,48 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Input {
+    float data_in[];
+};
+
+layout(std430, binding = 1) writeonly buffer Output {
+    float data_out[];
+};
+
+layout(push_constant) uniform PushConstants {
+    int width;
+    int height;
+    int radius;
+    int horizontal; // 1 = horizontal pass, 0 = vertical pass
+} pcs;
+
+void main() {
+    int idx = int(gl_GlobalInvocationID.x);
+    int total = pcs.width * pcs.height;
+    if (idx >= total) return;
+
+    int y = idx / pcs.width;
+    int x = idx - y * pcs.width;
+
+    float sum = 0.0;
+    int count = 0;
+
+    if (pcs.horizontal == 1) {
+        int x0 = max(0, x - pcs.radius);
+        int x1 = min(pcs.width - 1, x + pcs.radius);
+        count = x1 - x0 + 1;
+        for (int i = x0; i <= x1; i++) {
+            sum += data_in[y * pcs.width + i];
+        }
+    } else {
+        int y0 = max(0, y - pcs.radius);
+        int y1 = min(pcs.height - 1, y + pcs.radius);
+        count = y1 - y0 + 1;
+        for (int i = y0; i <= y1; i++) {
+            sum += data_in[i * pcs.width + x];
+        }
+    }
+
+    data_out[idx] = sum / float(count);
+}

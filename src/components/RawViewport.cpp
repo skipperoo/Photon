@@ -126,6 +126,26 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit denoiseAmountChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::denoiseSearchWindowChanged, this, [this]() {
+    emit denoiseSearchWindowChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseGroupSizeChanged, this, [this]() {
+    emit denoiseGroupSizeChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseChromaRadiusChanged, this, [this]() {
+    emit denoiseChromaRadiusChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseChromaAmountChanged, this, [this]() {
+    emit denoiseChromaAmountChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseChromaBm3dChanged, this, [this]() {
+    emit denoiseChromaBm3dChanged();
+    update();
+  });
   connect(&m_engine, &RawEngine::clarityChanged, this, [this]() {
     emit clarityChanged();
     update();
@@ -144,6 +164,18 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   });
   connect(&m_engine, &RawEngine::sharpnessChanged, this, [this]() {
     emit sharpnessChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::sharpenMaskChanged, this, [this]() {
+    emit sharpenMaskChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::maskFeatherChanged, this, [this]() {
+    emit maskFeatherChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::focusDetectChanged, this, [this]() {
+    emit focusDetectChanged();
     update();
   });
   connect(&m_engine, &RawEngine::denoiseEnabledChanged, this, [this]() {
@@ -499,6 +531,46 @@ void RawViewport::setDenoiseAmount(float val) {
   update();
 }
 
+void RawViewport::setDenoiseSearchWindow(int val) {
+  if (m_engine.denoiseSearchWindow() == val) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseSearchWindow(val);
+  emit denoiseSearchWindowChanged();
+  update();
+}
+
+void RawViewport::setDenoiseGroupSize(int val) {
+  if (m_engine.denoiseGroupSize() == val) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseGroupSize(val);
+  emit denoiseGroupSizeChanged();
+  update();
+}
+
+void RawViewport::setDenoiseChromaRadius(int val) {
+  if (m_engine.denoiseChromaRadius() == val) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseChromaRadius(val);
+  emit denoiseChromaRadiusChanged();
+  update();
+}
+
+void RawViewport::setDenoiseChromaAmount(float val) {
+  if (qFuzzyCompare(m_engine.denoiseChromaAmount(), val)) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseChromaAmount(val);
+  emit denoiseChromaAmountChanged();
+  update();
+}
+
+void RawViewport::setDenoiseChromaBm3d(float val) {
+  if (qFuzzyCompare(m_engine.denoiseChromaBm3d(), val)) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseChromaBm3d(val);
+  emit denoiseChromaBm3dChanged();
+  update();
+}
+
 void RawViewport::setClarity(float val) {
   if (qFuzzyCompare(m_engine.clarity(), val)) return;
   m_engine.setClarity(val);
@@ -531,6 +603,34 @@ void RawViewport::setSharpness(float val) {
   if (qFuzzyCompare(m_engine.sharpness(), val)) return;
   m_engine.setSharpness(val);
   emit sharpnessChanged();
+  update();
+}
+
+void RawViewport::setSharpenMask(float val) {
+  if (qFuzzyCompare(m_engine.sharpenMask(), val)) return;
+  m_engine.setSharpenMask(val);
+  emit sharpenMaskChanged();
+  update();
+}
+
+void RawViewport::setMaskFeather(float val) {
+  if (qFuzzyCompare(m_engine.maskFeather(), val)) return;
+  m_engine.setMaskFeather(val);
+  emit maskFeatherChanged();
+  update();
+}
+
+void RawViewport::setFocusDetect(float val) {
+  if (qFuzzyCompare(m_engine.focusDetect(), val)) return;
+  m_engine.setFocusDetect(val);
+  emit focusDetectChanged();
+  update();
+}
+
+void RawViewport::setShowSharpenMask(bool val) {
+  if (m_showSharpenMask == val) return;
+  m_showSharpenMask = val;
+  emit showSharpenMaskChanged();
   update();
 }
 

@@ -71,9 +71,10 @@ Photon provides advanced control over performance and aesthetics:
    - Allows users to select a specific GPU for RHI rendering.
    - Changes may require an application restart.
 2. **Denoising Engine:**
-   - **GPU Denoise Toggle:** Users can choose between GPU-accelerated BM3D (compute shaders) or CPU-only (AVX2/FMA SIMD).
-   - **Default:** GPU denoise is enabled by default on supported hardware.
-   - **Fallback:** Automatically falls back to CPU if GPU compute is unavailable or if manually disabled.
+   - **Full Quality Toggle:** Users can force the high-fidelity 2-step BM3D denoiser during preview (otherwise single-step is used for speed).
+   - **Architecture:** BM3D runs on the Y (luminance) channel only; chrominance (Cb/Cr) is denoised via a Multi-Scale Guided Filter using the denoised Y as structural guide.
+   - **GPU Search Offload:** Patch-matching is optionally offloaded to a Vulkan compute pipeline via `GpuSearcher`.
+   - **User-Tunable Parameters:** Exposed via QML sliders: Search Window (9-39), Group Size (4/8/16), Chroma Radius (1-16), Chroma Denoise (0-100). Serialized in `.PhotonData` edit stacks.
 3. **Aesthetics:**
    - **Theme:** Toggle between "Zinc Dark" and "Zinc Light".
    - **Accent Color:** Choose from a predefined palette of high-contrast colors (Blue, Rose, Green, Orange).
@@ -204,11 +205,19 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 7. **HSL Panel:** An **8-band HSL system** (Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta) is implemented in the fragment shader. It uses weighted influence curves to allow targeted Hue, Saturation, and Luminance adjustments without causing artifacts.
 8. **Color Grading:** A professional **3-Way Color Grading** system is implemented, allowing independent tinting of **Shadows, Midtones, and Highlights**. It features global **Balance** and **Blending** controls to precisely manage tonal transitions.
 9. **Dithering:** High-quality dithering is implemented using a sine-based pseudo-random noise generator. It is applied to the final RGB output at a precision of 1/255 to mask banding artifacts and ensure smooth gradients on 8-bit displays.
-10. **Denoising Pipeline (Phase 12):** Photon employs a hybrid GPU/CPU architecture designed for professional performance:
+10. **Denoising Pipeline (Phase 12/24/26):** Photon employs a hybrid architecture for professional-grade noise reduction:
     - **GPU Preview (NLM):** A real-time **Non-Local Means (NLM)** filter runs in the fragment shader. It uses 3x3 patch comparisons within a 7x7 search window, providing high-fidelity spatial denoising at 60fps.
     - **Full Quality Toggle:** A user preference in settings allows forcing the high-fidelity 2-step denoiser even during the preview phase.
-    - **Vulkan-Native Search Offload:** To ensure zero interference with the UI rendering, the computationally expensive patch-matching phase of the BM3D algorithm is offloaded to a dedicated **plain Vulkan** compute pipeline. It bypasses Qt's RHI to run on an independent compute queue, using the same physical device as the UI. This pipeline computes the Sum of Squared Differences (SSD) using 3x3 patches and generates a spatial similarity index.
-    - **CPU Transform & Filter (SIMD):** The collaborative filtering is performed on the CPU using **AVX2 and FMA** instructions, protected by a `QMutex` to ensure thread safety with the LibRaw processor.
+    - **YCbCr Decoupled Processing (Phase 24):** The denoiser converts RGB to **YCbCr** color space. BM3D operates on the **Y (luminance)** channel only for ~3× speed improvement, while chrominance channels (Cb/Cr) are denoised via a **Multi-Scale Guided Filter** using the clean Y as a structural guide. This eliminates "color blotchiness" that joint-channel BM3D often misses.
+    - **Multi-Scale Guided Filter:** An edge-preserving smoothing operator applied at three scales (r/2, r, r×2 with base ε=1.0/4.0/10.0, scaled by chroma strength) to progressively remove fine-to-coarse chrominance noise while preserving luminance edges. Uses SIMD-optimized O(1) separable box filter on CPU or GPU-accelerated Vulkan compute path.
+    - **Vulkan-Native Compute Offload:** Two compute pipelines run on dedicated Vulkan compute queues:
+      - **`GpuSearcher`:** Offloads BM3D patch-matching (SSD using 3x3 patches) to GPU.
+      - **`GpuChromaFilter` (Phase 26):** Runs the full multi-scale guided filter on GPU using two compute shaders (`box_filter.comp` for separable box blur, `guided_ops.comp` for element-wise coefficient computation). Falls back to CPU SIMD path automatically if Vulkan is unavailable.
+    - **CPU Transform & Filter (SIMD):** All BM3D collaborative filtering, color space conversions, box filters, and guided filter coefficient computation use **AVX2 and FMA** instructions.
+    - **Sharpness Enhancement (Phase 26):** The fragment shader uses a dual-radius 13-tap blur kernel (inner ring at 1.5 texels + outer ring at 3.0–4.0 texels) for effective unsharp masking even on heavily denoised images.
+    - **Edge-Selective Sharpening Mask (Phase 27):** A **Scharr-based edge detection** operator computes per-pixel edge strength from the luminance channel in the fragment shader. The `sharpenMask` parameter (0–100) controls a threshold/gain curve that progressively isolates stronger edges: at 0 the full image is sharpened, at 100 only the strongest edges receive sharpening. The mask uses a smooth Hermite interpolation (`mask² × (3 − 2×mask)`) for natural transitions. An **Alt+drag preview mode** (`showSharpenMask` uniform) renders the combined mask as a grayscale overlay. The `KeyTracker` C++ singleton installs a global event filter to reliably detect Alt key state across all QML elements.
+      - **Mask Feather (0–100):** Spatially smooths the edge mask by averaging the mask value at 4 cardinal neighbor positions (radius 1–6 texels). Produces gradual transitions at mask boundaries, preventing harsh sharpening cutoffs.
+      - **Focus Detection (0–100):** Gates the sharpening mask by **local luminance variance** computed over 13 sparse samples in a ~12-texel radius (3 rings: center, half-radius cardinals, full-radius cardinals+diagonals). Variance = E[L²] − E[L]² measures texture density: in-focus regions have high variance, bokeh/OOF regions have near-zero variance. Quadratic strength ramp ensures subtle effect at low slider values.
     - **Adaptive Proxy Scaling:** Preview denoising resolution dynamically adjusts based on the viewport size and zoom level (`viewport * zoom * 1.5`), ensuring zero pixelation even at 400% zoom.
     - **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.
     - **ROI-Driven Refinement (Phase 13):** When zoomed in, the engine prioritizes high-quality re-rendering of the visible Region of Interest (ROI) before triggering the background denoiser on that specific area, ensuring maximum sharpness and speed.
@@ -218,6 +227,30 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
       - **Deterministic Teardown:** Singletons (`LogManager`, `AppStateManager`) are parented to the `QGuiApplication` instance and reset their internal static pointers to `nullptr` upon destruction to prevent dangling pointer access during final process cleanup.
       - **GPU Resource Release:** `RawViewport` implements the `releaseResources()` protocol to ensure all RHI-allocated textures and buffers are freed on the render thread while the graphics context is still valid.
       - **Instance Scoping:** The `QVulkanInstance` is managed as a local variable in `main()` to ensure it persists until all QML-related teardown is complete but is destroyed before the application exits.
+
+    #### 10a. Multi-Scale Guided Filter (Chroma Denoising Algorithm)
+    The guided filter is an edge-preserving smoother where the output $q$ is a linear transform of a guide image $I$ in each local window:
+    - Compute `mean_I`, `mean_p` (guide and noisy chroma means via box filter).
+    - Compute `mean_II`, `mean_Ip` (guide² and guide×chroma).
+    - Variance: `var_I = mean_II − mean_I²`.
+    - Covariance: `cov_Ip = mean_Ip − mean_I · mean_p`.
+    - Coefficients: `a = cov_Ip / (var_I + ε)`, `b = mean_p − a · mean_I`.
+    - Smooth coefficients: `mean_a`, `mean_b` via box filter.
+    - Output: `Chroma_out = mean_a · Guide + mean_b`.
+
+    Applied at three scales with increasing radius/epsilon to target fine-to-coarse color noise (r/2, r, r×2 with ε=1.0/4.0/10.0 scaled by chroma strength). The box filter uses a separable horizontal+vertical pass for O(1) per-pixel complexity. GPU path records all 51 dispatches (3 passes × 17 ops) in a single Vulkan command buffer with pipeline barriers.
+
+    #### 10b. Selective Sharpening Mask (Edge Detection Algorithm)
+    The masking pipeline generates a grayscale edge mask where edges are white (full sharpening) and flat areas are black (no sharpening):
+    1. **Luminance extraction:** `Y = 0.2126R + 0.7152G + 0.0722B` (Rec. 709 on linear data).
+    2. **Gradient detection (Scharr):** 3×3 Scharr kernels for Gx/Gy, magnitude `G = √(Gx² + Gy²)`. Preferred over Sobel for better rotational symmetry.
+    3. **Selective thresholding:** `mask = clamp((G − threshold) × gain, 0, 1)` where threshold/gain scale with the Masking slider.
+    4. **Smoothing:** Hermite interpolation `mask² × (3 − 2×mask)` for natural fall-off.
+    5. **Feathering (optional):** Spatial blur via 5-point cardinal average at configurable radius.
+    6. **Focus gating (optional):** Local luminance variance over 13 sparse samples at ~12-texel radius. Low variance = out-of-focus → gate to zero.
+    7. **Application:** `Output = mix(Original, Sharpened, finalMask)` where `finalMask = edgeMask × focusGate`.
+
+    Unlike Canny edge detection (binary single-pixel lines), the Scharr approach provides a grayscale gradient with natural fall-off — the center of an edge is sharpened intensely while strength tapers toward flat textures.
 
 **Accordion Sections:**
 
@@ -253,6 +286,9 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 1. **Detail:**
 
 - Sharpening: Edge contrast enhancement (0 to 100).
+- Masking: Edge-selective sharpening mask (0 to 100). At 0, sharpening is applied uniformly; at 100, only the strongest edges are sharpened. Hold Alt while dragging to preview the mask as a grayscale overlay.
+- Feather: Spatial smoothing of the sharpening mask (0 to 100). Higher values produce softer mask transitions.
+- Focus: Local luminance variance gating (0 to 100). Restricts sharpening to in-focus areas by measuring texture density over a wide neighborhood; out-of-focus/bokeh regions are excluded.
 - Noise Reduction: Luminance (NLM/BM3D) and Color reduction.
 
 ### C. The Filmstrip (Bottom)

@@ -159,10 +159,9 @@
 
 - [x] Export functionality (Save to JPEG/TIFF).
 
-## Phase 20: Full Vulkan BM3D Denoising [IN PROGRESS]
+## Phase 20: Full Vulkan BM3D Denoising [SUPERSEDED by Phase 24]
 
 - [x] **Architecture & Settings**
-  - [x] Add `useGpuDenoise` toggle setting in `AppStateManager`.
   - [x] Design `VulkanDenoiser` class architecture (plain Vulkan, compute shaders).
   - [x] Create compute shader infrastructure (grouping, transform, filter, aggregate).
 - [x] **Compute Shader Implementation**
@@ -171,17 +170,11 @@
   - [x] Implement `bm3d_filter.comp` - Hard thresholding (step 1) and Wiener filtering (step 2).
   - [x] Implement `bm3d_aggregate.comp` - Inverse transform and weighted aggregation.
 - [x] **Integration & Fallback**
-  - [x] Implement `GpuDenoiser` class using plain Vulkan.
-  - [x] Implement wrapper `denoise()` method in `Denoiser` class with automatic Vulkan/CPU selection.
+  - [x] Implement wrapper `denoise()` method in `Denoiser` class.
   - [x] Rename existing `denoise()` to `denoiseCpu()` for CPU-only path.
-  - [x] Add `denoiseGpu()` method for Vulkan-accelerated path.
   - [x] Integrate into `RawEngine` with async execution via `QtConcurrent`.
-  - [x] Implement CPU fallback when `useGpuDenoise` is false or Vulkan unavailable.
   - [x] Respect `previewDenoiseFull` setting for high-quality previews.
-- [ ] **Performance & Validation**
-  - [ ] Benchmark Vulkan vs CPU SIMD performance.
-  - [ ] Ensure non-blocking UI (independent Vulkan compute queue).
-  - [ ] Handle edge cases (memory limits, driver timeouts).
+- _Note: GPU full-denoise was removed due to stability issues. Phase 24 replaced it with an enhanced CPU pipeline (YCbCr + Multi-Scale Guided Filter). GpuSearcher (compute-queue patch matching) is retained._
 
 ## Phase 21: Effects & Slider Refinements [DONE]
 
@@ -217,10 +210,98 @@
 - [x] **Performance Optimization**
   - [x] Implement high-performance compiler flags (-O3, LTO, AVX2/FMA) for Release builds.
 
-## Phase 23: Adjust basic Tonemapping and Fix Denoise
+## Phase 23: Adjust basic Tonemapping
 
 - [x] [DaVinci Tone Mapping DCTL](https://github.com/thatcherfreeman/utility-dctls?tab=readme-ov-file#davinci-tone-mapping-dctl)
-- [ ] Finally fix the GpuDenoiser
+
+## Phase 24: Enhanced Denoiser — YCbCr + Multi-Scale Guided Filter [DONE]
+
+- [x] **YCbCr Pipeline Refactor**
+  - [x] Implement AVX2-optimized RGB↔YCbCr conversion (BT.601 coefficients).
+  - [x] Refactor `denoiseCpu()` to convert to YCbCr, run BM3D on Y only, guided filter on Cb/Cr.
+  - [x] Generalize `run_bm3d_step_joint()` to support arbitrary channel count (1 or 3).
+- [x] **SIMD Box Filter**
+  - [x] Implement O(1) separable box filter (horizontal + vertical running-sum passes).
+  - [x] AVX2 vectorized vertical pass (8 columns at a time).
+- [x] **Guided Filter Kernel**
+  - [x] Implement full guided filter math (mean_I, mean_p, var, cov, a, b coefficients).
+  - [x] All element-wise operations SIMD-optimized (AVX2/FMA).
+- [x] **Multi-Scale Integration**
+  - [x] Apply guided filter at 3 scales: Fine (r=2, ε=0.01), Medium (r=4, ε=0.04), Coarse (r=8, ε=0.1).
+- [x] **GpuDenoiser Cleanup**
+  - [x] Remove dead `denoiseGpu()` method and GPU denoise parameters from `Denoiser`.
+  - [x] Remove `useGpuDenoise` setting from `AppStateManager` and QML settings toggle.
+  - [x] Clean GpuDenoiser references from test CMakeLists.
+  - [x] Update SPECIFICATION.md to document new chroma pipeline architecture.
+
+## Phase 25: Configurable Denoise Parameters UI [DONE]
+
+- [x] **DenoiseParams Struct**
+  - [x] Added `DenoiseParams` struct with `searchWindow`, `groupSize`, `chromaRadius`, `chromaDenoise` fields.
+  - [x] Updated `block_matching_joint` to use parameterized search window and group size.
+  - [x] Updated `multiscale_guided_filter` to use parameterized radii and epsilon scaling.
+- [x] **RawEngine Integration**
+  - [x] Added 4 new Q_PROPERTY declarations: `denoiseSearchWindow`, `denoiseGroupSize`, `denoiseChromaRadius`, `denoiseChromaAmount`.
+  - [x] Setters with validation, clamping, and denoise result invalidation.
+  - [x] JSON serialization/deserialization for `.PhotonData` edit stacks.
+  - [x] Updated `resetToDefaults()` and `isDefault()`.
+  - [x] `startAsyncDenoise()` constructs `DenoiseParams` from member variables.
+- [x] **ImageDeveloper Integration**
+  - [x] Export path reads new params from JSON and passes `DenoiseParams` to `Denoiser::denoise()`.
+- [x] **QML UI**
+  - [x] Added "Advanced" subsection in Detail panel under Noise Reduction.
+  - [x] Sliders: Search Window (9-39, step 2), Group Size (4-16, step 4), Chroma Radius (1-16), Chroma Denoise (0-100).
+  - [x] Added `stepSize` property passthrough in `ControlGroup` → `PhotonSlider`.
+
+## Phase 26: GPU Chroma Filter & Sharpness Fix [DONE]
+
+- [x] **GPU-Accelerated Guided Filter (`GpuChromaFilter`)**
+  - [x] Created `box_filter.comp` — separable horizontal/vertical box filter with coalesced memory access.
+  - [x] Created `guided_ops.comp` — element-wise operations: multiply, compute a/b coefficients, final output.
+  - [x] Created `GpuChromaFilter` class following `GpuSearcher` Vulkan compute pattern.
+  - [x] Single command buffer records all 51 dispatches (3 passes × 17 ops) with pipeline barriers.
+  - [x] Automatic CPU SIMD fallback when Vulkan is unavailable.
+  - [x] Integrated into `Denoiser::denoiseCpu()` — GPU path tried first for Cb and Cr channels.
+- [x] **Sharpness Slider Fix**
+  - [x] Widened fragment shader blur kernel from 5-tap (1.5 texel radius) to 13-tap dual-radius (1.5 + 3.0–4.0 texels).
+  - [x] Effective unsharp mask now works on BM3D-denoised images.
+- [x] **Build & Infrastructure**
+  - [x] Added `box_filter.comp` and `guided_ops.comp` to CMakeLists compute_shaders target.
+  - [x] Added `GpuChromaFilter.cpp/.h` to main and test CMakeLists.
+  - [x] Added `CmdPipelineBarrier` to `VulkanFunctions` struct and loader.
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md denoising pipeline section.
+
+## Phase 27: Edge-Selective Sharpening Mask [DONE]
+
+- [x] **Scharr Edge Detection in Fragment Shader**
+  - [x] Implemented `compute_edge_mask()` using 3×3 Scharr kernels (Gx/Gy) on luminance.
+  - [x] Threshold/gain curve controlled by `sharpenMask` parameter (0–100).
+  - [x] Smooth Hermite interpolation for natural mask transitions.
+  - [x] Sharpening applied selectively: `mix(preSharp, sharpened, finalMask)`.
+- [x] **Mask Feather (Option 1)**
+  - [x] Spatial smoothing by averaging mask at 4 cardinal neighbors (radius 1–6 texels).
+  - [x] `maskFeather` parameter (0–100) controls blur radius.
+- [x] **Focus Detection (Option 2)**
+  - [x] Local-contrast gating via `|color − blurred|` from existing unsharp mask blur (zero extra samples).
+  - [x] `focusDetect` parameter (0–100) restricts sharpening to in-focus areas.
+  - [x] Combined mask: `finalMask = edgeMask × focusGate`.
+- [x] **Alt+Drag Mask Preview**
+  - [x] `showSharpenMask` uniform renders combined mask as grayscale overlay.
+  - [x] Created `KeyTracker` C++ singleton with global `QEvent` filter for reliable Alt key detection.
+  - [x] `Connections` in App.qml resets preview on Alt release.
+- [x] **Q_PROPERTY Chain**
+  - [x] `sharpenMask`, `maskFeather`, `focusDetect`: RawEngine → RawViewport → QML ShaderEffect (persisted).
+  - [x] `showSharpenMask`: RawViewport → QML ShaderEffect (transient, not persisted).
+  - [x] JSON serialization, `resetToDefaults()`, `isDefault()` for all three parameters.
+- [x] **UI — DevelopView**
+  - [x] "Masking", "Feather", "Focus" sliders (0–100) in Detail section.
+  - [x] Alt+drag activates grayscale combined mask preview on all three sliders.
+- [x] **Slider Reset Fix**
+  - [x] Fixed ControlGroup slider not resetting visually on photo switch (broken QML binding after user drag).
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md with feather and focus detection details.
+  - [x] Updated TASKS.md.
 
 ## Backlog / Future
 

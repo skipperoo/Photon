@@ -23,6 +23,9 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     auto* ctx = VulkanComputeContext::instance();
     if (ctx->device() == VK_NULL_HANDLE) return {};
 
+    // Serialize all Vulkan compute operations (command pool + queue not thread-safe)
+    std::lock_guard<std::mutex> lock(ctx->computeMutex());
+
     const auto& f = ctx->functions();
     VkDevice device = ctx->device();
 

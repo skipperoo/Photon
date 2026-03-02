@@ -10,6 +10,7 @@ Control {
     // Reference to the viewport being controlled (optional, but useful)
     property var viewport: null
     property real viewTopPadding: 0
+    property bool maskAltPressed: false
 
     background: Rectangle {
         color: Theme.background
@@ -467,6 +468,63 @@ Control {
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
 
+                        ControlGroup {
+                            title: "Masking"
+                            value: root.viewport ? root.viewport.sharpenMask : 0.0
+                            from: 0; to: 100
+                            defaultValue: 0.0
+                            onMoved: (v) => {
+                                if(root.viewport) {
+                                    root.viewport.sharpenMask = v;
+                                    root.viewport.showSharpenMask = (v > 0 && root.maskAltPressed);
+                                }
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    root.viewport.showSharpenMask = false;
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Feather"
+                            value: root.viewport ? root.viewport.maskFeather : 0.0
+                            from: 0; to: 100
+                            defaultValue: 0.0
+                            onMoved: (v) => {
+                                if(root.viewport) {
+                                    root.viewport.maskFeather = v;
+                                    root.viewport.showSharpenMask = (root.viewport.sharpenMask > 0 && root.maskAltPressed);
+                                }
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    root.viewport.showSharpenMask = false;
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Focus"
+                            value: root.viewport ? root.viewport.focusDetect : 0.0
+                            from: 0; to: 100
+                            defaultValue: 0.0
+                            onMoved: (v) => {
+                                if(root.viewport) {
+                                    root.viewport.focusDetect = v;
+                                    root.viewport.showSharpenMask = (v > 0 && root.maskAltPressed);
+                                }
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    root.viewport.showSharpenMask = false;
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             Text { 
@@ -491,6 +549,142 @@ Control {
                             onMoved: (v) => { 
                                 if(root.viewport) root.viewport.denoiseAmount = v;
                             } 
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        // Advanced Denoise Parameters
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+                        Text {
+                            text: "Advanced"
+                            font: Theme.fontSmall
+                            color: Theme.mutedFg
+                            Layout.fillWidth: true
+                        }
+
+                        ControlGroup {
+                            title: "Search Window"
+                            value: root.viewport ? root.viewport.denoiseSearchWindow : 19
+                            from: 9; to: 39; stepSize: 2
+                            defaultValue: 19
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseSearchWindow = Math.round(v);
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+
+                            Text {
+                                text: "Group Size"
+                                font: Theme.fontRegular
+                                color: Theme.foreground
+                            }
+                            Item { Layout.fillWidth: true }
+                            ComboBox {
+                                id: groupSizeCombo
+                                model: [4, 8, 16]
+                                currentIndex: {
+                                    let v = root.viewport ? root.viewport.denoiseGroupSize : 16;
+                                    return v === 4 ? 0 : (v === 8 ? 1 : 2);
+                                }
+                                implicitWidth: 70
+                                implicitHeight: 28
+                                font: Theme.fontSmall
+                                onActivated: (index) => {
+                                    if (root.viewport) {
+                                        root.viewport.denoiseGroupSize = model[index];
+                                        if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                            root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                        }
+                                        root.viewport.commitEdit();
+                                    }
+                                }
+                                background: Rectangle {
+                                    radius: 4
+                                    color: Theme.secondary
+                                    border.color: groupSizeCombo.activeFocus ? Theme.primary : Theme.border
+                                    border.width: 1
+                                }
+                                contentItem: Text {
+                                    text: groupSizeCombo.displayText
+                                    font: Theme.fontSmall
+                                    color: Theme.foreground
+                                    verticalAlignment: Text.AlignVCenter
+                                    horizontalAlignment: Text.AlignHCenter
+                                    leftPadding: 8
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Chroma Radius"
+                            value: root.viewport ? root.viewport.denoiseChromaRadius : 4
+                            from: 1; to: 16; stepSize: 1
+                            defaultValue: 4
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseChromaRadius = Math.round(v);
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Chroma Denoise"
+                            value: root.viewport ? root.viewport.denoiseChromaAmount : 50.0
+                            from: 0; to: 100
+                            defaultValue: 50.0
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseChromaAmount = v;
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
+                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
+                                    }
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Chroma BM3D"
+                            value: root.viewport ? root.viewport.denoiseChromaBm3d : 50.0
+                            from: 0; to: 100
+                            defaultValue: 50.0
+                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
+                            opacity: enabled ? 1.0 : 0.5
+                            onMoved: (v) => {
+                                if(root.viewport) root.viewport.denoiseChromaBm3d = v;
+                            }
                             onReleased: {
                                 if(root.viewport) {
                                     if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {

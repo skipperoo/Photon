@@ -272,6 +272,37 @@
 - [x] **Documentation**
   - [x] Updated SPECIFICATION.md denoising pipeline section.
 
+## Phase 27: Edge-Selective Sharpening Mask [DONE]
+
+- [x] **Scharr Edge Detection in Fragment Shader**
+  - [x] Implemented `compute_edge_mask()` using 3×3 Scharr kernels (Gx/Gy) on luminance.
+  - [x] Threshold/gain curve controlled by `sharpenMask` parameter (0–100).
+  - [x] Smooth Hermite interpolation for natural mask transitions.
+  - [x] Sharpening applied selectively: `mix(preSharp, sharpened, finalMask)`.
+- [x] **Mask Feather (Option 1)**
+  - [x] Spatial smoothing by averaging mask at 4 cardinal neighbors (radius 1–6 texels).
+  - [x] `maskFeather` parameter (0–100) controls blur radius.
+- [x] **Focus Detection (Option 2)**
+  - [x] Local-contrast gating via `|color − blurred|` from existing unsharp mask blur (zero extra samples).
+  - [x] `focusDetect` parameter (0–100) restricts sharpening to in-focus areas.
+  - [x] Combined mask: `finalMask = edgeMask × focusGate`.
+- [x] **Alt+Drag Mask Preview**
+  - [x] `showSharpenMask` uniform renders combined mask as grayscale overlay.
+  - [x] Created `KeyTracker` C++ singleton with global `QEvent` filter for reliable Alt key detection.
+  - [x] `Connections` in App.qml resets preview on Alt release.
+- [x] **Q_PROPERTY Chain**
+  - [x] `sharpenMask`, `maskFeather`, `focusDetect`: RawEngine → RawViewport → QML ShaderEffect (persisted).
+  - [x] `showSharpenMask`: RawViewport → QML ShaderEffect (transient, not persisted).
+  - [x] JSON serialization, `resetToDefaults()`, `isDefault()` for all three parameters.
+- [x] **UI — DevelopView**
+  - [x] "Masking", "Feather", "Focus" sliders (0–100) in Detail section.
+  - [x] Alt+drag activates grayscale combined mask preview on all three sliders.
+- [x] **Slider Reset Fix**
+  - [x] Fixed ControlGroup slider not resetting visually on photo switch (broken QML binding after user drag).
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md with feather and focus detection details.
+  - [x] Updated TASKS.md.
+
 ## Backlog / Future
 
 - [ ] **Usability**

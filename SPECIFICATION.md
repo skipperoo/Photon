@@ -215,6 +215,9 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
       - **`GpuChromaFilter` (Phase 26):** Runs the full multi-scale guided filter on GPU using two compute shaders (`box_filter.comp` for separable box blur, `guided_ops.comp` for element-wise coefficient computation). Falls back to CPU SIMD path automatically if Vulkan is unavailable.
     - **CPU Transform & Filter (SIMD):** All BM3D collaborative filtering, color space conversions, box filters, and guided filter coefficient computation use **AVX2 and FMA** instructions.
     - **Sharpness Enhancement (Phase 26):** The fragment shader uses a dual-radius 13-tap blur kernel (inner ring at 1.5 texels + outer ring at 3.0–4.0 texels) for effective unsharp masking even on heavily denoised images.
+    - **Edge-Selective Sharpening Mask (Phase 27):** A **Scharr-based edge detection** operator computes per-pixel edge strength from the luminance channel in the fragment shader. The `sharpenMask` parameter (0–100) controls a threshold/gain curve that progressively isolates stronger edges: at 0 the full image is sharpened, at 100 only the strongest edges receive sharpening. The mask uses a smooth Hermite interpolation (`mask² × (3 − 2×mask)`) for natural transitions. An **Alt+drag preview mode** (`showSharpenMask` uniform) renders the combined mask as a grayscale overlay. The `KeyTracker` C++ singleton installs a global event filter to reliably detect Alt key state across all QML elements.
+      - **Mask Feather (0–100):** Spatially smooths the edge mask by averaging the mask value at 4 cardinal neighbor positions (radius 1–6 texels). Produces gradual transitions at mask boundaries, preventing harsh sharpening cutoffs.
+      - **Focus Detection (0–100):** Gates the sharpening mask by local contrast (`|color − blurred|`), which correlates with in-focus vs. out-of-focus regions. Higher values progressively restrict sharpening to high-contrast (in-focus) areas, effectively excluding bokeh and smooth backgrounds. Uses the already-computed unsharp mask blur — zero additional texture samples.
     - **Adaptive Proxy Scaling:** Preview denoising resolution dynamically adjusts based on the viewport size and zoom level (`viewport * zoom * 1.5`), ensuring zero pixelation even at 400% zoom.
     - **Asynchronous UX:** Background tasks are managed by a `QFutureWatcher`. Adjustment sliders remain interactive, and tasks are automatically aborted/restarted upon photo switching or parameter refinement.
     - **ROI-Driven Refinement (Phase 13):** When zoomed in, the engine prioritizes high-quality re-rendering of the visible Region of Interest (ROI) before triggering the background denoiser on that specific area, ensuring maximum sharpness and speed.
@@ -259,6 +262,9 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 1. **Detail:**
 
 - Sharpening: Edge contrast enhancement (0 to 100).
+- Masking: Edge-selective sharpening mask (0 to 100). At 0, sharpening is applied uniformly; at 100, only the strongest edges are sharpened. Hold Alt while dragging to preview the mask as a grayscale overlay.
+- Feather: Spatial smoothing of the sharpening mask (0 to 100). Higher values produce softer mask transitions.
+- Focus: Local-contrast gating (0 to 100). Restricts sharpening to in-focus areas by detecting local contrast; out-of-focus/bokeh regions are excluded.
 - Noise Reduction: Luminance (NLM/BM3D) and Color reduction.
 
 ### C. The Filmstrip (Bottom)

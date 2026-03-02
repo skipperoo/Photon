@@ -21,6 +21,7 @@
 #include "managers/ExportManager.h"
 #include "managers/FileScanner.h"
 #include "managers/LogManager.h"
+#include "managers/KeyTracker.h"
 #include "managers/PresetManager.h"
 #include "managers/PreviewManager.h"
 #include "managers/ThumbnailImageProvider.h"
@@ -165,6 +166,8 @@ int main(int argc, char* argv[]) {
       "Main", 1, 0, "AppState", &AppStateManager::createQmlInstance);
 
   qmlRegisterSingletonInstance("Main", 1, 0, "Logger", logManager);
+  auto *keyTracker = new KeyTracker(&app);
+  qmlRegisterSingletonInstance("Main", 1, 0, "KeyTracker", keyTracker);
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "PreviewManager", previewManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "ExportManager", exportManager);

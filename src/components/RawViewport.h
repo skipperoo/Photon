@@ -65,6 +65,14 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(float centre READ centre WRITE setCentre NOTIFY centreChanged)
   Q_PROPERTY(float sharpness READ sharpness WRITE setSharpness NOTIFY
                  sharpnessChanged)
+  Q_PROPERTY(float sharpenMask READ sharpenMask WRITE setSharpenMask NOTIFY
+                 sharpenMaskChanged)
+  Q_PROPERTY(float maskFeather READ maskFeather WRITE setMaskFeather NOTIFY
+                 maskFeatherChanged)
+  Q_PROPERTY(float focusDetect READ focusDetect WRITE setFocusDetect NOTIFY
+                 focusDetectChanged)
+  Q_PROPERTY(bool showSharpenMask READ showSharpenMask WRITE setShowSharpenMask
+                 NOTIFY showSharpenMaskChanged)
   Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled
                  NOTIFY denoiseEnabledChanged)
   Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
@@ -277,6 +285,14 @@ class RawViewport : public QQuickItem {
 
   float sharpness() const { return m_engine.sharpness(); }
   void setSharpness(float val);
+  float sharpenMask() const { return m_engine.sharpenMask(); }
+  void setSharpenMask(float val);
+  float maskFeather() const { return m_engine.maskFeather(); }
+  void setMaskFeather(float val);
+  float focusDetect() const { return m_engine.focusDetect(); }
+  void setFocusDetect(float val);
+  bool showSharpenMask() const { return m_showSharpenMask; }
+  void setShowSharpenMask(bool val);
 
   bool denoiseEnabled() const { return m_engine.denoiseEnabled(); }
   void setDenoiseEnabled(bool enabled);
@@ -445,6 +461,10 @@ class RawViewport : public QQuickItem {
   void structureChanged();
   void centreChanged();
   void sharpnessChanged();
+  void sharpenMaskChanged();
+  void maskFeatherChanged();
+  void focusDetectChanged();
+  void showSharpenMaskChanged();
   void denoiseEnabledChanged();
   void isDenoisingChanged();
   void isLoadingChanged();
@@ -514,6 +534,7 @@ class RawViewport : public QQuickItem {
  private:
   RawEngine m_engine;
   float m_zoom = 1.0f;
+  bool m_showSharpenMask = false;
   QPointF m_panOffset = QPointF(0, 0);
   QRectF m_imageRect;
   bool m_imageDirty = false;

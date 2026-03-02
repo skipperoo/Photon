@@ -55,6 +55,7 @@ qt_add_executable(Photon
     src/managers/ThumbnailImageProvider.h
     src/managers/FileScanner.cpp
     src/managers/FileScanner.h
+    src/managers/KeyTracker.h
     src/managers/PresetManager.cpp
     src/managers/PresetManager.h
     src/managers/LogManager.cpp
@@ -121,6 +122,7 @@ qt_add_qml_module(Photon
         src/managers/ThumbnailImageProvider.h
         src/managers/FileScanner.cpp
         src/managers/FileScanner.h
+        src/managers/KeyTracker.h
         src/managers/PresetManager.cpp
         src/managers/PresetManager.h
         src/managers/LogManager.cpp

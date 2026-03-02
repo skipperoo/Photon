@@ -523,6 +523,27 @@ void RawEngine::setSharpness(float val) {
   emit isDefaultChanged();
 }
 
+void RawEngine::setSharpenMask(float val) {
+  if (qFuzzyCompare(m_sharpenMask, val)) return;
+  m_sharpenMask = val;
+  emit sharpenMaskChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setMaskFeather(float val) {
+  if (qFuzzyCompare(m_maskFeather, val)) return;
+  m_maskFeather = val;
+  emit maskFeatherChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setFocusDetect(float val) {
+  if (qFuzzyCompare(m_focusDetect, val)) return;
+  m_focusDetect = val;
+  emit focusDetectChanged();
+  emit isDefaultChanged();
+}
+
 void RawEngine::setDenoiseEnabled(bool enabled) {
   if (m_denoiseEnabled == enabled) return;
   m_denoiseEnabled = enabled;
@@ -1489,6 +1510,9 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["structure"] = e->structure();
   obj["centre"] = e->centre();
   obj["sharpness"] = e->sharpness();
+  obj["sharpenMask"] = e->sharpenMask();
+  obj["maskFeather"] = e->maskFeather();
+  obj["focusDetect"] = e->focusDetect();
 
   obj["hslRedHue"] = e->hslRedHue();
   obj["hslRedSaturation"] = e->hslRedSaturation();
@@ -1579,6 +1603,9 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("structure")) e->setStructure(obj["structure"].toDouble());
   if (obj.contains("centre")) e->setCentre(obj["centre"].toDouble());
   if (obj.contains("sharpness")) e->setSharpness(obj["sharpness"].toDouble());
+  if (obj.contains("sharpenMask")) e->setSharpenMask(obj["sharpenMask"].toDouble());
+  if (obj.contains("maskFeather")) e->setMaskFeather(obj["maskFeather"].toDouble());
+  if (obj.contains("focusDetect")) e->setFocusDetect(obj["focusDetect"].toDouble());
 
   if (obj.contains("hslRedHue")) e->setHslRedHue(obj["hslRedHue"].toDouble());
   if (obj.contains("hslRedSaturation"))
@@ -1683,6 +1710,9 @@ static void resetToDefaults(RawEngine* e) {
   e->setStructure(0.0f);
   e->setCentre(0.0f);
   e->setSharpness(0.0f);
+  e->setSharpenMask(0.0f);
+  e->setMaskFeather(0.0f);
+  e->setFocusDetect(0.0f);
 
   e->setHslRedHue(0.0f);
   e->setHslRedSaturation(0.0f);
@@ -1899,6 +1929,9 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_structure)) return false;
   if (!qFuzzyIsNull(m_centre)) return false;
   if (!qFuzzyIsNull(m_sharpness)) return false;
+  if (!qFuzzyIsNull(m_sharpenMask)) return false;
+  if (!qFuzzyIsNull(m_maskFeather)) return false;
+  if (!qFuzzyIsNull(m_focusDetect)) return false;
 
   // HSL checks
   if (!qFuzzyIsNull(m_hslRedHue) || !qFuzzyIsNull(m_hslRedSaturation) ||

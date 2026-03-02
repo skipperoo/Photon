@@ -10,6 +10,7 @@ Control {
     // Reference to the viewport being controlled (optional, but useful)
     property var viewport: null
     property real viewTopPadding: 0
+    property bool maskAltPressed: false
 
     background: Rectangle {
         color: Theme.background
@@ -465,6 +466,63 @@ Control {
                             defaultValue: 0.0
                             onMoved: (v) => { if(root.viewport) root.viewport.sharpness = v }; 
                             onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+
+                        ControlGroup {
+                            title: "Masking"
+                            value: root.viewport ? root.viewport.sharpenMask : 0.0
+                            from: 0; to: 100
+                            defaultValue: 0.0
+                            onMoved: (v) => {
+                                if(root.viewport) {
+                                    root.viewport.sharpenMask = v;
+                                    root.viewport.showSharpenMask = (v > 0 && root.maskAltPressed);
+                                }
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    root.viewport.showSharpenMask = false;
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Feather"
+                            value: root.viewport ? root.viewport.maskFeather : 0.0
+                            from: 0; to: 100
+                            defaultValue: 0.0
+                            onMoved: (v) => {
+                                if(root.viewport) {
+                                    root.viewport.maskFeather = v;
+                                    root.viewport.showSharpenMask = (root.viewport.sharpenMask > 0 && root.maskAltPressed);
+                                }
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    root.viewport.showSharpenMask = false;
+                                    root.viewport.commitEdit();
+                                }
+                            }
+                        }
+
+                        ControlGroup {
+                            title: "Focus"
+                            value: root.viewport ? root.viewport.focusDetect : 0.0
+                            from: 0; to: 100
+                            defaultValue: 0.0
+                            onMoved: (v) => {
+                                if(root.viewport) {
+                                    root.viewport.focusDetect = v;
+                                    root.viewport.showSharpenMask = (v > 0 && root.maskAltPressed);
+                                }
+                            }
+                            onReleased: {
+                                if(root.viewport) {
+                                    root.viewport.showSharpenMask = false;
+                                    root.viewport.commitEdit();
+                                }
+                            }
                         }
 
                         RowLayout {

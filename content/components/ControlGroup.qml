@@ -59,5 +59,9 @@ ColumnLayout {
             root.moved(root.defaultValue)
             root.released()
         }
+        Connections {
+            target: root
+            function onValueChanged() { slider.value = root.value; }
+        }
     }
 }

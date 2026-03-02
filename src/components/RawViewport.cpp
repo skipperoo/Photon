@@ -166,6 +166,18 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit sharpnessChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::sharpenMaskChanged, this, [this]() {
+    emit sharpenMaskChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::maskFeatherChanged, this, [this]() {
+    emit maskFeatherChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::focusDetectChanged, this, [this]() {
+    emit focusDetectChanged();
+    update();
+  });
   connect(&m_engine, &RawEngine::denoiseEnabledChanged, this, [this]() {
     emit denoiseEnabledChanged();
     update();
@@ -591,6 +603,34 @@ void RawViewport::setSharpness(float val) {
   if (qFuzzyCompare(m_engine.sharpness(), val)) return;
   m_engine.setSharpness(val);
   emit sharpnessChanged();
+  update();
+}
+
+void RawViewport::setSharpenMask(float val) {
+  if (qFuzzyCompare(m_engine.sharpenMask(), val)) return;
+  m_engine.setSharpenMask(val);
+  emit sharpenMaskChanged();
+  update();
+}
+
+void RawViewport::setMaskFeather(float val) {
+  if (qFuzzyCompare(m_engine.maskFeather(), val)) return;
+  m_engine.setMaskFeather(val);
+  emit maskFeatherChanged();
+  update();
+}
+
+void RawViewport::setFocusDetect(float val) {
+  if (qFuzzyCompare(m_engine.focusDetect(), val)) return;
+  m_engine.setFocusDetect(val);
+  emit focusDetectChanged();
+  update();
+}
+
+void RawViewport::setShowSharpenMask(bool val) {
+  if (m_showSharpenMask == val) return;
+  m_showSharpenMask = val;
+  emit showSharpenMaskChanged();
   update();
 }
 

@@ -73,6 +73,12 @@ class RawEngine : public QObject {
   Q_PROPERTY(float centre READ centre WRITE setCentre NOTIFY centreChanged)
   Q_PROPERTY(float sharpness READ sharpness WRITE setSharpness NOTIFY
                  sharpnessChanged)
+  Q_PROPERTY(float sharpenMask READ sharpenMask WRITE setSharpenMask NOTIFY
+                 sharpenMaskChanged)
+  Q_PROPERTY(float maskFeather READ maskFeather WRITE setMaskFeather NOTIFY
+                 maskFeatherChanged)
+  Q_PROPERTY(float focusDetect READ focusDetect WRITE setFocusDetect NOTIFY
+                 focusDetectChanged)
 
   // HSL Panel Properties
   Q_PROPERTY(
@@ -293,6 +299,12 @@ class RawEngine : public QObject {
 
   float sharpness() const { return m_sharpness; }
   void setSharpness(float val);
+  float sharpenMask() const { return m_sharpenMask; }
+  void setSharpenMask(float val);
+  float maskFeather() const { return m_maskFeather; }
+  void setMaskFeather(float val);
+  float focusDetect() const { return m_focusDetect; }
+  void setFocusDetect(float val);
 
   // HSL Getters & Setters
   float hslRedHue() const { return m_hslRedHue; }
@@ -460,6 +472,9 @@ class RawEngine : public QObject {
   void structureChanged();
   void centreChanged();
   void sharpnessChanged();
+  void sharpenMaskChanged();
+  void maskFeatherChanged();
+  void focusDetectChanged();
 
   // HSL Signals
   void hslRedHueChanged();
@@ -566,6 +581,9 @@ class RawEngine : public QObject {
   float m_structure = 0.0f;
   float m_centre = 0.0f;
   float m_sharpness = 0.0f;
+  float m_sharpenMask = 0.0f;
+  float m_maskFeather = 0.0f;
+  float m_focusDetect = 0.0f;
   bool m_denoiseEnabled = false;
 
   // HSL Member Variables

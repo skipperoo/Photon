@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
 #include <QtConcurrent>
 #include <QtQuick/QQuickWindow>
@@ -163,6 +164,18 @@ class RawEngine : public QObject {
       float cgBalance READ cgBalance WRITE setCgBalance NOTIFY cgBalanceChanged)
   Q_PROPERTY(float cgBlending READ cgBlending WRITE setCgBlending NOTIFY
                  cgBlendingChanged)
+
+  // Tone Curve Properties (control points as [{x,y}, ...])
+  Q_PROPERTY(QVariantList toneCurveLuma READ toneCurveLuma WRITE
+                 setToneCurveLuma NOTIFY toneCurveLumaChanged)
+  Q_PROPERTY(QVariantList toneCurveRed READ toneCurveRed WRITE setToneCurveRed
+                 NOTIFY toneCurveRedChanged)
+  Q_PROPERTY(QVariantList toneCurveGreen READ toneCurveGreen WRITE
+                 setToneCurveGreen NOTIFY toneCurveGreenChanged)
+  Q_PROPERTY(QVariantList toneCurveBlue READ toneCurveBlue WRITE
+                 setToneCurveBlue NOTIFY toneCurveBlueChanged)
+  Q_PROPERTY(int toneLutVersion READ toneLutVersion NOTIFY toneLutVersionChanged)
+  Q_PROPERTY(bool toneCurveActive READ toneCurveActive NOTIFY toneCurveActiveChanged)
 
   Q_PROPERTY(
       QVariantList histogramRed READ histogramRed NOTIFY histogramChanged)
@@ -390,6 +403,19 @@ class RawEngine : public QObject {
   float cgBlending() const { return m_cgBlending; }
   void setCgBlending(float val);
 
+  // Tone Curve
+  QVariantList toneCurveLuma() const { return m_toneCurveLuma; }
+  void setToneCurveLuma(const QVariantList& pts);
+  QVariantList toneCurveRed() const { return m_toneCurveRed; }
+  void setToneCurveRed(const QVariantList& pts);
+  QVariantList toneCurveGreen() const { return m_toneCurveGreen; }
+  void setToneCurveGreen(const QVariantList& pts);
+  QVariantList toneCurveBlue() const { return m_toneCurveBlue; }
+  void setToneCurveBlue(const QVariantList& pts);
+  int toneLutVersion() const { return m_toneLutVersion; }
+  QImage toneLutImage() const { return m_toneLutImage; }
+  bool toneCurveActive() const { return m_toneCurveActive; }
+
   // Histogram
   QVariantList histogramRed() const { return m_histRed; }
   QVariantList histogramGreen() const { return m_histGreen; }
@@ -514,6 +540,12 @@ class RawEngine : public QObject {
   void cgHighlightsLuminanceChanged();
   void cgBalanceChanged();
   void cgBlendingChanged();
+  void toneCurveLumaChanged();
+  void toneCurveRedChanged();
+  void toneCurveGreenChanged();
+  void toneCurveBlueChanged();
+  void toneLutVersionChanged();
+  void toneCurveActiveChanged();
   void histogramChanged();
   void metadataChanged();
   void orientationChanged();
@@ -542,6 +574,9 @@ class RawEngine : public QObject {
 
   void clearProcessedImage();
   void updateProcessingParams();
+  void rebuildToneLut();
+  static std::vector<float> evalMonotonicSpline(const QVariantList& pts,
+                                                 int lutSize = 256);
   bool loadRawFileSync(const QString& path, int loadId);
 
   QString m_source;
@@ -625,6 +660,15 @@ class RawEngine : public QObject {
   float m_cgBalance = 0.0f;
   float m_cgBlending = 50.0f;
 
+  // Tone Curve data
+  QVariantList m_toneCurveLuma;
+  QVariantList m_toneCurveRed;
+  QVariantList m_toneCurveGreen;
+  QVariantList m_toneCurveBlue;
+  QImage m_toneLutImage;
+  int m_toneLutVersion = 0;
+  bool m_toneCurveActive = false;
+
   // Histogram data
   QVariantList m_histRed;
   QVariantList m_histGreen;
@@ -660,4 +704,7 @@ class RawEngine : public QObject {
   QFutureWatcher<QImage> m_denoiseWatcher;
   QFutureWatcher<QImage> m_previewWatcher;
   QFuture<void> m_histogramFuture;
+
+  // Debounce timer for preview refresh (avoid piling up heavy tasks)
+  QTimer m_previewRefreshTimer;
 };

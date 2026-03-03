@@ -10,6 +10,9 @@ Control {
     property int ratingFilter: 0
     property int ratingOperator: 2 // 0: =, 1: >, 2: >=, 3: <, 4: <=
     readonly property var operatorLabels: ["=", ">", "≥", "<", "≤"]
+    property int sortProperty: window.sortProperty
+    property bool sortAscending: window.sortAscending
+    readonly property var sortLabels: ["Name", "Date", "Rating"]
 
     background: Rectangle {
         color: Theme.background
@@ -29,15 +32,15 @@ Control {
     function refreshFiles() {
         rawFilesModel.clear();
         
-        // Scan for RAW files in the current folder
         var files = fileScanner.scanForRawFiles(AppState.currentFolder);
         if (!files) return;
 
+        // Filter
+        var filtered = [];
         for (var i = 0; i < files.length; i++) {
             var file = files[i];
             var r = file.rating || 0;
             
-            // Apply rating filter
             var match = true;
             if (root.ratingFilter > 0) {
                 switch (root.ratingOperator) {
@@ -51,18 +54,35 @@ Control {
                 match = (r === 0);
             }
 
-            if (!match) continue;
+            if (match) filtered.push(file);
+        }
 
+        // Sort
+        var dir = root.sortAscending ? 1 : -1;
+        filtered.sort(function(a, b) {
+            switch (root.sortProperty) {
+                case 0: // Name
+                    return dir * a.name.localeCompare(b.name);
+                case 1: // Date (modified)
+                    if (a.modified < b.modified) return -dir;
+                    if (a.modified > b.modified) return dir;
+                    return 0;
+                case 2: // Rating
+                    return dir * ((a.rating || 0) - (b.rating || 0));
+                default: return 0;
+            }
+        });
+
+        for (var j = 0; j < filtered.length; j++) {
+            var f = filtered[j];
             rawFilesModel.append({
-                "path": file.path,
-                "name": file.name,
-                "size": file.size,
-                "modified": file.modified,
-                "rating": r
+                "path": f.path,
+                "name": f.name,
+                "size": f.size,
+                "modified": f.modified,
+                "rating": f.rating || 0
             });
-            
-            // Pre-generate thumbnails
-            thumbnailProvider.generateThumbnailAsync(file.path);
+            thumbnailProvider.generateThumbnailAsync(f.path);
         }
     }
 
@@ -83,6 +103,41 @@ Control {
         }
         function onRatingUpdated() {
             refreshFiles();
+        }
+    }
+
+    onSortPropertyChanged: refreshFiles()
+    onSortAscendingChanged: refreshFiles()
+
+    // Auto-scan timer for new files
+    Timer {
+        id: scanTimer
+        interval: AppState.scanIntervalSeconds * 1000
+        repeat: true
+        running: AppState.currentFolder !== ""
+        onTriggered: {
+            var existing = new Set();
+            for (var i = 0; i < rawFilesModel.count; i++)
+                existing.add(rawFilesModel.get(i).path);
+            var allFiles = fileScanner.scanForRawFiles(AppState.currentFolder);
+            var newFiles = allFiles.filter(f => !existing.has(f.path));
+            for (var j = 0; j < newFiles.length; j++) {
+                var f = newFiles[j];
+                if (root.ratingFilter > 0) {
+                    var r = f.rating || 0;
+                    var pass = false;
+                    switch (root.ratingOperator) {
+                        case 0: pass = (r === root.ratingFilter); break;
+                        case 1: pass = (r > root.ratingFilter); break;
+                        case 2: pass = (r >= root.ratingFilter); break;
+                        case 3: pass = (r < root.ratingFilter); break;
+                        case 4: pass = (r <= root.ratingFilter); break;
+                    }
+                    if (!pass) continue;
+                }
+                rawFilesModel.append(f);
+                thumbnailProvider.generateThumbnailAsync(f.path);
+            }
         }
     }
 
@@ -123,6 +178,7 @@ Control {
                 Popup {
                     id: filterPopup
                     y: filterButton.height + 5
+                    x: filterButton.width - width
                     width: 330
                     padding: 12
                     background: Rectangle {
@@ -172,29 +228,100 @@ Control {
                 }
             }
             
-            Item { width: 20 } // Spacer
+            Item { width: 8 }
 
-            PhotonButton { text: "Date"; variantOutline: true; Layout.preferredWidth: 80 }
-            PhotonButton { text: "Name"; variantOutline: true; Layout.preferredWidth: 80 }
-            PhotonButton { text: "Rating"; variantOutline: true; Layout.preferredWidth: 80 }
+            // Sort dropdown
+            PhotonButton {
+                id: sortButton
+                text: "Sort: " + root.sortLabels[root.sortProperty] + " " + (root.sortAscending ? "↑" : "↓")
+                variantOutline: true
+                onClicked: sortPopup.open()
+
+                Popup {
+                    id: sortPopup
+                    y: sortButton.height + 5
+                    x: sortButton.width - width
+                    width: 260
+                    padding: 12
+                    background: Rectangle {
+                        color: Theme.secondary
+                        border.color: Theme.border
+                        radius: Theme.radius
+                    }
+
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: 8
+
+                        Text { text: "Sort By"; font: Theme.fontSmall; color: Theme.mutedFg }
+
+                        RowLayout {
+                            spacing: 4
+                            Repeater {
+                                model: root.sortLabels
+                                PhotonButton {
+                                    text: modelData
+                                    variantOutline: root.sortProperty !== index
+                                    Layout.fillWidth: true
+                                    onClicked: window.sortProperty = index
+                                }
+                            }
+                        }
+
+                        Text { text: "Direction"; font: Theme.fontSmall; color: Theme.mutedFg }
+
+                        RowLayout {
+                            spacing: 4
+                            PhotonButton {
+                                text: "↑ Ascending"
+                                variantOutline: !root.sortAscending
+                                Layout.fillWidth: true
+                                onClicked: window.sortAscending = true
+                            }
+                            PhotonButton {
+                                text: "↓ Descending"
+                                variantOutline: root.sortAscending
+                                Layout.fillWidth: true
+                                onClicked: window.sortAscending = false
+                            }
+                        }
+                    }
+                }
+            }
+
+            Item { width: 8 }
+
+            // Home button
+            Button {
+                icon.source: "qrc:/Main/assets/icons/home.svg"
+                icon.color: Theme.foreground
+                icon.width: 20; icon.height: 20
+                flat: true
+                onClicked: AppState.setCurrentView(AppState.ViewState.Welcome)
+                background: Rectangle {
+                    color: parent.hovered ? Theme.highlight : "transparent"
+                    radius: Theme.radius
+                }
+                implicitWidth: 36; implicitHeight: 36
+            }
         }
 
         // --- Central Grid ---
         GridView {
             id: grid
-            Layout.fillWidth: true
+            width: parent.width
             Layout.fillHeight: true
-            cellWidth: 220
-            cellHeight: 200
+            Layout.preferredWidth: Math.floor(parent.width / cellWidth) * cellWidth
+            Layout.alignment: Qt.AlignHCenter
+            cellWidth: 440
+            cellHeight: 400
             clip: true
-            ScrollBar.vertical: PhotonScrollBar {}
+            // ScrollBar.vertical: PhotonScrollBar {}
 
             model: rawFilesModel
 
             delegate: Item {
-                width: 220
-                height: 200
-
+                width: grid.cellWidth; height: grid.cellHeight
                 property bool isSelected: AppState.selectedImages.indexOf(model.path) !== -1
                 property int itemRating: (model && typeof model.rating !== 'undefined') ? model.rating : 0
 

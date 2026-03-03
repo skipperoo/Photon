@@ -12,12 +12,15 @@
 #include <QRgba64>
 #include <algorithm>
 #include <cmath>
+#include <numeric>
+#include <vector>
 
 #include "../managers/AppStateManager.h"
 #include "../managers/LogManager.h"
 #include "../managers/PreviewManager.h"
 #include "Denoiser.h"
 #include "GpuSearcher.h"
+#include "../components/ToneLutProvider.h"
 
 using namespace photon;
 
@@ -105,6 +108,20 @@ RawEngine::RawEngine(QObject* parent)
   m_denoiseEnabled = true;
   updateProcessingParams();
 
+  // Initialize default tone curve (identity: endpoints only)
+  QVariantList defaultPts;
+  QVariantMap p0, p1;
+  p0["x"] = 0.0;
+  p0["y"] = 0.0;
+  p1["x"] = 1.0;
+  p1["y"] = 1.0;
+  defaultPts << p0 << p1;
+  m_toneCurveLuma = defaultPts;
+  m_toneCurveRed = defaultPts;
+  m_toneCurveGreen = defaultPts;
+  m_toneCurveBlue = defaultPts;
+  rebuildToneLut();
+
   // Initialize histogram bins
   for (int i = 0; i < 256; ++i) {
     m_histRed.append(0.0f);
@@ -112,6 +129,15 @@ RawEngine::RawEngine(QObject* parent)
     m_histBlue.append(0.0f);
     m_histLuma.append(0.0f);
   }
+
+  // Debounce preview refresh: coalesce rapid edits into one preview task
+  m_previewRefreshTimer.setSingleShot(true);
+  m_previewRefreshTimer.setInterval(2000);
+  connect(&m_previewRefreshTimer, &QTimer::timeout, this, [this]() {
+    if (!m_source.isEmpty() && photon::PreviewManager::instance()) {
+      photon::PreviewManager::instance()->refreshPreview(m_source);
+    }
+  });
 
   connect(&m_loadWatcher, &QFutureWatcher<LoadResult>::finished, this,
           [this]() {
@@ -1036,6 +1062,188 @@ void RawEngine::setCgBlending(float val) {
   }
 }
 
+// --- Tone Curve ---
+
+void RawEngine::setToneCurveLuma(const QVariantList& pts) {
+  m_toneCurveLuma = pts;
+  emit toneCurveLumaChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+void RawEngine::setToneCurveRed(const QVariantList& pts) {
+  m_toneCurveRed = pts;
+  emit toneCurveRedChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+void RawEngine::setToneCurveGreen(const QVariantList& pts) {
+  m_toneCurveGreen = pts;
+  emit toneCurveGreenChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+void RawEngine::setToneCurveBlue(const QVariantList& pts) {
+  m_toneCurveBlue = pts;
+  emit toneCurveBlueChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+std::vector<float> RawEngine::evalMonotonicSpline(const QVariantList& pts,
+                                                   int lutSize) {
+  std::vector<float> lut(lutSize);
+  int n = pts.size();
+  if (n < 2) {
+    for (int i = 0; i < lutSize; i++) lut[i] = float(i) / (lutSize - 1);
+    return lut;
+  }
+
+  // Extract control points
+  std::vector<double> xs(n), ys(n);
+  for (int i = 0; i < n; i++) {
+    auto m = pts[i].toMap();
+    xs[i] = m["x"].toDouble();
+    ys[i] = m["y"].toDouble();
+  }
+
+  // Sort by X and remove duplicates (keep last Y for each X)
+  std::vector<int> idx(n);
+  std::iota(idx.begin(), idx.end(), 0);
+  std::sort(idx.begin(), idx.end(),
+            [&](int a, int b) { return xs[a] < xs[b]; });
+  std::vector<double> sxs, sys;
+  sxs.reserve(n);
+  sys.reserve(n);
+  for (int i : idx) {
+    if (!sxs.empty() && std::abs(xs[i] - sxs.back()) < 1e-12)
+      sys.back() = ys[i];  // duplicate X — update Y
+    else {
+      sxs.push_back(xs[i]);
+      sys.push_back(ys[i]);
+    }
+  }
+  xs = std::move(sxs);
+  ys = std::move(sys);
+  n = static_cast<int>(xs.size());
+  if (n < 2) {
+    for (int i = 0; i < lutSize; i++) lut[i] = float(i) / (lutSize - 1);
+    return lut;
+  }
+
+  // Compute slopes between consecutive points
+  std::vector<double> delta(n - 1);
+  for (int i = 0; i < n - 1; i++) {
+    double dx = xs[i + 1] - xs[i];
+    delta[i] = dx > 1e-12 ? (ys[i + 1] - ys[i]) / dx : 0.0;
+  }
+
+  // Initialize tangents (Catmull-Rom style for interior)
+  std::vector<double> m(n, 0.0);
+  m[0] = delta[0];
+  m[n - 1] = delta[n - 2];
+  for (int i = 1; i < n - 1; i++) {
+    m[i] = (delta[i - 1] + delta[i]) * 0.5;
+  }
+
+  // Fritsch-Carlson monotonicity constraint
+  for (int i = 0; i < n - 1; i++) {
+    if (std::abs(delta[i]) < 1e-12) {
+      m[i] = 0.0;
+      m[i + 1] = 0.0;
+    } else {
+      double alpha = m[i] / delta[i];
+      double beta = m[i + 1] / delta[i];
+      double r2 = alpha * alpha + beta * beta;
+      if (r2 > 9.0) {
+        double tau = 3.0 / std::sqrt(r2);
+        m[i] = tau * alpha * delta[i];
+        m[i + 1] = tau * beta * delta[i];
+      }
+    }
+  }
+
+  // Evaluate spline at each LUT position
+  int seg = 0;
+  for (int i = 0; i < lutSize; i++) {
+    double t_val = double(i) / (lutSize - 1);
+
+    // Clamp outside control point range
+    if (t_val <= xs[0]) {
+      lut[i] = float(ys[0]);
+      continue;
+    }
+    if (t_val >= xs[n - 1]) {
+      lut[i] = float(ys[n - 1]);
+      continue;
+    }
+
+    // Find segment
+    while (seg < n - 2 && t_val > xs[seg + 1]) seg++;
+
+    double dx = xs[seg + 1] - xs[seg];
+    double t = (t_val - xs[seg]) / dx;
+    double t2 = t * t;
+    double t3 = t2 * t;
+
+    // Hermite basis
+    double h00 = 2 * t3 - 3 * t2 + 1;
+    double h10 = t3 - 2 * t2 + t;
+    double h01 = -2 * t3 + 3 * t2;
+    double h11 = t3 - t2;
+
+    double val = h00 * ys[seg] + h10 * dx * m[seg] + h01 * ys[seg + 1] +
+                 h11 * dx * m[seg + 1];
+    lut[i] = float(std::clamp(val, 0.0, 1.0));
+  }
+  return lut;
+}
+
+void RawEngine::rebuildToneLut() {
+  auto lutL = evalMonotonicSpline(m_toneCurveLuma, 256);
+  auto lutR = evalMonotonicSpline(m_toneCurveRed, 256);
+  auto lutG = evalMonotonicSpline(m_toneCurveGreen, 256);
+  auto lutB = evalMonotonicSpline(m_toneCurveBlue, 256);
+
+  // Check if any LUT deviates from identity after quantization to 8-bit.
+  // Near-identity splines (e.g. point placed very close to the diagonal) produce
+  // float deviations that vanish once quantized, so comparing uint8 values
+  // avoids false activation from sub-quantization-step differences.
+  bool active = false;
+  for (int i = 0; i < 256 && !active; i++) {
+    uint8_t vL = uint8_t(std::clamp(lutL[i] * 255.0f + 0.5f, 0.0f, 255.0f));
+    uint8_t vR = uint8_t(std::clamp(lutR[i] * 255.0f + 0.5f, 0.0f, 255.0f));
+    uint8_t vG = uint8_t(std::clamp(lutG[i] * 255.0f + 0.5f, 0.0f, 255.0f));
+    uint8_t vB = uint8_t(std::clamp(lutB[i] * 255.0f + 0.5f, 0.0f, 255.0f));
+    if (vL != i || vR != i || vG != i || vB != i)
+      active = true;
+  }
+
+  // 256×4 RGBA image — one row per channel, value in R, alpha=255
+  // Row 0=Luma, Row 1=Red, Row 2=Green, Row 3=Blue
+  m_toneLutImage = QImage(256, 4, QImage::Format_RGBA8888);
+  m_toneLutImage.fill(Qt::white);
+  const std::vector<float>* luts[4] = {&lutL, &lutR, &lutG, &lutB};
+  for (int row = 0; row < 4; row++) {
+    uchar* line = m_toneLutImage.scanLine(row);
+    for (int i = 0; i < 256; i++) {
+      uint8_t v = uint8_t(std::clamp((*luts[row])[i] * 255.0f + 0.5f, 0.0f, 255.0f));
+      line[i * 4 + 0] = v;
+      line[i * 4 + 1] = v;
+      line[i * 4 + 2] = v;
+      line[i * 4 + 3] = 255;
+    }
+  }
+  m_toneLutVersion++;
+  if (auto* provider = ToneLutProvider::instance())
+    provider->updateLut(m_toneLutImage);
+  emit toneLutVersionChanged();
+
+  if (active != m_toneCurveActive) {
+    m_toneCurveActive = active;
+    emit toneCurveActiveChanged();
+  }
+}
+
 void RawEngine::requestHistogramUpdate() {
   if (!m_isLoaded) return;
 
@@ -1223,15 +1431,26 @@ void RawEngine::requestHistogramUpdate() {
       l_bins[l8]++;
     }
 
-    uint32_t max_val = 0;
-    for (int i = 0; i < 256; ++i) {
-      max_val = std::max({max_val, r_bins[i], g_bins[i], b_bins[i], l_bins[i]});
+    // Percentile-based normalization: skip bins 0 and 255 (clipped pixels)
+    // and use the 99th percentile to prevent dominant spikes from compressing
+    // the rest of the histogram
+    std::vector<uint32_t> allBins;
+    allBins.reserve(254 * 4);
+    for (int i = 1; i < 255; ++i) {
+      allBins.push_back(r_bins[i]);
+      allBins.push_back(g_bins[i]);
+      allBins.push_back(b_bins[i]);
+      allBins.push_back(l_bins[i]);
     }
+    std::sort(allBins.begin(), allBins.end());
+    size_t p99_idx = std::min(allBins.size() - 1,
+                              static_cast<size_t>(allBins.size() * 0.99));
+    uint32_t max_val = allBins.empty() ? 1 : std::max(allBins[p99_idx], uint32_t(1));
 
     QMetaObject::invokeMethod(
         this,
         [this, r_bins, g_bins, b_bins, l_bins, max_val]() {
-          float inv_max = max_val > 0 ? 1.0f / max_val : 1.0f;
+          float inv_max = 1.0f / max_val;
 
           QVariantList newRed, newGreen, newBlue, newLuma;
           newRed.reserve(256);
@@ -1240,10 +1459,10 @@ void RawEngine::requestHistogramUpdate() {
           newLuma.reserve(256);
 
           for (int i = 0; i < 256; ++i) {
-            newRed.append(r_bins[i] * inv_max);
-            newGreen.append(g_bins[i] * inv_max);
-            newBlue.append(b_bins[i] * inv_max);
-            newLuma.append(l_bins[i] * inv_max);
+            newRed.append(std::min(r_bins[i] * inv_max, 1.0f));
+            newGreen.append(std::min(g_bins[i] * inv_max, 1.0f));
+            newBlue.append(std::min(b_bins[i] * inv_max, 1.0f));
+            newLuma.append(std::min(l_bins[i] * inv_max, 1.0f));
           }
 
           m_histRed = newRed;
@@ -1264,6 +1483,11 @@ void RawEngine::requestHistogramUpdate() {
 }
 
 void RawEngine::clearProcessedImage() {
+  // Wait for any in-flight histogram task that references m_processedImage->data
+  if (m_histogramUpdatePending) {
+    m_histogramFuture.waitForFinished();
+    m_histogramUpdatePending = false;
+  }
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);
     m_processedImage = nullptr;
@@ -1550,6 +1774,24 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["cgHighlightsLuminance"] = e->cgHighlightsLuminance();
   obj["cgBalance"] = e->cgBalance();
   obj["cgBlending"] = e->cgBlending();
+
+  // Tone Curve (serialize control points as JSON arrays)
+  auto pointsToArray = [](const QVariantList& pts) {
+    QJsonArray arr;
+    for (const auto& p : pts) {
+      auto m = p.toMap();
+      QJsonObject pt;
+      pt["x"] = m["x"].toDouble();
+      pt["y"] = m["y"].toDouble();
+      arr.append(pt);
+    }
+    return arr;
+  };
+  obj["toneCurveLuma"] = pointsToArray(e->toneCurveLuma());
+  obj["toneCurveRed"] = pointsToArray(e->toneCurveRed());
+  obj["toneCurveGreen"] = pointsToArray(e->toneCurveGreen());
+  obj["toneCurveBlue"] = pointsToArray(e->toneCurveBlue());
+
   return obj;
 }
 
@@ -1676,6 +1918,27 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("cgBalance")) e->setCgBalance(obj["cgBalance"].toDouble());
   if (obj.contains("cgBlending"))
     e->setCgBlending(obj["cgBlending"].toDouble());
+
+  // Tone Curve
+  auto arrayToPoints = [](const QJsonArray& arr) {
+    QVariantList pts;
+    for (const auto& v : arr) {
+      auto pt = v.toObject();
+      QVariantMap m;
+      m["x"] = pt["x"].toDouble();
+      m["y"] = pt["y"].toDouble();
+      pts << m;
+    }
+    return pts;
+  };
+  if (obj.contains("toneCurveLuma"))
+    e->setToneCurveLuma(arrayToPoints(obj["toneCurveLuma"].toArray()));
+  if (obj.contains("toneCurveRed"))
+    e->setToneCurveRed(arrayToPoints(obj["toneCurveRed"].toArray()));
+  if (obj.contains("toneCurveGreen"))
+    e->setToneCurveGreen(arrayToPoints(obj["toneCurveGreen"].toArray()));
+  if (obj.contains("toneCurveBlue"))
+    e->setToneCurveBlue(arrayToPoints(obj["toneCurveBlue"].toArray()));
 }
 
 static void resetToDefaults(RawEngine* e) {
@@ -1750,6 +2013,19 @@ static void resetToDefaults(RawEngine* e) {
   e->setCgHighlightsLuminance(0.0f);
   e->setCgBalance(0.0f);
   e->setCgBlending(50.0f);
+
+  // Reset tone curves to identity
+  QVariantList defaultPts;
+  QVariantMap p0, p1;
+  p0["x"] = 0.0;
+  p0["y"] = 0.0;
+  p1["x"] = 1.0;
+  p1["y"] = 1.0;
+  defaultPts << p0 << p1;
+  e->setToneCurveLuma(defaultPts);
+  e->setToneCurveRed(defaultPts);
+  e->setToneCurveGreen(defaultPts);
+  e->setToneCurveBlue(defaultPts);
 }
 
 QVariantMap RawEngine::currentSettings() const {
@@ -1850,10 +2126,8 @@ void RawEngine::commitEdit() {
     file.write(QJsonDocument(arr).toJson());
   }
 
-  // Trigger preview refresh
-  if (photon::PreviewManager::instance()) {
-    photon::PreviewManager::instance()->refreshPreview(m_source);
-  }
+  // Debounced preview refresh — avoids piling up heavy tasks on rapid edits
+  m_previewRefreshTimer.start();
 
   requestHistogramUpdate();
 }
@@ -1868,9 +2142,7 @@ void RawEngine::undo() {
   emit isDefaultChanged();
   requestHistogramUpdate();
 
-  if (photon::PreviewManager::instance()) {
-    photon::PreviewManager::instance()->refreshPreview(m_source);
-  }
+  m_previewRefreshTimer.start();
 }
 
 void RawEngine::redo() {
@@ -1883,9 +2155,7 @@ void RawEngine::redo() {
   emit isDefaultChanged();
   requestHistogramUpdate();
 
-  if (photon::PreviewManager::instance()) {
-    photon::PreviewManager::instance()->refreshPreview(m_source);
-  }
+  m_previewRefreshTimer.start();
 }
 
 void RawEngine::applySettings(const QVariantMap& settings) {
@@ -1972,6 +2242,21 @@ bool RawEngine::isDefault() const {
     return false;
   if (!qFuzzyIsNull(m_cgBalance)) return false;
   if (!qFuzzyCompare(m_cgBlending, 50.0f)) return false;
+
+  // Tone curve check (non-default = more than 2 points or non-identity endpoints)
+  auto isIdentityCurve = [](const QVariantList& pts) {
+    if (pts.size() != 2) return false;
+    auto p0 = pts[0].toMap();
+    auto p1 = pts[1].toMap();
+    return qFuzzyIsNull(p0["x"].toDouble()) &&
+           qFuzzyIsNull(p0["y"].toDouble()) &&
+           qFuzzyCompare(p1["x"].toDouble(), 1.0) &&
+           qFuzzyCompare(p1["y"].toDouble(), 1.0);
+  };
+  if (!isIdentityCurve(m_toneCurveLuma)) return false;
+  if (!isIdentityCurve(m_toneCurveRed)) return false;
+  if (!isIdentityCurve(m_toneCurveGreen)) return false;
+  if (!isIdentityCurve(m_toneCurveBlue)) return false;
 
   return true;
 }

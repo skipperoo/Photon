@@ -151,6 +151,40 @@ Control {
                 }
             }
 
+            // --- Library Section ---
+            Card {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    spacing: 24
+                    width: parent.width
+
+                    Text { text: "Library"; font: Theme.fontMedium; color: Theme.foreground }
+
+                    ColumnLayout {
+                        spacing: 8
+                        Layout.fillWidth: true
+                        Text { text: "Auto-Scan Interval (seconds)"; font: Theme.fontRegular; color: Theme.mutedFg }
+                        RowLayout {
+                            spacing: 12
+                            SpinBox {
+                                id: scanIntervalSpin
+                                from: 1; to: 300; value: AppState.scanIntervalSeconds
+                                editable: true
+                                onValueModified: AppState.setScanIntervalSeconds(value)
+                            }
+                            Text {
+                                text: "Periodically check for new RAW files in the workspace"
+                                font: Theme.fontSmall
+                                color: Theme.mutedFg
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- Diagnostics Section ---
             Card {
                 Layout.fillWidth: true

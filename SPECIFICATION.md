@@ -93,12 +93,18 @@ Photon provides advanced control over performance and aesthetics:
 **Layout:**
 
 - **Top Bar:**
-  - **Filter Strip:** Toggle buttons for "★ 1" to "★ 5" and Flags (Picked/Rejected).
-  - **Sort:** Dropdown (Filename, Date, Rating).
+  - **Rating Filter:** Dropdown with operator (=, >, ≥, <, ≤) and star rating. Popup right-aligned to button.
+  - **Sort Dropdown:** Sort by Name (default), Date, or Rating with ascending/descending toggle. Default: Name ascending. Popup right-aligned, 260px wide.
+  - **Home Button:** Returns to Welcome View (Lucide house icon).
 
 - **Central Grid:**
   - Responsive Grid of Image Cards.
   - Each Card displays: Thumbnail, Filename, Rating Stars (overlay on hover).
+
+- **Auto-Scan:**
+  - Periodically rescans workspace folder for new RAW files (configurable interval in Settings).
+  - Smart diff: only appends new files to avoid flicker.
+  - `scanIntervalSeconds` persisted via QSettings (default: 10s, range: 1–300s).
 
 - **Interaction:**
   - **Hover:** Shows metadata overlay (ISO, Shutter, Aperture).
@@ -118,7 +124,8 @@ Photon provides advanced control over performance and aesthetics:
 - **Content:** The `RawViewport` (C++ Vulkan Widget).
 - **Behavior:**
   - Pan (Space + Drag) & Zoom (Scroll Wheel).
-  - Floating toolbar at the bottom for Zoom, Undo/Redo, and **Restore to Original**.
+  - Floating toolbar at the bottom for Zoom, Undo/Redo, **Restore to Original**, and **Before/After** toggle.
+  - **Before/After Comparison:** Press `\` (backslash) or `B` to toggle between the edited and unprocessed original image. An eye icon button in the toolbar also toggles this mode (turns accent color when active). A floating toast ("Before"/"After") fades in at the top center of the viewport for 800ms to indicate the current state. Implemented via a `showOriginal` uniform in the fragment shader that bypasses all processing steps.
   - **Note:** The floating top navigation bar is **disabled** in this view to maximize vertical space.
   - **High-Performance Panning:** To ensure 60fps responsiveness during high-resolution RAW navigation, Photon uses a texture-caching strategy. Panning only updates the viewport geometry (quad coordinates) without re-uploading texture data to the GPU or performing CPU-side pixel conversions.
 
@@ -139,7 +146,23 @@ The right panel is divided into two parts: a **Tool Stack** (320px) and a **Sect
 
 2. **Tool Stack (Dynamic Panel):**
    - A `StackLayout` that displays the selected mode's controls.
-   - **Histogram:** (Pinned at the top of the stack). Professional real-time visualization of RGB and Luma distribution.
+   - **Histogram:** (Pinned at the top of the stack). Professional real-time visualization of RGB and Luma distribution. Uses P99 percentile normalization (skipping bins 0 and 255) to prevent dominant bins from compressing the display. Each channel rendered as a filled `PathPolyline` shape; polyline prepends `(0, height)` as first point to prevent auto-close diagonal artifacts.
+   - **Light Section:** Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Adaptation, AgX Tonemapping.
+   - **Tone Curve Section:** Interactive spline editor with 4 channels (Luminance, Red, Green, Blue):
+     - Canvas-based curve display with diagonal identity reference and grid. Channel tabs with colored round buttons (white=Luma, red=R, green=G, blue=B).
+     - Click to add control points, drag to move, double-click interior points to remove.
+     - Endpoints draggable vertically only; interior points constrained between neighbors.
+     - Monotonic cubic Hermite spline (Fritsch-Carlson) ensures smooth, non-oscillating curves.
+     - **LUT Texture:** 256×4 RGBA image (one row per channel: Luma/R/G/B), served via `ToneLutProvider` QQuickImageProvider with static singleton pattern. QML `Image` loads from `"image://tonelut/" + version`, wrapped in `ShaderEffectSource` with `textureSize: Qt.size(256, 4)` to prevent HiDPI scaling artifacts.
+     - **Shader Application:** Luma curve uses a **hybrid additive/multiplicative blend** to avoid noise amplification in shadows when raising the black point: `mix(additive, multiplicative, smoothstep(0.0, 0.36, lumaIn))`. Per-channel R/G/B curves applied directly via LUT lookup. A `toneCurveActive` uniform (float) guards the entire block — identity curves skip LUT sampling entirely.
+     - **Debounce:** QML drag uses a 30ms debounce timer (`setPointsThrottled`) to prevent CPU spike from cascading `rebuildToneLut` + histogram + signal chains. Canvas repaints immediately using pending points for smooth visual feedback; timer flushes on mouse release.
+     - **CPU Export Pipeline:** Identical spline evaluation and shadow-blend logic duplicated as file-local function in `ImageDeveloper.cpp` (avoids link dependency since test binaries don't link RawEngine).
+   - **Presence Section:** Vibrance, Saturation.
+   - **Color Section:** HSL panel (8 hue ranges × Hue/Saturation/Luminance).
+   - **Color Grading Section:** Shadows/Midtones/Highlights color wheels, Balance, Blending.
+   - **Effects Section:** Grain (Amount/Size/Roughness), Vignette (Amount/Midpoint/Roundness/Feather).
+   - **Creative Section:** Clarity, Dehaze, Structure, Centre.
+   - **Detail Section:** Sharpness, Masking (Scharr edge detection), Feather, Focus Detection.
 
 ### Multi-Selection & Asset Management (Phase 14)
 
@@ -176,8 +199,11 @@ To ensure zero-latency feedback when switching photos, Photon implements a backg
 2. **Instant Loading:** When a photo is selected, the UI immediately displays the cached JPEG proxy (if available) while the `RawEngine` develops the full-resolution RAW in the background.
 3. **Hybrid Rendering:** Once the RAW development is complete, the viewport seamlessly swaps the proxy for the real GPU-processed image.
 4. **Smart Invalidation:** Previews are automatically regenerated when:
-   - Edits are committed to an image.
+   - Edits are committed to an image (debounced via a 2-second timer to coalesce rapid edits).
    - The sidecar JSON timestamp is newer than the cached preview.
+   - **Thread Safety:** Preview generation runs on a `QThreadPool` with `idealThreadCount/2` workers. GPU search (`GpuSearcher`) is skipped in preview tasks (passes `nullptr` for QRhi) because QRhi is not thread-safe — concurrent access from thread pool + render thread would cause corruption. CPU-only denoise matching is used instead, which is adequate for half-size preview images.
+   - **Serialized Refresh Tasks:** Single-image preview refreshes (triggered by edit commits) are serialized via `m_refreshRunning` / `m_pendingRefreshPath` guards. Only one refresh task runs at a time; if a new request arrives while one is in progress, it is queued and dispatched when the current task completes. This prevents concurrent `ImageDeveloper::develop()` + `Denoiser::denoise()` pipelines from competing for the global `QThreadPool` and exhausting memory (~150MB+ per task for a 6MP image with BM3D denoise).
+   - **Histogram Buffer Safety:** `clearProcessedImage()` waits for any in-flight histogram `QtConcurrent::run` task to complete before freeing `m_processedImage`, preventing use-after-free when switching photos while the histogram is computing.
 
 #### Async Preview Loading with Image Swap (Phase 17)
 
@@ -296,6 +322,7 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 - [x] **Content:** Horizontal scrollable list of thumbnails from the current folder.
 - [x] **Sync:** Highlighted thumbnail matches the main Viewport image.
 - [x] **Navigation:** Left/Right Arrow keys move selection.
+- [x] **Sort Sync:** Filmstrip sort order mirrors the Library view's sort settings (Name/Date/Rating, ascending/descending). Sort properties are shared via the `window` root object so changes in either view propagate immediately.
 
 ### D. Presets Panel (Left - Collapsible)
 
@@ -334,7 +361,9 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 - **0-5:** Set Star Rating.
 - **P / U:** Pick / Unpick (Flag).
 - **X:** Reject.
+- **\ or B:** Toggle Before/After comparison (show unprocessed original).
 - **Ctrl+Z / Ctrl+Y:** Undo/Redo edit steps.
+- **Alt + Masking drag:** Preview sharpening mask as grayscale overlay.
 
 ---
 

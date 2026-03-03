@@ -16,6 +16,11 @@ Window {
 
     property bool showTopbar: true
     property bool altKeyPressed: KeyTracker.altPressed
+    property bool showOriginal: false
+
+    // Sort settings shared between library and filmstrip
+    property int sortProperty: 0      // 0: Name, 1: Date, 2: Rating
+    property bool sortAscending: true
 
     // File scanner for finding RAW files in the current folder
     FileScanner {
@@ -42,6 +47,22 @@ Window {
         
         // Scan for RAW files in the current folder
         var files = fileScanner.scanForRawFiles(AppState.currentFolder);
+        if (!files) return;
+
+        // Sort to match library view order
+        var dir = window.sortAscending ? 1 : -1;
+        files.sort(function(a, b) {
+            switch (window.sortProperty) {
+                case 0: return dir * a.name.localeCompare(b.name);
+                case 1:
+                    if (a.modified < b.modified) return -dir;
+                    if (a.modified > b.modified) return dir;
+                    return 0;
+                case 2: return dir * ((a.rating || 0) - (b.rating || 0));
+                default: return 0;
+            }
+        });
+
         for (var i = 0; i < files.length; i++) {
             var file = files[i];
             rawFilesModel.append({
@@ -108,6 +129,9 @@ Window {
         }
     }
 
+    onSortPropertyChanged: refreshFiles()
+    onSortAscendingChanged: refreshFiles()
+
     // Global keyboard shortcuts for rating and navigation
     Item {
         Shortcut { sequence: "0"; context: Qt.WindowShortcut; onActivated: AppState.setRatingForSelected(0) }
@@ -119,6 +143,8 @@ Window {
         
         Shortcut { sequence: "Left"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(-1) }
         Shortcut { sequence: "Right"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(1) }
+        Shortcut { sequence: "\\"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
+        Shortcut { sequence: "B"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
     }
 
     // --- Main Layout ---
@@ -229,6 +255,15 @@ Window {
                             }
                         }
 
+                        Image {
+                            id: toneLutImage
+                            source: "image://tonelut/" + rawViewport.toneLutVersion
+                            visible: false
+                            width: 256; height: 4
+                            cache: false
+                            smooth: false
+                        }
+
                         ShaderEffect {
                             anchors.fill: rawViewport
                             property variant source: ShaderEffectSource { 
@@ -236,6 +271,14 @@ Window {
                                 hideSource: true
                                 live: true
                             }
+                            property variant toneLUT: ShaderEffectSource {
+                                sourceItem: toneLutImage
+                                textureSize: Qt.size(256, 4)
+                                live: true
+                                hideSource: true
+                            }
+                            property real toneCurveActive: rawViewport.toneCurveActive ? 1.0 : 0.0
+                            property real showOriginal: window.showOriginal ? 1.0 : 0.0
                             property real exposure: rawViewport.exposure
                             property real contrast: rawViewport.contrast
                             property real highlights: rawViewport.highlights
@@ -409,6 +452,41 @@ Window {
                             Behavior on opacity { NumberAnimation { duration: 250 } }
                         }
 
+                        // Before/After floating indicator
+                        Rectangle {
+                            id: beforeAfterToast
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: 60
+                            z: 10
+                            width: toastText.implicitWidth + 24
+                            height: toastText.implicitHeight + 12
+                            radius: Theme.radius
+                            color: Qt.rgba(0, 0, 0, 0.7)
+                            opacity: 0
+                            visible: opacity > 0
+
+                            Text {
+                                id: toastText
+                                anchors.centerIn: parent
+                                text: window.showOriginal ? "Before" : "After"
+                                color: "white"
+                                font: Theme.fontMedium
+                            }
+
+                            OpacityAnimator on opacity { id: toastFadeIn; from: 0; to: 1; duration: 150; running: false }
+                            OpacityAnimator on opacity { id: toastFadeOut; from: 1; to: 0; duration: 400; running: false }
+                            Timer { id: toastHideTimer; interval: 800; onTriggered: toastFadeOut.start() }
+
+                            Connections {
+                                target: window
+                                function onShowOriginalChanged() {
+                                    toastFadeOut.stop();
+                                    toastFadeIn.start();
+                                    toastHideTimer.restart();
+                                }
+                            }
+                        }
+
                         // Bottom Toolbar
                         Rectangle {
                             anchors.bottom: parent.bottom
@@ -509,6 +587,23 @@ Window {
                                     opacity: enabled ? 1.0 : 0.3
                                     ToolTip.visible: hovered
                                     ToolTip.text: "Restore to Original"
+                                    display: AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
+                                T.Button {
+                                    id: beforeAfterBtn
+                                    icon.source: "qrc:/Main/assets/icons/eye.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: window.showOriginal ? Theme.accent : "white"
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: window.showOriginal = !window.showOriginal
+                                    flat: true
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: "Before/After (B or \\)"
                                     display: AbstractButton.IconOnly
                                     padding: 0
                                     background: null
@@ -865,9 +960,23 @@ Window {
                 // Navigation Controls
                 RowLayout {
                     spacing: 4
+
+                    // Home button to return to Welcome view
+                    PhotonButton {
+                        text: "Home"
+                        icon.source: "qrc:/Main/assets/icons/home.svg"
+                        icon.color: Theme.foreground
+                        icon.width: 18; icon.height: 18
+                        variantOutline: true
+                        onClicked: AppState.setCurrentView(AppState.ViewState.Welcome)
+                        Layout.preferredWidth: 100
+                    }
                     
                     PhotonButton {
                         text: "Library"
+                        icon.source: "qrc:/Main/assets/icons/library.svg"
+                        icon.color: AppState.currentView === AppState.ViewState.Library ? Theme.background : Theme.foreground
+                        icon.width: 18; icon.height: 18
                         Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Library)
                         variantOutline: AppState.currentView !== AppState.ViewState.Library
@@ -881,6 +990,9 @@ Window {
 
                     PhotonButton {
                         text: "Develop"
+                        icon.source: "qrc:/Main/assets/icons/tube.svg"
+                        icon.color: Theme.foreground
+                        icon.width: 18; icon.height: 18
                         Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Develop)
                         variantOutline: AppState.currentView !== AppState.ViewState.Develop
@@ -894,6 +1006,9 @@ Window {
 
                     PhotonButton {
                         text: "Settings"
+                        icon.source: "qrc:/Main/assets/icons/settings.svg"
+                        icon.color: AppState.currentView === AppState.ViewState.Settings ? Theme.background : Theme.foreground
+                        icon.width: 18; icon.height: 18
                         Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Settings)
                         variantOutline: AppState.currentView !== AppState.ViewState.Settings

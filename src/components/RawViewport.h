@@ -170,6 +170,18 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(float cgBlending READ cgBlending WRITE setCgBlending NOTIFY
                  cgBlendingChanged)
 
+  // Tone Curve Properties
+  Q_PROPERTY(QVariantList toneCurveLuma READ toneCurveLuma WRITE
+                 setToneCurveLuma NOTIFY toneCurveLumaChanged)
+  Q_PROPERTY(QVariantList toneCurveRed READ toneCurveRed WRITE setToneCurveRed
+                 NOTIFY toneCurveRedChanged)
+  Q_PROPERTY(QVariantList toneCurveGreen READ toneCurveGreen WRITE
+                 setToneCurveGreen NOTIFY toneCurveGreenChanged)
+  Q_PROPERTY(QVariantList toneCurveBlue READ toneCurveBlue WRITE
+                 setToneCurveBlue NOTIFY toneCurveBlueChanged)
+  Q_PROPERTY(int toneLutVersion READ toneLutVersion NOTIFY toneLutVersionChanged)
+  Q_PROPERTY(bool toneCurveActive READ toneCurveActive NOTIFY toneCurveActiveChanged)
+
   Q_PROPERTY(
       QVariantList histogramRed READ histogramRed NOTIFY histogramChanged)
   Q_PROPERTY(
@@ -397,6 +409,19 @@ class RawViewport : public QQuickItem {
   float cgBlending() const { return m_engine.cgBlending(); }
   void setCgBlending(float val);
 
+  // Tone Curve
+  QVariantList toneCurveLuma() const { return m_engine.toneCurveLuma(); }
+  void setToneCurveLuma(const QVariantList& pts);
+  QVariantList toneCurveRed() const { return m_engine.toneCurveRed(); }
+  void setToneCurveRed(const QVariantList& pts);
+  QVariantList toneCurveGreen() const { return m_engine.toneCurveGreen(); }
+  void setToneCurveGreen(const QVariantList& pts);
+  QVariantList toneCurveBlue() const { return m_engine.toneCurveBlue(); }
+  void setToneCurveBlue(const QVariantList& pts);
+  int toneLutVersion() const { return m_engine.toneLutVersion(); }
+  QImage toneLutImage() const { return m_engine.toneLutImage(); }
+  bool toneCurveActive() const { return m_engine.toneCurveActive(); }
+
   // Histogram Getters
   QVariantList histogramRed() const { return m_engine.histogramRed(); }
   QVariantList histogramGreen() const { return m_engine.histogramGreen(); }
@@ -513,6 +538,12 @@ class RawViewport : public QQuickItem {
   void cgHighlightsLuminanceChanged();
   void cgBalanceChanged();
   void cgBlendingChanged();
+  void toneCurveLumaChanged();
+  void toneCurveRedChanged();
+  void toneCurveGreenChanged();
+  void toneCurveBlueChanged();
+  void toneLutVersionChanged();
+  void toneCurveActiveChanged();
   void histogramChanged();
   void metadataChanged();
   void orientationChanged();

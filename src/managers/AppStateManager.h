@@ -45,6 +45,8 @@ class AppStateManager : public QObject {
       QString logLevel READ logLevel WRITE setLogLevel NOTIFY logLevelChanged)
   Q_PROPERTY(int cacheSizeGB READ cacheSizeGB WRITE setCacheSizeGB NOTIFY
                  cacheSizeGBChanged)
+  Q_PROPERTY(int scanIntervalSeconds READ scanIntervalSeconds WRITE
+                 setScanIntervalSeconds NOTIFY scanIntervalSecondsChanged)
   Q_PROPERTY(QString version READ version CONSTANT)
 
  public:
@@ -78,6 +80,7 @@ class AppStateManager : public QObject {
   QString logLocation() const;
   QString logLevel() const;
   int cacheSizeGB() const { return m_cacheSizeGB; }
+  int scanIntervalSeconds() const { return m_scanIntervalSeconds; }
   QString version() const;
 
   // Settings operations
@@ -107,6 +110,7 @@ class AppStateManager : public QObject {
   void setLogLocation(const QString& location);
   void setLogLevel(const QString& level);
   void setCacheSizeGB(int size);
+  void setScanIntervalSeconds(int seconds);
 
  signals:
   void currentViewChanged();
@@ -124,6 +128,7 @@ class AppStateManager : public QObject {
   void logLocationChanged();
   void logLevelChanged();
   void cacheSizeGBChanged();
+  void scanIntervalSecondsChanged();
 
  private:
   void detectGpus();
@@ -141,6 +146,7 @@ class AppStateManager : public QObject {
   QString m_accentColor = "#3b82f6";  // Default Blue
   bool m_previewDenoiseFull = false;
   int m_cacheSizeGB = 10;
+  int m_scanIntervalSeconds = 10;
 
   QSettings m_settings;
   mutable QMutex m_mutex;
@@ -152,4 +158,6 @@ class AppStateManager : public QObject {
   static constexpr const char* KEY_ACCENT_COLOR = "ui/accentColor";
   static constexpr const char* KEY_PREVIEW_DENOISE_FULL =
       "performance/previewDenoiseFull";
+  static constexpr const char* KEY_SCAN_INTERVAL =
+      "library/scanIntervalSeconds";
 };

@@ -1,5 +1,7 @@
 #include "ImageDeveloper.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QString>
 #include <QThread>
 #include <QtConcurrent>
@@ -130,6 +132,88 @@ static float get_luma_cpp(float r, float g, float b) {
   return 0.2126f * r + 0.7152f * g + 0.0722f * b;
 }
 
+static std::vector<float> evalMonotonicSplineLut(const QVariantList& pts,
+                                                  int lutSize) {
+  std::vector<float> lut(lutSize);
+  int n = pts.size();
+  if (n < 2) {
+    for (int i = 0; i < lutSize; i++) lut[i] = float(i) / (lutSize - 1);
+    return lut;
+  }
+  std::vector<double> xs(n), ys(n);
+  for (int i = 0; i < n; i++) {
+    auto m = pts[i].toMap();
+    xs[i] = m["x"].toDouble();
+    ys[i] = m["y"].toDouble();
+  }
+
+  // Sort by X and remove duplicates (keep last Y for each X)
+  std::vector<int> idx(n);
+  std::iota(idx.begin(), idx.end(), 0);
+  std::sort(idx.begin(), idx.end(),
+            [&](int a, int b) { return xs[a] < xs[b]; });
+  std::vector<double> sxs, sys;
+  sxs.reserve(n);
+  sys.reserve(n);
+  for (int i : idx) {
+    if (!sxs.empty() && std::abs(xs[i] - sxs.back()) < 1e-12)
+      sys.back() = ys[i];
+    else {
+      sxs.push_back(xs[i]);
+      sys.push_back(ys[i]);
+    }
+  }
+  xs = std::move(sxs);
+  ys = std::move(sys);
+  n = static_cast<int>(xs.size());
+  if (n < 2) {
+    for (int i = 0; i < lutSize; i++) lut[i] = float(i) / (lutSize - 1);
+    return lut;
+  }
+
+  std::vector<double> delta(n - 1);
+  for (int i = 0; i < n - 1; i++) {
+    double dx = xs[i + 1] - xs[i];
+    delta[i] = dx > 1e-12 ? (ys[i + 1] - ys[i]) / dx : 0.0;
+  }
+  std::vector<double> m(n, 0.0);
+  m[0] = delta[0];
+  m[n - 1] = delta[n - 2];
+  for (int i = 1; i < n - 1; i++)
+    m[i] = (delta[i - 1] + delta[i]) * 0.5;
+  for (int i = 0; i < n - 1; i++) {
+    if (std::abs(delta[i]) < 1e-12) {
+      m[i] = 0.0;
+      m[i + 1] = 0.0;
+    } else {
+      double alpha = m[i] / delta[i];
+      double beta = m[i + 1] / delta[i];
+      double r2 = alpha * alpha + beta * beta;
+      if (r2 > 9.0) {
+        double tau = 3.0 / std::sqrt(r2);
+        m[i] = tau * alpha * delta[i];
+        m[i + 1] = tau * beta * delta[i];
+      }
+    }
+  }
+  int seg = 0;
+  for (int i = 0; i < lutSize; i++) {
+    double t_val = double(i) / (lutSize - 1);
+    if (t_val <= xs[0]) { lut[i] = float(ys[0]); continue; }
+    if (t_val >= xs[n - 1]) { lut[i] = float(ys[n - 1]); continue; }
+    while (seg < n - 2 && t_val > xs[seg + 1]) seg++;
+    double dx = xs[seg + 1] - xs[seg];
+    double t = (t_val - xs[seg]) / dx;
+    double t2 = t * t, t3 = t2 * t;
+    double val = (2 * t3 - 3 * t2 + 1) * ys[seg] +
+                 (t3 - 2 * t2 + t) * dx * m[seg] +
+                 (-2 * t3 + 3 * t2) * ys[seg + 1] +
+                 (t3 - t2) * dx * m[seg + 1];
+    lut[i] = float(std::clamp(val, 0.0, 1.0));
+  }
+  return lut;
+}
+
 QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                const QJsonObject& obj, QRhi* rhi,
                                QQuickWindow* window) {
@@ -211,6 +295,49 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
   float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
   float exp_mult = std::pow(2.0f, exp);
+
+  // Precompute Tone Curve LUTs
+  auto jsonArrayToVariantList = [](const QJsonArray& arr) -> QVariantList {
+    QVariantList list;
+    for (const auto& v : arr) {
+      QVariantMap m;
+      m["x"] = v.toObject()["x"].toDouble();
+      m["y"] = v.toObject()["y"].toDouble();
+      list.append(m);
+    }
+    return list;
+  };
+
+  QVariantList defaultPts;
+  QVariantMap p0, p1;
+  p0["x"] = 0.0; p0["y"] = 0.0;
+  p1["x"] = 1.0; p1["y"] = 1.0;
+  defaultPts << p0 << p1;
+
+  QVariantList tcLuma = obj.contains("toneCurveLuma")
+      ? jsonArrayToVariantList(obj["toneCurveLuma"].toArray()) : defaultPts;
+  QVariantList tcRed = obj.contains("toneCurveRed")
+      ? jsonArrayToVariantList(obj["toneCurveRed"].toArray()) : defaultPts;
+  QVariantList tcGreen = obj.contains("toneCurveGreen")
+      ? jsonArrayToVariantList(obj["toneCurveGreen"].toArray()) : defaultPts;
+  QVariantList tcBlue = obj.contains("toneCurveBlue")
+      ? jsonArrayToVariantList(obj["toneCurveBlue"].toArray()) : defaultPts;
+
+  std::vector<float> lutLuma = evalMonotonicSplineLut(tcLuma, 256);
+  std::vector<float> lutRed = evalMonotonicSplineLut(tcRed, 256);
+  std::vector<float> lutGreen = evalMonotonicSplineLut(tcGreen, 256);
+  std::vector<float> lutBlue = evalMonotonicSplineLut(tcBlue, 256);
+
+  // Check if tone curve is identity (skip application if so)
+  bool toneCurveActive = false;
+  for (int i = 0; i < 256 && !toneCurveActive; i++) {
+    float identity = float(i) / 255.0f;
+    if (std::abs(lutLuma[i] - identity) > 1e-4f ||
+        std::abs(lutRed[i] - identity) > 1e-4f ||
+        std::abs(lutGreen[i] - identity) > 1e-4f ||
+        std::abs(lutBlue[i] - identity) > 1e-4f)
+      toneCurveActive = true;
+  }
 
   // HSL constants
   float centers[8] = {358.0f / 360.0f, 25.0f / 360.0f,  60.0f / 360.0f,
@@ -374,6 +501,38 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       // 8. Tonemapping
       if (agx_enabled) {
         agx_tonemap(r, g, b);
+      }
+
+      // 8.5. Tone Curve LUT
+      if (toneCurveActive) {
+        float cr = std::clamp(r, 0.0f, 1.0f);
+        float cg = std::clamp(g, 0.0f, 1.0f);
+        float cb = std::clamp(b, 0.0f, 1.0f);
+        float lumaIn = get_luma_cpp(cr, cg, cb);
+        int idxL = std::clamp(int(lumaIn * 255.0f), 0, 255);
+        float lumaOut = lutLuma[idxL];
+        float lumaDelta = lumaOut - lumaIn;
+        float lumaRatio = (lumaIn > 0.001f) ? lumaOut / lumaIn : 1.0f;
+        // Additive in shadows, multiplicative in mids/highs
+        float t = std::clamp((lumaIn - 0.0f) / (0.36f - 0.0f), 0.0f, 1.0f);
+        float blendShadow = t * t * (3.0f - 2.0f * t);  // smoothstep
+        int idxR = std::clamp(int(cr * 255.0f), 0, 255);
+        int idxG = std::clamp(int(cg * 255.0f), 0, 255);
+        int idxB = std::clamp(int(cb * 255.0f), 0, 255);
+        cr = lutRed[idxR];
+        cg = lutGreen[idxG];
+        cb = lutBlue[idxB];
+        float arCr = cr + lumaDelta, arCg = cg + lumaDelta, arCb = cb + lumaDelta;
+        float mrCr = cr * lumaRatio, mrCg = cg * lumaRatio, mrCb = cb * lumaRatio;
+        cr = mix(arCr, mrCr, blendShadow);
+        cg = mix(arCg, mrCg, blendShadow);
+        cb = mix(arCb, mrCb, blendShadow);
+        // Blend: bypass for values > 1.0
+        float maxC = std::max({r, g, b});
+        float blendClip = (maxC > 1.001f) ? 1.0f : 0.0f;
+        r = mix(cr, r, blendClip);
+        g = mix(cg, g, blendClip);
+        b = mix(cb, b, blendClip);
       }
 
       // 9. Linear to sRGB

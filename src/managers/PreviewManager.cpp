@@ -118,24 +118,55 @@ void PreviewManager::startFolderScan(const QString& folderPath) {
 }
 
 void PreviewManager::refreshPreview(const QString& rawPath) {
-  m_threadPool->start([this, rawPath]() { processItem(rawPath); });
+  {
+    QMutexLocker locker(&m_mutex);
+    if (m_refreshRunning) {
+      // A refresh is already in progress — just remember the latest request
+      m_pendingRefreshPath = rawPath;
+      return;
+    }
+    m_refreshRunning = true;
+    m_pendingRefreshPath.clear();
+  }
+
+  // Pass nullptr for RHI — preview tasks run on thread pool threads
+  // and QRhi is NOT thread-safe; GPU search will be skipped (CPU fallback)
+  m_threadPool->start([this, rawPath]() {
+    processItem(rawPath, true);
+
+    // Check if another refresh was requested while we were running
+    QString nextPath;
+    {
+      QMutexLocker locker(&m_mutex);
+      m_refreshRunning = false;
+      nextPath = m_pendingRefreshPath;
+      m_pendingRefreshPath.clear();
+    }
+    if (!nextPath.isEmpty()) {
+      QMetaObject::invokeMethod(this, [this, nextPath]() {
+        refreshPreview(nextPath);
+      }, Qt::QueuedConnection);
+    }
+  });
 }
 
 void PreviewManager::cancelAll() {
   {
     QMutexLocker locker(&m_mutex);
     m_abort = true;
+    m_pendingRefreshPath.clear();
   }
   m_threadPool->clear();
   m_threadPool->waitForDone();
   {
     QMutexLocker locker(&m_mutex);
     m_isProcessing = false;
+    m_refreshRunning = false;
   }
   emit isProcessingChanged();
 }
 
-void PreviewManager::processItem(const QString& rawPath) {
+void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
   LogManager::instance()->log(QString("[ PreviewManager ] - processItem START: %1").arg(rawPath), "DEBUG");
 
   {
@@ -186,9 +217,11 @@ void PreviewManager::processItem(const QString& rawPath) {
           // 3. Develop Image with Edits
           lastState["denoiseSecondPass"] =
               ::AppStateManager::instance()->previewDenoiseFull();
+          QRhi* rhi = skipGpu ? nullptr : m_rhi;
+          QQuickWindow* win = skipGpu ? nullptr : m_window;
           QImage result = ImageDeveloper::develop(
               reinterpret_cast<const ushort*>(mem->data), mem->width,
-              mem->height, lastState, m_rhi, m_window);
+              mem->height, lastState, rhi, win);
 
           LogManager::instance()->log(QString("[ PreviewManager ] - Develop complete, result null: %1")
                   .arg(result.isNull()));

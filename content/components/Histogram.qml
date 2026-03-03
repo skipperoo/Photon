@@ -43,13 +43,13 @@ Item {
             layer.samples: 4
             ShapePath {
                 fillColor: Theme.foreground
-                strokeWidth: 1
-                strokeColor: Theme.foreground
-                startX: 0; startY: root.height
+                strokeWidth: 0
+                strokeColor: "transparent"
                 PathPolyline {
                     path: {
                         var res = []
                         if (root.histogramLuma.length < 256) return res
+                        res.push(Qt.point(0, root.height))
                         var step = root.width / 255
                         for (var i = 0; i < 256; i++) {
                             res.push(Qt.point(i * step, root.height - (root.histogramLuma[i] * root.height)))
@@ -69,13 +69,13 @@ Item {
             layer.samples: 4
             ShapePath {
                 fillColor: "#ef4444"
-                strokeWidth: 1
-                strokeColor: "#ef4444"
-                startX: 0; startY: root.height
+                strokeWidth: 0
+                strokeColor: "transparent"
                 PathPolyline {
                     path: {
                         var res = []
                         if (root.histogramRed.length < 256) return res
+                        res.push(Qt.point(0, root.height))
                         var step = root.width / 255
                         for (var i = 0; i < 256; i++) {
                             res.push(Qt.point(i * step, root.height - (root.histogramRed[i] * root.height)))
@@ -95,13 +95,13 @@ Item {
             layer.samples: 4
             ShapePath {
                 fillColor: "#22c55e"
-                strokeWidth: 1
-                strokeColor: "#22c55e"
-                startX: 0; startY: root.height
+                strokeWidth: 0
+                strokeColor: "transparent"
                 PathPolyline {
                     path: {
                         var res = []
                         if (root.histogramGreen.length < 256) return res
+                        res.push(Qt.point(0, root.height))
                         var step = root.width / 255
                         for (var i = 0; i < 256; i++) {
                             res.push(Qt.point(i * step, root.height - (root.histogramGreen[i] * root.height)))
@@ -121,13 +121,13 @@ Item {
             layer.samples: 4
             ShapePath {
                 fillColor: "#3b82f6"
-                strokeWidth: 1
-                strokeColor: "#3b82f6"
-                startX: 0; startY: root.height
+                strokeWidth: 0
+                strokeColor: "transparent"
                 PathPolyline {
                     path: {
                         var res = []
                         if (root.histogramBlue.length < 256) return res
+                        res.push(Qt.point(0, root.height))
                         var step = root.width / 255
                         for (var i = 0; i < 256; i++) {
                             res.push(Qt.point(i * step, root.height - (root.histogramBlue[i] * root.height)))

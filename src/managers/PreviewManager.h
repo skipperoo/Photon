@@ -49,7 +49,7 @@ class PreviewManager : public QObject {
   void previewReady(const QString& rawPath, const QString& cachePath);
 
  private:
-  void processItem(const QString& rawPath);
+  void processItem(const QString& rawPath, bool skipGpu = false);
   bool isPreviewValid(const QString& rawPath) const;
   QString getCachePath(const QString& rawPath) const;
 
@@ -62,6 +62,10 @@ class PreviewManager : public QObject {
   int m_total = 0;
   mutable QMutex m_mutex;
   QThreadPool* m_threadPool;
+
+  // Guard against overlapping single-file preview refreshes
+  bool m_refreshRunning = false;
+  QString m_pendingRefreshPath;
 };
 
 }  // namespace photon

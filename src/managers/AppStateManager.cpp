@@ -76,6 +76,7 @@ void AppStateManager::loadSettings() {
   m_lastOpenedFolder = m_settings.value(KEY_LAST_FOLDER, QString()).toString();
   m_preferredGpu = m_settings.value(KEY_PREFERRED_GPU, "Auto").toString();
   m_cacheSizeGB = m_settings.value(KEY_CACHE_SIZE, 10).toInt();
+  m_scanIntervalSeconds = m_settings.value(KEY_SCAN_INTERVAL, 10).toInt();
   m_isDarkMode = m_settings.value(KEY_DARK_MODE, true).toBool();
   m_accentColor = m_settings.value(KEY_ACCENT_COLOR, "#3b82f6").toString();
   m_previewDenoiseFull =
@@ -89,6 +90,7 @@ void AppStateManager::loadSettings() {
   emit isDarkModeChanged();
   emit accentColorChanged();
   emit cacheSizeGBChanged();
+  emit scanIntervalSecondsChanged();
 }
 
 void AppStateManager::saveSettings() {
@@ -96,6 +98,7 @@ void AppStateManager::saveSettings() {
   m_settings.setValue(KEY_LAST_FOLDER, m_lastOpenedFolder);
   m_settings.setValue(KEY_PREFERRED_GPU, m_preferredGpu);
   m_settings.setValue(KEY_CACHE_SIZE, m_cacheSizeGB);
+  m_settings.setValue(KEY_SCAN_INTERVAL, m_scanIntervalSeconds);
   m_settings.setValue(KEY_DARK_MODE, m_isDarkMode);
   m_settings.setValue(KEY_ACCENT_COLOR, m_accentColor);
   m_settings.setValue(KEY_PREVIEW_DENOISE_FULL, m_previewDenoiseFull);
@@ -387,6 +390,14 @@ void AppStateManager::setCacheSizeGB(int size) {
   if (m_cacheSizeGB != size) {
     m_cacheSizeGB = size;
     emit cacheSizeGBChanged();
+    saveSettings();
+  }
+}
+
+void AppStateManager::setScanIntervalSeconds(int seconds) {
+  if (m_scanIntervalSeconds != seconds) {
+    m_scanIntervalSeconds = qBound(1, seconds, 300);
+    emit scanIntervalSecondsChanged();
     saveSettings();
   }
 }

@@ -219,6 +219,23 @@ Control {
                     }
                 }
 
+                // --- Tone Curve Section ---
+                Collapsible {
+                    title: "Tone Curve"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        ToneCurve {
+                            Layout.fillWidth: true
+                            viewport: root.viewport
+                            onEditFinished: if (root.viewport) root.viewport.commitEdit()
+                        }
+                    }
+                }
+
                 // --- Presence Section ---
                 Collapsible {
                     title: "Presence"

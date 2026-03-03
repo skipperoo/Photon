@@ -343,6 +343,30 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit cgBlendingChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::toneCurveLumaChanged, this, [this]() {
+    emit toneCurveLumaChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveRedChanged, this, [this]() {
+    emit toneCurveRedChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveGreenChanged, this, [this]() {
+    emit toneCurveGreenChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveBlueChanged, this, [this]() {
+    emit toneCurveBlueChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneLutVersionChanged, this, [this]() {
+    emit toneLutVersionChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveActiveChanged, this, [this]() {
+    emit toneCurveActiveChanged();
+    update();
+  });
   connect(&m_engine, &RawEngine::histogramChanged, this,
           &RawViewport::histogramChanged);
   connect(&m_engine, &RawEngine::metadataChanged, this,
@@ -800,6 +824,23 @@ void RawViewport::setCgBalance(float val) {
 }
 void RawViewport::setCgBlending(float val) {
   m_engine.setCgBlending(val);
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveLuma(const QVariantList& pts) {
+  m_engine.setToneCurveLuma(pts);
+  m_engine.requestHistogramUpdate();
+}
+void RawViewport::setToneCurveRed(const QVariantList& pts) {
+  m_engine.setToneCurveRed(pts);
+  m_engine.requestHistogramUpdate();
+}
+void RawViewport::setToneCurveGreen(const QVariantList& pts) {
+  m_engine.setToneCurveGreen(pts);
+  m_engine.requestHistogramUpdate();
+}
+void RawViewport::setToneCurveBlue(const QVariantList& pts) {
+  m_engine.setToneCurveBlue(pts);
   m_engine.requestHistogramUpdate();
 }
 

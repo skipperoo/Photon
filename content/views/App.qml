@@ -751,7 +751,10 @@ Window {
                                             Layout.preferredWidth: 48
                                             Layout.preferredHeight: 48
                                             flat: true
-                                            onClicked: developLayout.activeSidebar = modelData.index
+                                            onClicked: {
+                                                if (modelData.index === 2) cropPanel.saveEntryState();
+                                                developLayout.activeSidebar = modelData.index;
+                                            }
                                             
                                             icon.source: "qrc:/Main/assets/icons/" + modelData.icon + ".svg"
                                             icon.color: Theme.foreground

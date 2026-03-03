@@ -15,6 +15,24 @@ Control {
     signal cropConfirmed()
     signal cropDiscarded()
 
+    // Saved state when entering crop mode (for ESC revert)
+    property rect _savedCropRect: Qt.rect(0, 0, 1, 1)
+    property real _savedAspectRatio: -1
+    property real _savedStraightenAngle: 0
+    property int  _savedOrientationSteps: 0
+    property bool _savedFlipH: false
+    property bool _savedFlipV: false
+
+    function saveEntryState() {
+        if (!root.viewport) return;
+        _savedCropRect = root.viewport.cropRect;
+        _savedAspectRatio = root.viewport.cropAspectRatio;
+        _savedStraightenAngle = root.viewport.straightenAngle;
+        _savedOrientationSteps = root.viewport.orientationSteps;
+        _savedFlipH = root.viewport.flipHorizontal;
+        _savedFlipV = root.viewport.flipVertical;
+    }
+
     readonly property var aspectPresets: [
         { name: "Free",     value: -1,       tooltip: "Freeform crop" },
         { name: "Original", value: 0,        tooltip: "Original aspect ratio" },
@@ -49,16 +67,17 @@ Control {
         }
         // Compute a centered crop rect that respects the new aspect ratio
         root.viewport.cropRect = computeCropForRatio(root.viewport.cropAspectRatio);
-        root.viewport.commitEdit();
     }
 
     function computeCropForRatio(ratio) {
         if (ratio <= 0) return Qt.rect(0, 0, 1, 1);
-        // ratio is W/H in image space; in normalized coords we need imgW/imgH factor
-        var imgW = root.viewport ? root.viewport.width : 1;
-        var imgH = root.viewport ? root.viewport.height : 1;
-        var imgAspect = imgW / imgH;
-        var normRatio = ratio / imgAspect; // normalized W/H
+        // ratio = desired (pixelW / pixelH)
+        // In normalized coords: cw/ch * (srcW/srcH) = ratio
+        // So cw/ch = ratio * srcH / srcW = ratio / srcAspect
+        var srcW = root.viewport ? root.viewport.sourceWidth : 1;
+        var srcH = root.viewport ? root.viewport.sourceHeight : 1;
+        var srcAspect = srcW / srcH;
+        var normRatio = ratio / srcAspect; // cw/ch in normalized space
         var cw, ch;
         if (normRatio >= 1) {
             cw = 1; ch = 1 / normRatio;
@@ -76,14 +95,16 @@ Control {
         root.viewport.orientationSteps = 0;
         root.viewport.flipHorizontal = false;
         root.viewport.flipVertical = false;
-        root.viewport.commitEdit();
     }
 
     function discardCrop() {
         if (!root.viewport) return;
-        root.viewport.cropRect = Qt.rect(0, 0, 1, 1);
-        root.viewport.cropAspectRatio = -1;
-        root.viewport.commitEdit();
+        root.viewport.cropRect = _savedCropRect;
+        root.viewport.cropAspectRatio = _savedAspectRatio;
+        root.viewport.straightenAngle = _savedStraightenAngle;
+        root.viewport.orientationSteps = _savedOrientationSteps;
+        root.viewport.flipHorizontal = _savedFlipH;
+        root.viewport.flipVertical = _savedFlipV;
         root.cropDiscarded();
     }
 
@@ -228,7 +249,6 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.straightenAngle = 0;
-                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered
@@ -248,12 +268,10 @@ Control {
                                 if (root.viewport) root.viewport.straightenAngle = value;
                             }
                             onReleased: {
-                                if (root.viewport) root.viewport.commitEdit();
                             }
                             onDoubleClicked: {
                                 if (root.viewport) {
                                     root.viewport.straightenAngle = 0;
-                                    root.viewport.commitEdit();
                                 }
                             }
                             Connections {
@@ -292,7 +310,6 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.orientationSteps = (root.viewport.orientationSteps + 3) % 4;
-                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered
@@ -311,7 +328,6 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.orientationSteps = (root.viewport.orientationSteps + 1) % 4;
-                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered
@@ -330,7 +346,6 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.flipHorizontal = !root.viewport.flipHorizontal;
-                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered
@@ -349,7 +364,6 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.flipVertical = !root.viewport.flipVertical;
-                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered

@@ -384,3 +384,4 @@
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Multi-image batch processing.
 - [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
+- [ ] Log rotation

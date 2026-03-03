@@ -201,7 +201,6 @@ Item {
                     root.viewport.cropRect = Qt.rect(nx, ny, nw, nh);
                 }
                 onReleased: {
-                    if (root.viewport) root.viewport.commitEdit();
                 }
             }
         }
@@ -235,7 +234,6 @@ Item {
             root.viewport.cropRect = Qt.rect(nx, ny, cr.width, cr.height);
         }
         onReleased: {
-            if (root.viewport) root.viewport.commitEdit();
         }
     }
 
@@ -303,7 +301,6 @@ Item {
 
                 if (root.viewport) {
                     root.viewport.straightenAngle = correction;
-                    root.viewport.commitEdit();
                 }
                 root.straightenFinished();
             }

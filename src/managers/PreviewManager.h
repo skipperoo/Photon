@@ -49,7 +49,7 @@ class PreviewManager : public QObject {
   void previewReady(const QString& rawPath, const QString& cachePath);
 
  private:
-  void processItem(const QString& rawPath);
+  void processItem(const QString& rawPath, bool skipGpu = false);
   bool isPreviewValid(const QString& rawPath) const;
   QString getCachePath(const QString& rawPath) const;
 

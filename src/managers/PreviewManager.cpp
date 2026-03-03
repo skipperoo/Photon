@@ -118,7 +118,9 @@ void PreviewManager::startFolderScan(const QString& folderPath) {
 }
 
 void PreviewManager::refreshPreview(const QString& rawPath) {
-  m_threadPool->start([this, rawPath]() { processItem(rawPath); });
+  // Pass nullptr for RHI — preview tasks run on thread pool threads
+  // and QRhi is NOT thread-safe; GPU search will be skipped (CPU fallback)
+  m_threadPool->start([this, rawPath]() { processItem(rawPath, true); });
 }
 
 void PreviewManager::cancelAll() {
@@ -135,7 +137,7 @@ void PreviewManager::cancelAll() {
   emit isProcessingChanged();
 }
 
-void PreviewManager::processItem(const QString& rawPath) {
+void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
   LogManager::instance()->log(QString("[ PreviewManager ] - processItem START: %1").arg(rawPath), "DEBUG");
 
   {
@@ -186,9 +188,11 @@ void PreviewManager::processItem(const QString& rawPath) {
           // 3. Develop Image with Edits
           lastState["denoiseSecondPass"] =
               ::AppStateManager::instance()->previewDenoiseFull();
+          QRhi* rhi = skipGpu ? nullptr : m_rhi;
+          QQuickWindow* win = skipGpu ? nullptr : m_window;
           QImage result = ImageDeveloper::develop(
               reinterpret_cast<const ushort*>(mem->data), mem->width,
-              mem->height, lastState, m_rhi, m_window);
+              mem->height, lastState, rhi, win);
 
           LogManager::instance()->log(QString("[ PreviewManager ] - Develop complete, result null: %1")
                   .arg(result.isNull()));

@@ -26,6 +26,7 @@
 #include "managers/PreviewManager.h"
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
+#include "components/ToneLutProvider.h"
 
 using namespace photon;
 
@@ -161,6 +162,8 @@ int main(int argc, char* argv[]) {
 
   engine.addImageProvider("thumbnail",
                           new ThumbnailImageProvider(thumbProvider));
+  auto* toneLutProvider = new ToneLutProvider();
+  engine.addImageProvider("tonelut", toneLutProvider);
 
   qmlRegisterSingletonType<AppStateManager>(
       "Main", 1, 0, "AppState", &AppStateManager::createQmlInstance);

@@ -303,10 +303,38 @@
   - [x] Updated SPECIFICATION.md with feather and focus detection details.
   - [x] Updated TASKS.md.
 
+## Phase 28: Tone Curve, Library Improvements & Auto-Scan [DONE]
+
+- [x] **Histogram Fix**
+  - [x] Changed normalization from global max to P99 percentile (skip bins 0/255).
+  - [x] Prevents single dominant bin from compressing entire histogram.
+- [x] **Library Sorting**
+  - [x] Sort dropdown (Date/Name/Rating) with ascending/descending toggle.
+  - [x] Smart `refreshFiles()`: filter → sort → append pipeline.
+  - [x] Home button to return to Welcome view (Lucide house icon).
+- [x] **Auto-Scan**
+  - [x] `scanIntervalSeconds` Q_PROPERTY on AppStateManager with QSettings persistence.
+  - [x] QTimer in LibraryView: periodic scan, smart diff (append-only, no flicker).
+  - [x] "Library" settings section in SettingView with interval spinner.
+- [x] **Tone Curve**
+  - [x] `ToneCurve.qml` Canvas component: 4 channels (L/R/G/B), tab selector.
+  - [x] Click to add points, drag to move, double-click to remove interior points.
+  - [x] Endpoints draggable vertically only, interior points constrained between neighbors.
+  - [x] Monotonic cubic Hermite spline (Fritsch-Carlson) for smooth curves.
+  - [x] 4 × QVariantList Q_PROPERTYs: `toneCurveLuma/Red/Green/Blue`.
+  - [x] C++ spline→256-entry LUT computation in `RawEngine::rebuildToneLut()`.
+  - [x] 256×1 RGBA `QImage` LUT texture via `ToneLutProvider` image provider.
+  - [x] `sampler2D toneLUT` in fragment shader, applied after tonemapping.
+  - [x] Luma curve applied as ratio to preserve color relationships.
+  - [x] Per-channel (R/G/B) curves applied independently.
+  - [x] JSON serialization of control points, `resetToDefaults()`, `isDefault()`.
+  - [x] Collapsible "Tone Curve" section after "Light" in DevelopView.
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md and TASKS.md.
+
 ## Backlog / Future
 
 - [ ] **Usability**
-  - [ ] Automatic folder scanning every n seconds to check if new images have been loaded
   - [ ] Before/after view + keybind to `\`
   - [ ] Add change workspace button to the Library view
 - [ ] **Crop & Transform**
@@ -315,6 +343,5 @@
   - [ ] Perspective correction.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
-- [ ] Tone Curve (Spline UI).
 - [ ] Multi-image batch processing.
 - [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView

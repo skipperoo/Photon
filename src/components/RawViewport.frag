@@ -4,6 +4,7 @@ layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 
 layout(binding = 1) uniform sampler2D source;
+layout(binding = 2) uniform sampler2D toneLUT;
 
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
@@ -60,6 +61,12 @@ layout(std140, binding = 0) uniform buf {
     float maskFeather;
     float focusDetect;
     float showSharpenMask;
+
+    // Tone Curve
+    float toneCurveActive;
+
+    // Before/After bypass
+    float showOriginal;
 } ubuf;
 
 const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
@@ -523,6 +530,12 @@ void main()
         return;
     }
 
+    // Before/After: show unprocessed RAW with only sRGB→linear→sRGB
+    if (ubuf.showOriginal > 0.5) {
+        fragColor = vec4(tex.rgb, tex.a) * ubuf.qt_Opacity;
+        return;
+    }
+
     vec3 color = srgb_to_linear(tex.rgb);
     
     // 0. Noise Reduction (Real-time GPU pass)
@@ -680,6 +693,25 @@ void main()
     // 7. Tonemapping
     if (ubuf.tonemappingEnabled > 0.5) {
         color = agx_tonemap(color);
+    }
+
+    // 8. Tone Curve LUT (applied in linear, pre-sRGB)
+    // 256×4 texture: row 0=Luma, row 1=Red, row 2=Green, row 3=Blue
+    if (ubuf.toneCurveActive > 0.5) {
+        vec3 c = clamp(color, 0.0, 1.0);
+        float lumaIn = get_luma(c);
+        float lumaOut = texture(toneLUT, vec2(lumaIn, 0.125)).r;  // row 0
+        c.r = texture(toneLUT, vec2(c.r, 0.375)).r;               // row 1
+        c.g = texture(toneLUT, vec2(c.g, 0.625)).r;               // row 2
+        c.b = texture(toneLUT, vec2(c.b, 0.875)).r;               // row 3
+        // Blend additive (shadows) → multiplicative (mids/highs) to avoid
+        // noise amplification when raising the black point
+        float lumaDelta = lumaOut - lumaIn;
+        float lumaRatio = (lumaIn > 0.001) ? lumaOut / lumaIn : 1.0;
+        float blend = smoothstep(0.0, 0.36, lumaIn);
+        c = mix(c + lumaDelta, c * lumaRatio, blend);
+        // Blend with values above 1.0
+        color = mix(c, color, step(1.001, max(color.r, max(color.g, color.b))));
     }
 
     vec3 final_rgb = linear_to_srgb(color);

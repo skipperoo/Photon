@@ -47,6 +47,7 @@ qt_add_executable(Photon
     src/engine/patch_search.comp
     src/components/RawViewport.cpp
     src/components/RawViewport.h
+    src/components/ToneLutProvider.h
     src/managers/AppStateManager.cpp
     src/managers/AppStateManager.h
     src/managers/ThumbnailProvider.cpp
@@ -102,6 +103,7 @@ qt_add_qml_module(Photon
     SOURCES
         src/components/RawViewport.cpp
         src/components/RawViewport.h
+        src/components/ToneLutProvider.h
         src/engine/RawEngine.cpp
         src/engine/RawEngine.h
         src/engine/Denoiser.cpp
@@ -147,6 +149,7 @@ qt_add_qml_module(Photon
         content/components/Collapsible.qml
         content/components/ControlGroup.qml
         content/components/Histogram.qml
+        content/components/ToneCurve.qml
         content/components/PresetPanel.qml
         content/components/MetadataPanel.qml
         content/components/ExportPanel.qml
@@ -170,6 +173,8 @@ qt_add_qml_module(Photon
         assets/icons/trash.svg
         assets/icons/download.svg
         assets/icons/folder.svg
+        assets/icons/home.svg
+        assets/icons/eye.svg
 )
 
 set_target_properties(Photon PROPERTIES

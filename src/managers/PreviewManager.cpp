@@ -118,21 +118,50 @@ void PreviewManager::startFolderScan(const QString& folderPath) {
 }
 
 void PreviewManager::refreshPreview(const QString& rawPath) {
+  {
+    QMutexLocker locker(&m_mutex);
+    if (m_refreshRunning) {
+      // A refresh is already in progress — just remember the latest request
+      m_pendingRefreshPath = rawPath;
+      return;
+    }
+    m_refreshRunning = true;
+    m_pendingRefreshPath.clear();
+  }
+
   // Pass nullptr for RHI — preview tasks run on thread pool threads
   // and QRhi is NOT thread-safe; GPU search will be skipped (CPU fallback)
-  m_threadPool->start([this, rawPath]() { processItem(rawPath, true); });
+  m_threadPool->start([this, rawPath]() {
+    processItem(rawPath, true);
+
+    // Check if another refresh was requested while we were running
+    QString nextPath;
+    {
+      QMutexLocker locker(&m_mutex);
+      m_refreshRunning = false;
+      nextPath = m_pendingRefreshPath;
+      m_pendingRefreshPath.clear();
+    }
+    if (!nextPath.isEmpty()) {
+      QMetaObject::invokeMethod(this, [this, nextPath]() {
+        refreshPreview(nextPath);
+      }, Qt::QueuedConnection);
+    }
+  });
 }
 
 void PreviewManager::cancelAll() {
   {
     QMutexLocker locker(&m_mutex);
     m_abort = true;
+    m_pendingRefreshPath.clear();
   }
   m_threadPool->clear();
   m_threadPool->waitForDone();
   {
     QMutexLocker locker(&m_mutex);
     m_isProcessing = false;
+    m_refreshRunning = false;
   }
   emit isProcessingChanged();
 }

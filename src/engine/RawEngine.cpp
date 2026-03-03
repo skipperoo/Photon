@@ -1458,6 +1458,11 @@ void RawEngine::requestHistogramUpdate() {
 }
 
 void RawEngine::clearProcessedImage() {
+  // Wait for any in-flight histogram task that references m_processedImage->data
+  if (m_histogramUpdatePending) {
+    m_histogramFuture.waitForFinished();
+    m_histogramUpdatePending = false;
+  }
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);
     m_processedImage = nullptr;

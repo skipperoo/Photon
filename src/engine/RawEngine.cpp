@@ -1089,6 +1089,50 @@ void RawEngine::setToneCurveBlue(const QVariantList& pts) {
   emit isDefaultChanged();
 }
 
+// Crop & Geometry setters
+void RawEngine::setCropRect(const QRectF& rect) {
+  if (m_cropRect == rect) return;
+  m_cropRect = rect;
+  emit cropRectChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCropAspectRatio(float ratio) {
+  if (qFuzzyCompare(m_cropAspectRatio, ratio)) return;
+  m_cropAspectRatio = ratio;
+  emit cropAspectRatioChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setStraightenAngle(float angle) {
+  if (qFuzzyCompare(m_straightenAngle, angle)) return;
+  m_straightenAngle = std::clamp(angle, -45.0f, 45.0f);
+  emit straightenAngleChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setOrientationSteps(int steps) {
+  steps = ((steps % 4) + 4) % 4;  // Normalize to 0-3
+  if (m_orientationSteps == steps) return;
+  m_orientationSteps = steps;
+  emit orientationStepsChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setFlipHorizontal(bool flip) {
+  if (m_flipHorizontal == flip) return;
+  m_flipHorizontal = flip;
+  emit flipHorizontalChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setFlipVertical(bool flip) {
+  if (m_flipVertical == flip) return;
+  m_flipVertical = flip;
+  emit flipVerticalChanged();
+  emit isDefaultChanged();
+}
+
 std::vector<float> RawEngine::evalMonotonicSpline(const QVariantList& pts,
                                                    int lutSize) {
   std::vector<float> lut(lutSize);
@@ -1792,6 +1836,19 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["toneCurveGreen"] = pointsToArray(e->toneCurveGreen());
   obj["toneCurveBlue"] = pointsToArray(e->toneCurveBlue());
 
+  // Crop & Geometry
+  QJsonObject cropObj;
+  cropObj["x"] = e->cropRect().x();
+  cropObj["y"] = e->cropRect().y();
+  cropObj["w"] = e->cropRect().width();
+  cropObj["h"] = e->cropRect().height();
+  obj["cropRect"] = cropObj;
+  obj["cropAspectRatio"] = e->cropAspectRatio();
+  obj["straightenAngle"] = e->straightenAngle();
+  obj["orientationSteps"] = e->orientationSteps();
+  obj["flipHorizontal"] = e->flipHorizontal();
+  obj["flipVertical"] = e->flipVertical();
+
   return obj;
 }
 
@@ -1939,6 +1996,23 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setToneCurveGreen(arrayToPoints(obj["toneCurveGreen"].toArray()));
   if (obj.contains("toneCurveBlue"))
     e->setToneCurveBlue(arrayToPoints(obj["toneCurveBlue"].toArray()));
+
+  // Crop & Geometry
+  if (obj.contains("cropRect")) {
+    auto c = obj["cropRect"].toObject();
+    e->setCropRect(QRectF(c["x"].toDouble(), c["y"].toDouble(),
+                          c["w"].toDouble(1.0), c["h"].toDouble(1.0)));
+  }
+  if (obj.contains("cropAspectRatio"))
+    e->setCropAspectRatio(obj["cropAspectRatio"].toDouble(-1.0));
+  if (obj.contains("straightenAngle"))
+    e->setStraightenAngle(obj["straightenAngle"].toDouble());
+  if (obj.contains("orientationSteps"))
+    e->setOrientationSteps(obj["orientationSteps"].toInt());
+  if (obj.contains("flipHorizontal"))
+    e->setFlipHorizontal(obj["flipHorizontal"].toBool());
+  if (obj.contains("flipVertical"))
+    e->setFlipVertical(obj["flipVertical"].toBool());
 }
 
 static void resetToDefaults(RawEngine* e) {
@@ -2026,6 +2100,14 @@ static void resetToDefaults(RawEngine* e) {
   e->setToneCurveRed(defaultPts);
   e->setToneCurveGreen(defaultPts);
   e->setToneCurveBlue(defaultPts);
+
+  // Reset crop & geometry
+  e->setCropRect(QRectF(0, 0, 1, 1));
+  e->setCropAspectRatio(-1.0f);
+  e->setStraightenAngle(0.0f);
+  e->setOrientationSteps(0);
+  e->setFlipHorizontal(false);
+  e->setFlipVertical(false);
 }
 
 QVariantMap RawEngine::currentSettings() const {
@@ -2257,6 +2339,14 @@ bool RawEngine::isDefault() const {
   if (!isIdentityCurve(m_toneCurveRed)) return false;
   if (!isIdentityCurve(m_toneCurveGreen)) return false;
   if (!isIdentityCurve(m_toneCurveBlue)) return false;
+
+  // Crop & geometry checks
+  if (m_cropRect != QRectF(0, 0, 1, 1)) return false;
+  if (!qFuzzyCompare(m_cropAspectRatio, -1.0f)) return false;
+  if (!qFuzzyIsNull(m_straightenAngle)) return false;
+  if (m_orientationSteps != 0) return false;
+  if (m_flipHorizontal) return false;
+  if (m_flipVertical) return false;
 
   return true;
 }

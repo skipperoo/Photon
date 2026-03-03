@@ -193,6 +193,14 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(QVariantMap metadata READ metadata NOTIFY metadataChanged)
   Q_PROPERTY(int orientation READ orientation NOTIFY orientationChanged)
 
+  // Crop & Geometry
+  Q_PROPERTY(QRectF cropRect READ cropRect WRITE setCropRect NOTIFY cropRectChanged)
+  Q_PROPERTY(float cropAspectRatio READ cropAspectRatio WRITE setCropAspectRatio NOTIFY cropAspectRatioChanged)
+  Q_PROPERTY(float straightenAngle READ straightenAngle WRITE setStraightenAngle NOTIFY straightenAngleChanged)
+  Q_PROPERTY(int orientationSteps READ orientationSteps WRITE setOrientationSteps NOTIFY orientationStepsChanged)
+  Q_PROPERTY(bool flipHorizontal READ flipHorizontal WRITE setFlipHorizontal NOTIFY flipHorizontalChanged)
+  Q_PROPERTY(bool flipVertical READ flipVertical WRITE setFlipVertical NOTIFY flipVerticalChanged)
+
   Q_PROPERTY(QRectF imageRect READ imageRect NOTIFY imageRectChanged)
   Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
   Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
@@ -430,6 +438,20 @@ class RawViewport : public QQuickItem {
   QVariantMap metadata() const { return m_engine.metadata(); }
   int orientation() const { return m_engine.orientation(); }
 
+  // Crop & Geometry proxies
+  QRectF cropRect() const { return m_engine.cropRect(); }
+  void setCropRect(const QRectF& r) { m_engine.setCropRect(r); }
+  float cropAspectRatio() const { return m_engine.cropAspectRatio(); }
+  void setCropAspectRatio(float r) { m_engine.setCropAspectRatio(r); }
+  float straightenAngle() const { return m_engine.straightenAngle(); }
+  void setStraightenAngle(float a) { m_engine.setStraightenAngle(a); }
+  int orientationSteps() const { return m_engine.orientationSteps(); }
+  void setOrientationSteps(int s) { m_engine.setOrientationSteps(s); }
+  bool flipHorizontal() const { return m_engine.flipHorizontal(); }
+  void setFlipHorizontal(bool f) { m_engine.setFlipHorizontal(f); }
+  bool flipVertical() const { return m_engine.flipVertical(); }
+  void setFlipVertical(bool f) { m_engine.setFlipVertical(f); }
+
   QRectF imageRect() const { return m_imageRect; }
   float zoom() const { return m_zoom; }
   void setZoom(float zoom);
@@ -547,6 +569,12 @@ class RawViewport : public QQuickItem {
   void histogramChanged();
   void metadataChanged();
   void orientationChanged();
+  void cropRectChanged();
+  void cropAspectRatioChanged();
+  void straightenAngleChanged();
+  void orientationStepsChanged();
+  void flipHorizontalChanged();
+  void flipVerticalChanged();
 
   void zoomChanged();
   void editStackChanged();

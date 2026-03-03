@@ -4,8 +4,10 @@
 #include <QJsonObject>
 #include <QString>
 #include <QThread>
+#include <QTransform>
 #include <QtConcurrent>
 #include <cstdio>
+#include <cmath>
 #include <numeric>
 
 #include "../managers/LogManager.h"
@@ -598,6 +600,74 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     // Convert back to RGB888 if Denoiser changed format to RGBX64
     if (output.format() != QImage::Format_RGB888) {
       output = output.convertToFormat(QImage::Format_RGB888);
+    }
+  }
+
+  // === Crop & Geometry transforms ===
+  // 1. Orientation steps (90° rotations)
+  int orientSteps = obj.contains("orientationSteps")
+                        ? obj["orientationSteps"].toInt() : 0;
+  orientSteps = ((orientSteps % 4) + 4) % 4;
+  if (orientSteps > 0) {
+    QTransform rot;
+    rot.rotate(orientSteps * 90.0);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+  }
+
+  // 2. Flip
+  bool flipH = obj.contains("flipHorizontal")
+                   ? obj["flipHorizontal"].toBool() : false;
+  bool flipV = obj.contains("flipVertical")
+                   ? obj["flipVertical"].toBool() : false;
+  if (flipH && flipV) {
+    output = output.transformed(QTransform().scale(-1, -1), Qt::SmoothTransformation);
+  } else if (flipH) {
+    output = output.transformed(QTransform().scale(-1, 1), Qt::SmoothTransformation);
+  } else if (flipV) {
+    output = output.transformed(QTransform().scale(1, -1), Qt::SmoothTransformation);
+  }
+
+  // 3. Straighten (fine rotation)
+  double straighten = obj.contains("straightenAngle")
+                          ? obj["straightenAngle"].toDouble() : 0.0;
+  if (std::abs(straighten) > 0.01) {
+    QTransform rot;
+    rot.rotate(straighten);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+    // After rotation, the image has black borders. Auto-crop to largest
+    // inscribed rectangle at the same aspect ratio.
+    int rw = output.width(), rh = output.height();
+    double rad = std::abs(straighten) * M_PI / 180.0;
+    double cosA = std::cos(rad), sinA = std::sin(rad);
+    // The rotated image is larger by factor of (cos+sin)
+    double factor = cosA + sinA;
+    if (factor > 1e-6) {
+      int cw = static_cast<int>(rw / factor);
+      int ch = static_cast<int>(rh / factor);
+      int cx = (rw - cw) / 2;
+      int cy = (rh - ch) / 2;
+      if (cw > 0 && ch > 0 && cx >= 0 && cy >= 0)
+        output = output.copy(cx, cy, cw, ch);
+    }
+  }
+
+  // 4. Crop rect (normalized 0–1)
+  if (obj.contains("cropRect")) {
+    auto cropObj = obj["cropRect"].toObject();
+    double cx = cropObj.contains("x") ? cropObj["x"].toDouble() : 0.0;
+    double cy = cropObj.contains("y") ? cropObj["y"].toDouble() : 0.0;
+    double cw = cropObj.contains("w") ? cropObj["w"].toDouble() : 1.0;
+    double ch = cropObj.contains("h") ? cropObj["h"].toDouble() : 1.0;
+    // Only crop if not the full image
+    if (cx > 0.001 || cy > 0.001 || cw < 0.999 || ch < 0.999) {
+      int px = static_cast<int>(cx * output.width());
+      int py = static_cast<int>(cy * output.height());
+      int pw = static_cast<int>(cw * output.width());
+      int ph = static_cast<int>(ch * output.height());
+      pw = std::min(pw, output.width() - px);
+      ph = std::min(ph, output.height() - py);
+      if (pw > 0 && ph > 0)
+        output = output.copy(px, py, pw, ph);
     }
   }
 

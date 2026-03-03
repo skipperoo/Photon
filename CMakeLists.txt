@@ -148,6 +148,8 @@ qt_add_qml_module(Photon
         content/components/Card.qml
         content/components/Collapsible.qml
         content/components/ControlGroup.qml
+        content/components/CropOverlay.qml
+        content/components/CropPanel.qml
         content/components/Histogram.qml
         content/components/ToneCurve.qml
         content/components/PresetPanel.qml
@@ -162,7 +164,11 @@ qt_add_qml_module(Photon
         assets/icons/zoom-out.svg
         assets/icons/undo.svg
         assets/icons/redo.svg
+        assets/icons/flip-horizontal.svg
+        assets/icons/flip-vertical.svg
+        assets/icons/rotate-cw.svg
         assets/icons/rotate-ccw.svg
+        assets/icons/ruler.svg
         assets/icons/info.svg
         assets/icons/settings.svg
         assets/icons/crop.svg

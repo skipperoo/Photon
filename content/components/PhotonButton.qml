@@ -9,14 +9,18 @@ Button {
 
     property bool variantOutline: false
     property bool variantDestructive: false
+    property int fontSize: Theme.fontMedium
 
     contentItem: RowLayout {
         spacing: 8
+        anchors.verticalCenter: parent ? parent.verticalCenter : undefined
         Image {
             id: iconItem
             source: control.icon.source
             Layout.preferredWidth: control.icon.width > 0 ? control.icon.width : 16
             Layout.preferredHeight: control.icon.height > 0 ? control.icon.height : 16
+            Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+            Layout.fillWidth: control.display === AbstractButton.IconOnly
             visible: control.icon.source.toString() !== ""
             fillMode: Image.PreserveAspectFit
             
@@ -28,7 +32,7 @@ Button {
         }
         Text {
             text: control.text
-            font: Theme.fontMedium
+            font: fontSize
             color: {
                 if (control.variantDestructive) return "#ffffff"
                 if (control.variantOutline) return Theme.foreground

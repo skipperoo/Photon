@@ -373,6 +373,18 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
           &RawViewport::metadataChanged);
   connect(&m_engine, &RawEngine::orientationChanged, this,
           &RawViewport::orientationChanged);
+  connect(&m_engine, &RawEngine::cropRectChanged, this,
+          &RawViewport::cropRectChanged);
+  connect(&m_engine, &RawEngine::cropAspectRatioChanged, this,
+          &RawViewport::cropAspectRatioChanged);
+  connect(&m_engine, &RawEngine::straightenAngleChanged, this,
+          &RawViewport::straightenAngleChanged);
+  connect(&m_engine, &RawEngine::orientationStepsChanged, this,
+          &RawViewport::orientationStepsChanged);
+  connect(&m_engine, &RawEngine::flipHorizontalChanged, this,
+          &RawViewport::flipHorizontalChanged);
+  connect(&m_engine, &RawEngine::flipVerticalChanged, this,
+          &RawViewport::flipVerticalChanged);
 
   // History Connections
   connect(&m_engine, &RawEngine::editStackChanged, this,

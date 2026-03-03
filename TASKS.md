@@ -349,12 +349,37 @@
   - [x] Library and filmstrip both read/write the same properties; sort order stays in sync.
   - [x] App.qml `refreshFiles()` applies identical sort logic (Name/Date/Rating, asc/desc).
 
+## Phase 30: Crop & Geometry [DONE]
+
+- [x] **Backend Q_PROPERTYs**
+  - [x] `cropRect` (QRectF), `cropAspectRatio` (float), `straightenAngle` (float ±45°), `orientationSteps` (int 0–3), `flipHorizontal`/`flipVertical` (bool) on RawEngine → RawViewport.
+  - [x] Added to `stateToJson()`, `applyJsonToState()`, `resetToDefaults()`.
+- [x] **CropPanel.qml**
+  - [x] Aspect ratio preset grid (Free, Original, 1:1, 5:4, 4:3, 3:2, 16:9, 21:9, 65:24).
+  - [x] Landscape/portrait toggle (click active preset).
+  - [x] Straighten slider ±45° with reset button.
+  - [x] Straighten tool (ruler icon) — draw reference line to auto-level.
+  - [x] Rotate Left/Right (90° steps), Flip Horizontal/Vertical toggles.
+  - [x] Reset all crop/geometry button.
+- [x] **CropOverlay.qml**
+  - [x] Semi-transparent dark mask outside crop rect.
+  - [x] Rule of Thirds grid lines.
+  - [x] 8 drag handles (corners + edges) for resize with aspect ratio lock.
+  - [x] Center drag to move crop rect.
+  - [x] Straighten tool Canvas overlay with dashed reference line.
+- [x] **Visual Transforms**
+  - [x] QML `Rotation` + `Scale` transforms on ShaderEffect for orientationSteps, straighten, flip.
+- [x] **Export Integration**
+  - [x] `ImageDeveloper::develop()` applies orientation steps → flip → straighten (auto-crop) → crop rect.
+- [x] **Icons**
+  - [x] Lucide SVGs: rotate-cw, flip-horizontal, flip-vertical, ruler.
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md and TASKS.md.
+
 ## Backlog / Future
 
-- [ ] **Crop & Transform**
-  - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
-  - [ ] Straighten tool and arbitrary rotation.
-  - [ ] Perspective correction.
+- [ ] **Perspective Correction**
+  - [ ] Keystone/perspective transform controls.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Multi-image batch processing.

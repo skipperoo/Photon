@@ -137,7 +137,7 @@ The right panel is divided into two parts: a **Tool Stack** (320px) and a **Sect
    - A slim vertical bar on the far right containing Lucide icons for high-level mode switching.
    - **Metadata** (Info icon): Extensive EXIF and image info.
    - **Edit** (Settings icon): The primary adjustment sliders.
-   - **Crop** (Crop icon): Aspect ratio and rotation tools.
+   - **Crop** (Crop icon): Crop, rotation, and geometry tools.
    - **Lens** (Telescope icon): Lens correction and distortion management.
    - **Presets** (Bookmark icon): User-saved adjustment states.
    - **Export** (Download icon): High-quality export options (JPEG/TIFF).
@@ -163,6 +163,39 @@ The right panel is divided into two parts: a **Tool Stack** (320px) and a **Sect
    - **Effects Section:** Grain (Amount/Size/Roughness), Vignette (Amount/Midpoint/Roundness/Feather).
    - **Creative Section:** Clarity, Dehaze, Structure, Centre.
    - **Detail Section:** Sharpness, Masking (Scharr edge detection), Feather, Focus Detection.
+
+### Crop & Geometry (Phase 30)
+
+Non-destructive crop and geometry transformations:
+
+1. **Data Model (Q_PROPERTYs on RawEngine → RawViewport):**
+   - `cropRect` (QRectF, default `0,0,1,1`): Normalized crop rectangle.
+   - `cropAspectRatio` (float): `-1` = free, `0` = original, `>0` = locked ratio (W/H).
+   - `straightenAngle` (float, ±45°): Fine rotation for leveling horizons.
+   - `orientationSteps` (int, 0–3): 90° CW rotation increments.
+   - `flipHorizontal` / `flipVertical` (bool): Mirror transforms.
+
+2. **CropPanel.qml (Sidebar, slot 2 in StackLayout):**
+   - **Aspect Ratio:** 3-column grid of presets (Free, Original, 1:1, 5:4, 4:3, 3:2, 16:9, 21:9, 65:24). Clicking the active preset toggles landscape ↔ portrait.
+   - **Straighten:** ±45° slider + readout. Ruler icon activates the **Straighten Tool** (draw a reference line on the viewport; if angle ≤ 45° from horizontal → align to horizontal, else → align to vertical). Reset button.
+   - **Orientation:** 2×2 grid — Rotate Left/Right (90° steps), Flip Horizontal/Vertical (toggle with accent highlight).
+
+3. **CropOverlay.qml (Viewport overlay):**
+   - Visible only when Crop panel is active (`activeSidebar === 2`).
+   - Semi-transparent dark mask outside crop rect, white border with Rule of Thirds grid.
+   - 8 drag handles (4 corners + 4 edges) for resizing; center drag to move.
+   - Aspect ratio constraint enforced during handle drag when ratio is locked.
+   - Straighten tool: Canvas overlay draws a dashed reference line during drag, computes and applies correction angle on release.
+
+4. **Visual Transforms (QML only, no shader changes):**
+   - `orientationSteps × 90° + straightenAngle` applied as `Rotation` transform on ShaderEffect.
+   - `flipHorizontal`/`flipVertical` applied as `Scale` transform on ShaderEffect.
+
+5. **Export Integration (ImageDeveloper::develop):**
+   - Applied after all color processing, in order: orientation steps → flip → straighten (with auto-crop of black borders) → crop rect extraction.
+   - Straighten auto-crop uses `cos(θ) + sin(θ)` factor to compute largest inscribed rectangle.
+
+6. **JSON Serialization:** All properties stored in sidecar JSON, round-tripped through `stateToJson`/`applyJsonToState`/`resetToDefaults`.
 
 ### Multi-Selection & Asset Management (Phase 14)
 

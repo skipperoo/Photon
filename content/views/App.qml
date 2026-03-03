@@ -145,6 +145,16 @@ Window {
         Shortcut { sequence: "Right"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(1) }
         Shortcut { sequence: "\\"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
         Shortcut { sequence: "B"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
+
+        // Crop panel: ESC to discard, Enter to apply
+        Shortcut {
+            sequence: "Escape"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
+            onActivated: cropPanel.discardCrop()
+        }
+        Shortcut {
+            sequence: "Return"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
+            onActivated: cropPanel.applyCrop()
+        }
     }
 
     // --- Main Layout ---
@@ -227,6 +237,7 @@ Window {
                             id: rawViewport
                             anchors.fill: parent
                             anchors.margins: 2
+                            anchors.bottomMargin: 38
                             source: AppState.currentImage
                             visible: true
                         }
@@ -264,8 +275,30 @@ Window {
                             smooth: false
                         }
 
-                        ShaderEffect {
+                        // Clipped transform container for visual rotation/flip
+                        Item {
+                            id: shaderClip
                             anchors.fill: rawViewport
+                            clip: true
+
+                            ShaderEffect {
+                                id: shaderFx
+                                anchors.fill: parent
+
+                                transform: [
+                                    Scale {
+                                        origin.x: shaderFx.width / 2
+                                        origin.y: shaderFx.height / 2
+                                        xScale: rawViewport.flipHorizontal ? -1 : 1
+                                        yScale: rawViewport.flipVertical ? -1 : 1
+                                    },
+                                    Rotation {
+                                        origin.x: shaderFx.width / 2
+                                        origin.y: shaderFx.height / 2
+                                        angle: rawViewport.orientationSteps * 90 + rawViewport.straightenAngle
+                                    }
+                                ]
+
                             property variant source: ShaderEffectSource { 
                                 sourceItem: rawViewport
                                 hideSource: true
@@ -355,6 +388,17 @@ Window {
                             property real cgBlending: rawViewport.cgBlending
                             
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
+                            }
+                        } // shaderClip
+
+                        // Crop overlay (axis-aligned, outside transform group)
+                        CropOverlay {
+                            id: cropOverlay
+                            anchors.fill: rawViewport
+                            viewport: rawViewport
+                            active: developLayout.activeSidebar === 2
+                            straightenToolActive: cropPanel.straightenToolActive
+                            onStraightenFinished: cropPanel.straightenToolActive = false
                         }
 
                         // Interaction Layer
@@ -651,10 +695,12 @@ Window {
                                 }
 
                                 // 2: Crop
-                                Rectangle {
-                                    color: Theme.background
-                                    Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
-                                    Text { anchors.centerIn: parent; text: "Crop & Transform (Coming Soon)"; color: Theme.mutedFg }
+                                CropPanel {
+                                    id: cropPanel
+                                    viewport: rawViewport
+                                    viewTopPadding: 10
+                                    onCropConfirmed: developLayout.activeSidebar = 1
+                                    onCropDiscarded: developLayout.activeSidebar = 1
                                 }
 
                                 // 3: Lens

@@ -334,6 +334,21 @@
 - [x] Before/after view + keybind to `\`
 - [x] Return to WelcomeView to change workspace
 
+## Phase 29: Stability Fixes & Filmstrip Sort Sync [DONE]
+
+- [x] **Preview Task Serialization**
+  - [x] Prevent overlapping `refreshPreview()` tasks in PreviewManager (guards: `m_refreshRunning` / `m_pendingRefreshPath`).
+  - [x] Fixes segfault caused by concurrent `develop()` + `denoise()` pipelines competing for global thread pool.
+- [x] **Histogram Buffer Safety**
+  - [x] `clearProcessedImage()` waits for in-flight histogram `QtConcurrent::run` future before freeing `m_processedImage`.
+- [x] **Spline LUT Hardening**
+  - [x] `evalMonotonicSpline` / `evalMonotonicSplineLut` sort control points by X and deduplicate before evaluation.
+  - [x] Prevents NaN/inf from unsorted or duplicate-X points in malformed JSON.
+- [x] **Filmstrip Sort Sync**
+  - [x] Sort properties (`sortProperty`, `sortAscending`) moved to shared `window` root object.
+  - [x] Library and filmstrip both read/write the same properties; sort order stays in sync.
+  - [x] App.qml `refreshFiles()` applies identical sort logic (Name/Date/Rating, asc/desc).
+
 ## Backlog / Future
 
 - [ ] **Crop & Transform**

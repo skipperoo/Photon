@@ -146,6 +146,31 @@ static std::vector<float> evalMonotonicSplineLut(const QVariantList& pts,
     xs[i] = m["x"].toDouble();
     ys[i] = m["y"].toDouble();
   }
+
+  // Sort by X and remove duplicates (keep last Y for each X)
+  std::vector<int> idx(n);
+  std::iota(idx.begin(), idx.end(), 0);
+  std::sort(idx.begin(), idx.end(),
+            [&](int a, int b) { return xs[a] < xs[b]; });
+  std::vector<double> sxs, sys;
+  sxs.reserve(n);
+  sys.reserve(n);
+  for (int i : idx) {
+    if (!sxs.empty() && std::abs(xs[i] - sxs.back()) < 1e-12)
+      sys.back() = ys[i];
+    else {
+      sxs.push_back(xs[i]);
+      sys.push_back(ys[i]);
+    }
+  }
+  xs = std::move(sxs);
+  ys = std::move(sys);
+  n = static_cast<int>(xs.size());
+  if (n < 2) {
+    for (int i = 0; i < lutSize; i++) lut[i] = float(i) / (lutSize - 1);
+    return lut;
+  }
+
   std::vector<double> delta(n - 1);
   for (int i = 0; i < n - 1; i++) {
     double dx = xs[i + 1] - xs[i];

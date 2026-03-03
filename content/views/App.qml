@@ -18,6 +18,10 @@ Window {
     property bool altKeyPressed: KeyTracker.altPressed
     property bool showOriginal: false
 
+    // Sort settings shared between library and filmstrip
+    property int sortProperty: 0      // 0: Name, 1: Date, 2: Rating
+    property bool sortAscending: true
+
     // File scanner for finding RAW files in the current folder
     FileScanner {
         id: fileScanner
@@ -43,6 +47,22 @@ Window {
         
         // Scan for RAW files in the current folder
         var files = fileScanner.scanForRawFiles(AppState.currentFolder);
+        if (!files) return;
+
+        // Sort to match library view order
+        var dir = window.sortAscending ? 1 : -1;
+        files.sort(function(a, b) {
+            switch (window.sortProperty) {
+                case 0: return dir * a.name.localeCompare(b.name);
+                case 1:
+                    if (a.modified < b.modified) return -dir;
+                    if (a.modified > b.modified) return dir;
+                    return 0;
+                case 2: return dir * ((a.rating || 0) - (b.rating || 0));
+                default: return 0;
+            }
+        });
+
         for (var i = 0; i < files.length; i++) {
             var file = files[i];
             rawFilesModel.append({
@@ -108,6 +128,9 @@ Window {
             refreshFiles();
         }
     }
+
+    onSortPropertyChanged: refreshFiles()
+    onSortAscendingChanged: refreshFiles()
 
     // Global keyboard shortcuts for rating and navigation
     Item {
@@ -937,9 +960,23 @@ Window {
                 // Navigation Controls
                 RowLayout {
                     spacing: 4
+
+                    // Home button to return to Welcome view
+                    PhotonButton {
+                        text: "Home"
+                        icon.source: "qrc:/Main/assets/icons/home.svg"
+                        icon.color: Theme.foreground
+                        icon.width: 18; icon.height: 18
+                        variantOutline: true
+                        onClicked: AppState.setCurrentView(AppState.ViewState.Welcome)
+                        Layout.preferredWidth: 100
+                    }
                     
                     PhotonButton {
                         text: "Library"
+                        icon.source: "qrc:/Main/assets/icons/library.svg"
+                        icon.color: AppState.currentView === AppState.ViewState.Library ? Theme.background : Theme.foreground
+                        icon.width: 18; icon.height: 18
                         Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Library)
                         variantOutline: AppState.currentView !== AppState.ViewState.Library
@@ -953,6 +990,9 @@ Window {
 
                     PhotonButton {
                         text: "Develop"
+                        icon.source: "qrc:/Main/assets/icons/tube.svg"
+                        icon.color: Theme.foreground
+                        icon.width: 18; icon.height: 18
                         Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Develop)
                         variantOutline: AppState.currentView !== AppState.ViewState.Develop
@@ -966,6 +1006,9 @@ Window {
 
                     PhotonButton {
                         text: "Settings"
+                        icon.source: "qrc:/Main/assets/icons/settings.svg"
+                        icon.color: AppState.currentView === AppState.ViewState.Settings ? Theme.background : Theme.foreground
+                        icon.width: 18; icon.height: 18
                         Layout.preferredWidth: 100
                         onClicked: AppState.setCurrentView(AppState.ViewState.Settings)
                         variantOutline: AppState.currentView !== AppState.ViewState.Settings

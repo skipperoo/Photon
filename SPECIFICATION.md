@@ -202,6 +202,8 @@ To ensure zero-latency feedback when switching photos, Photon implements a backg
    - Edits are committed to an image (debounced via a 2-second timer to coalesce rapid edits).
    - The sidecar JSON timestamp is newer than the cached preview.
    - **Thread Safety:** Preview generation runs on a `QThreadPool` with `idealThreadCount/2` workers. GPU search (`GpuSearcher`) is skipped in preview tasks (passes `nullptr` for QRhi) because QRhi is not thread-safe — concurrent access from thread pool + render thread would cause corruption. CPU-only denoise matching is used instead, which is adequate for half-size preview images.
+   - **Serialized Refresh Tasks:** Single-image preview refreshes (triggered by edit commits) are serialized via `m_refreshRunning` / `m_pendingRefreshPath` guards. Only one refresh task runs at a time; if a new request arrives while one is in progress, it is queued and dispatched when the current task completes. This prevents concurrent `ImageDeveloper::develop()` + `Denoiser::denoise()` pipelines from competing for the global `QThreadPool` and exhausting memory (~150MB+ per task for a 6MP image with BM3D denoise).
+   - **Histogram Buffer Safety:** `clearProcessedImage()` waits for any in-flight histogram `QtConcurrent::run` task to complete before freeing `m_processedImage`, preventing use-after-free when switching photos while the histogram is computing.
 
 #### Async Preview Loading with Image Swap (Phase 17)
 
@@ -320,6 +322,7 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 - [x] **Content:** Horizontal scrollable list of thumbnails from the current folder.
 - [x] **Sync:** Highlighted thumbnail matches the main Viewport image.
 - [x] **Navigation:** Left/Right Arrow keys move selection.
+- [x] **Sort Sync:** Filmstrip sort order mirrors the Library view's sort settings (Name/Date/Rating, ascending/descending). Sort properties are shared via the `window` root object so changes in either view propagate immediately.
 
 ### D. Presets Panel (Left - Collapsible)
 

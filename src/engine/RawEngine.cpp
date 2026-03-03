@@ -12,6 +12,7 @@
 #include <QRgba64>
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <vector>
 
 #include "../managers/AppStateManager.h"
@@ -1097,12 +1098,36 @@ std::vector<float> RawEngine::evalMonotonicSpline(const QVariantList& pts,
     return lut;
   }
 
-  // Extract sorted control points
+  // Extract control points
   std::vector<double> xs(n), ys(n);
   for (int i = 0; i < n; i++) {
     auto m = pts[i].toMap();
     xs[i] = m["x"].toDouble();
     ys[i] = m["y"].toDouble();
+  }
+
+  // Sort by X and remove duplicates (keep last Y for each X)
+  std::vector<int> idx(n);
+  std::iota(idx.begin(), idx.end(), 0);
+  std::sort(idx.begin(), idx.end(),
+            [&](int a, int b) { return xs[a] < xs[b]; });
+  std::vector<double> sxs, sys;
+  sxs.reserve(n);
+  sys.reserve(n);
+  for (int i : idx) {
+    if (!sxs.empty() && std::abs(xs[i] - sxs.back()) < 1e-12)
+      sys.back() = ys[i];  // duplicate X — update Y
+    else {
+      sxs.push_back(xs[i]);
+      sys.push_back(ys[i]);
+    }
+  }
+  xs = std::move(sxs);
+  ys = std::move(sys);
+  n = static_cast<int>(xs.size());
+  if (n < 2) {
+    for (int i = 0; i < lutSize; i++) lut[i] = float(i) / (lutSize - 1);
+    return lut;
   }
 
   // Compute slopes between consecutive points

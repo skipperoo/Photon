@@ -170,6 +170,7 @@ qt_add_qml_module(Photon
         assets/icons/bookmark.svg
         assets/icons/library.svg
         assets/icons/gear.svg
+        assets/icons/tube.svg
         assets/icons/trash.svg
         assets/icons/download.svg
         assets/icons/folder.svg

@@ -10,8 +10,8 @@ Control {
     property int ratingFilter: 0
     property int ratingOperator: 2 // 0: =, 1: >, 2: >=, 3: <, 4: <=
     readonly property var operatorLabels: ["=", ">", "≥", "<", "≤"]
-    property int sortProperty: 0  // 0: Name, 1: Date, 2: Rating
-    property bool sortAscending: true
+    property int sortProperty: window.sortProperty
+    property bool sortAscending: window.sortAscending
     readonly property var sortLabels: ["Name", "Date", "Rating"]
 
     background: Rectangle {
@@ -263,7 +263,7 @@ Control {
                                     text: modelData
                                     variantOutline: root.sortProperty !== index
                                     Layout.fillWidth: true
-                                    onClicked: root.sortProperty = index
+                                    onClicked: window.sortProperty = index
                                 }
                             }
                         }
@@ -276,13 +276,13 @@ Control {
                                 text: "↑ Ascending"
                                 variantOutline: !root.sortAscending
                                 Layout.fillWidth: true
-                                onClicked: root.sortAscending = true
+                                onClicked: window.sortAscending = true
                             }
                             PhotonButton {
                                 text: "↓ Descending"
                                 variantOutline: root.sortAscending
                                 Layout.fillWidth: true
-                                onClicked: root.sortAscending = false
+                                onClicked: window.sortAscending = false
                             }
                         }
                     }
@@ -309,19 +309,19 @@ Control {
         // --- Central Grid ---
         GridView {
             id: grid
-            Layout.fillWidth: true
+            width: parent.width
             Layout.fillHeight: true
-            cellWidth: 220
-            cellHeight: 200
+            Layout.preferredWidth: Math.floor(parent.width / cellWidth) * cellWidth
+            Layout.alignment: Qt.AlignHCenter
+            cellWidth: 440
+            cellHeight: 400
             clip: true
-            ScrollBar.vertical: PhotonScrollBar {}
+            // ScrollBar.vertical: PhotonScrollBar {}
 
             model: rawFilesModel
 
             delegate: Item {
-                width: 220
-                height: 200
-
+                width: grid.cellWidth; height: grid.cellHeight
                 property bool isSelected: AppState.selectedImages.indexOf(model.path) !== -1
                 property int itemRating: (model && typeof model.rating !== 'undefined') ? model.rating : 0
 

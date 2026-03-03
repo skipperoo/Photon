@@ -323,7 +323,7 @@
   - [x] Monotonic cubic Hermite spline (Fritsch-Carlson) for smooth curves.
   - [x] 4 × QVariantList Q_PROPERTYs: `toneCurveLuma/Red/Green/Blue`.
   - [x] C++ spline→256-entry LUT computation in `RawEngine::rebuildToneLut()`.
-  - [x] 256×1 RGBA `QImage` LUT texture via `ToneLutProvider` image provider.
+  - [x] 256×4 `QImage` LUT texture (one row per channel) via `ToneLutProvider` image provider.
   - [x] `sampler2D toneLUT` in fragment shader, applied after tonemapping.
   - [x] Luma curve applied as ratio to preserve color relationships.
   - [x] Per-channel (R/G/B) curves applied independently.

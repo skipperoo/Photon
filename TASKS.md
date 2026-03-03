@@ -331,12 +331,11 @@
   - [x] Collapsible "Tone Curve" section after "Light" in DevelopView.
 - [x] **Documentation**
   - [x] Updated SPECIFICATION.md and TASKS.md.
+- [x] Before/after view + keybind to `\`
+- [x] Return to WelcomeView to change workspace
 
 ## Backlog / Future
 
-- [ ] **Usability**
-  - [ ] Before/after view + keybind to `\`
-  - [ ] Add change workspace button to the Library view
 - [ ] **Crop & Transform**
   - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
   - [ ] Straighten tool and arbitrary rotation.

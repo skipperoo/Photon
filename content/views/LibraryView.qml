@@ -10,7 +10,7 @@ Control {
     property int ratingFilter: 0
     property int ratingOperator: 2 // 0: =, 1: >, 2: >=, 3: <, 4: <=
     readonly property var operatorLabels: ["=", ">", "≥", "<", "≤"]
-    property int sortProperty: 1  // 0: Date, 1: Name, 2: Rating
+    property int sortProperty: 0  // 0: Name, 1: Date, 2: Rating
     property bool sortAscending: true
     readonly property var sortLabels: ["Name", "Date", "Rating"]
 

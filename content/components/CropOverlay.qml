@@ -20,11 +20,63 @@ Item {
     visible: (active || showPreview) && imageRect.width > 0
     z: active ? 10 : (showPreview ? 5 : -1)
 
-    // Map normalized crop (0–1) to pixel coords within imageRect
-    readonly property real imgX: imageRect.x
-    readonly property real imgY: imageRect.y
-    readonly property real imgW: imageRect.width
-    readonly property real imgH: imageRect.height
+    // Display rect: the usable image area on screen after QML transforms.
+    // For 90° steps + flip: exact rotated/mirrored position.
+    // For straighten: shrinks by the auto-crop factor (inscribed rectangle),
+    // matching the bake pipeline's cos(θ)+sin(θ) formula.
+    readonly property rect displayRect: {
+        var ir = imageRect;
+        if (!viewport || viewport.geometryBaked) return ir;
+
+        var steps = viewport.orientationSteps % 4;
+        var fH = viewport.flipHorizontal || false;
+        var fV = viewport.flipVertical || false;
+        var straighten = viewport.straightenAngle || 0;
+
+        if (steps === 0 && !fH && !fV && Math.abs(straighten) < 0.01) return ir;
+
+        var cx = root.width / 2;
+        var cy = root.height / 2;
+
+        // Step 1: Apply 90° rotation steps to imageRect
+        var rx = ir.x, ry = ir.y, rw = ir.width, rh = ir.height;
+        if (steps === 1) { // 90° CW
+            rx = cx + cy - ir.y - ir.height;
+            ry = ir.x - cx + cy;
+            rw = ir.height; rh = ir.width;
+        } else if (steps === 2) { // 180°
+            rx = 2*cx - ir.x - ir.width;
+            ry = 2*cy - ir.y - ir.height;
+        } else if (steps === 3) { // 270° CW
+            rx = cx + ir.y - cy;
+            ry = cx + cy - ir.x - ir.width;
+            rw = ir.height; rh = ir.width;
+        }
+
+        // Step 2: Apply flip around viewport center
+        if (fH) rx = 2 * cx - rx - rw;
+        if (fV) ry = 2 * cy - ry - rh;
+
+        // Step 3: Shrink for straighten auto-crop (inscribed rectangle)
+        if (Math.abs(straighten) > 0.01) {
+            var rad = Math.abs(straighten) * Math.PI / 180;
+            var factor = Math.cos(rad) + Math.sin(rad);
+            var newW = rw / factor;
+            var newH = rh / factor;
+            rx += (rw - newW) / 2;
+            ry += (rh - newH) / 2;
+            rw = newW;
+            rh = newH;
+        }
+
+        return Qt.rect(rx, ry, rw, rh);
+    }
+
+    // Map normalized crop (0–1) to pixel coords within displayRect
+    readonly property real imgX: displayRect.x
+    readonly property real imgY: displayRect.y
+    readonly property real imgW: displayRect.width
+    readonly property real imgH: displayRect.height
 
     readonly property rect cropRect: viewport ? viewport.cropRect : Qt.rect(0, 0, 1, 1)
     readonly property real cropX: imgX + cropRect.x * imgW

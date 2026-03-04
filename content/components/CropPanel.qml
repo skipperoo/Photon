@@ -76,6 +76,11 @@ Control {
         // So cw/ch = ratio * srcH / srcW = ratio / srcAspect
         var srcW = root.viewport ? root.viewport.sourceWidth : 1;
         var srcH = root.viewport ? root.viewport.sourceHeight : 1;
+        // Account for orientation swapping effective dimensions
+        var steps = root.viewport ? (root.viewport.orientationSteps % 4) : 0;
+        if (steps === 1 || steps === 3) {
+            var tmp = srcW; srcW = srcH; srcH = tmp;
+        }
         var srcAspect = srcW / srcH;
         var normRatio = ratio / srcAspect; // cw/ch in normalized space
         var cw, ch;
@@ -112,6 +117,18 @@ Control {
         if (!root.viewport) return;
         root.viewport.commitEdit();
         root.cropConfirmed();
+    }
+
+    // Recompute crop rect when orientation changes so it fits the new effective dimensions
+    Connections {
+        target: root.viewport
+        function onOrientationStepsChanged() {
+            if (!root.viewport) return;
+            var ratio = root.viewport.cropAspectRatio;
+            if (ratio > 0) {
+                root.viewport.cropRect = root.computeCropForRatio(ratio);
+            }
+        }
     }
 
     background: Rectangle {

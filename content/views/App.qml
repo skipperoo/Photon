@@ -149,11 +149,19 @@ Window {
         // Crop panel: ESC to discard, Enter to apply
         Shortcut {
             sequence: "Escape"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
-            onActivated: cropPanel.discardCrop()
+            onActivated: {
+                cropPanel.discardCrop()
+                rawViewport.exitCropMode()
+                developLayout.activeSidebar = 1  // Back to Edit panel
+            }
         }
         Shortcut {
             sequence: "Return"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
-            onActivated: cropPanel.applyCrop()
+            onActivated: {
+                cropPanel.applyCrop()
+                rawViewport.reloadWithGeometry()
+                developLayout.activeSidebar = 1  // Back to Edit panel
+            }
         }
     }
 
@@ -285,17 +293,18 @@ Window {
                                 id: shaderFx
                                 anchors.fill: parent
 
+                                // Visual transforms: neutral when geometry is baked into pixels
                                 transform: [
                                     Scale {
                                         origin.x: shaderFx.width / 2
                                         origin.y: shaderFx.height / 2
-                                        xScale: rawViewport.flipHorizontal ? -1 : 1
-                                        yScale: rawViewport.flipVertical ? -1 : 1
+                                        xScale: (!rawViewport.geometryBaked && rawViewport.flipHorizontal) ? -1 : 1
+                                        yScale: (!rawViewport.geometryBaked && rawViewport.flipVertical) ? -1 : 1
                                     },
                                     Rotation {
                                         origin.x: shaderFx.width / 2
                                         origin.y: shaderFx.height / 2
-                                        angle: rawViewport.orientationSteps * 90 + rawViewport.straightenAngle
+                                        angle: rawViewport.geometryBaked ? 0 : (rawViewport.orientationSteps * 90 + rawViewport.straightenAngle)
                                     }
                                 ]
 
@@ -752,7 +761,16 @@ Window {
                                             Layout.preferredHeight: 48
                                             flat: true
                                             onClicked: {
-                                                if (modelData.index === 2) cropPanel.saveEntryState();
+                                                // Leaving crop mode without committing
+                                                if (developLayout.activeSidebar === 2 && modelData.index !== 2) {
+                                                    cropPanel.discardCrop();
+                                                    rawViewport.exitCropMode();
+                                                }
+                                                // Entering crop mode
+                                                if (modelData.index === 2) {
+                                                    cropPanel.saveEntryState();
+                                                    rawViewport.enterCropMode();
+                                                }
                                                 developLayout.activeSidebar = modelData.index;
                                             }
                                             

@@ -361,8 +361,9 @@
   - [x] Straighten tool (ruler icon) — draw reference line to auto-level.
   - [x] Rotate Left/Right (90° steps), Flip Horizontal/Vertical toggles.
   - [x] Reset all crop/geometry button.
+  - [x] Commit-on-Enter: changes saved to engine only on Enter; ESC discards.
 - [x] **CropOverlay.qml**
-  - [x] Semi-transparent dark mask outside crop rect.
+  - [x] Semi-transparent dark mask outside crop rect (50% in crop mode, 100% otherwise).
   - [x] Rule of Thirds grid lines.
   - [x] 8 drag handles (corners + edges) for resize with aspect ratio lock.
   - [x] Center drag to move crop rect.
@@ -373,8 +374,43 @@
   - [x] `ImageDeveloper::develop()` applies orientation steps → flip → straighten (auto-crop) → crop rect.
 - [x] **Icons**
   - [x] Lucide SVGs: rotate-cw, flip-horizontal, flip-vertical, ruler.
+- [x] **isDefault() & resetToDefaults()**
+  - [x] Crop and geometry properties included in both.
 - [x] **Documentation**
   - [x] Updated SPECIFICATION.md and TASKS.md.
+
+## Phase 31: Baked Geometry Pipeline [DONE]
+
+- [x] **Engine Infrastructure**
+  - [x] Add `m_geometryBuffer`, `m_geometryWidth`, `m_geometryHeight`, `m_geometryBaked`, `m_inCropMode` state to `RawEngine`.
+  - [x] Add `Q_PROPERTY(bool geometryBaked)` exposed to QML.
+  - [x] Add `QFutureWatcher<void> m_geometryLoadWatcher` for async geometry baking.
+- [x] **`applyGeometryTransforms()` Static Utility**
+  - [x] Reusable `QImage` transform: orientation (N×90°) → flip → straighten (auto-crop inscribed rect) → crop.
+  - [x] Transform order matches `ImageDeveloper::develop()`.
+- [x] **`reloadWithGeometry()`**
+  - [x] Async re-decode RAW from disk → apply geometry → store in `m_geometryBuffer`.
+  - [x] Sets `geometryBaked = true`, emits `imageLoaded`.
+- [x] **`enterCropMode()` / `exitCropMode()`**
+  - [x] Enter: clears geometry bake, re-processes original image for live QML preview.
+  - [x] Exit (ESC): re-bakes geometry if non-default; returns to develop panel.
+- [x] **`getProcessedData()` Integration**
+  - [x] Returns `m_geometryBuffer` when geometry is baked, otherwise existing pipeline.
+- [x] **RawViewport Bridge**
+  - [x] `geometryBaked` Q_PROPERTY, `geometryBakedChanged` signal.
+  - [x] `Q_INVOKABLE reloadWithGeometry()`, `enterCropMode()`, `exitCropMode()`.
+  - [x] `updatePaintNode()` syncs `m_imageWidth`/`m_imageHeight` when buffer dimensions change.
+- [x] **QML Integration**
+  - [x] ShaderEffect transforms conditional on `!geometryBaked` (neutral when baked).
+  - [x] Enter → `commitEdit()` + `reloadWithGeometry()` + switch to Edit panel.
+  - [x] ESC → `discardCrop()` + `exitCropMode()`.
+  - [x] Sidebar button clicks call `enterCropMode()`/`exitCropMode()` appropriately.
+- [x] **Undo/Redo & Reset**
+  - [x] Undo/redo outside crop mode re-bakes geometry when properties changed.
+  - [x] `resetToOriginal()` clears geometry bake.
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md with baked geometry pipeline details.
+  - [x] Updated TASKS.md with Phase 31.
 
 ## Backlog / Future
 

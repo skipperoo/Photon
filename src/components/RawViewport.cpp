@@ -92,6 +92,8 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   });
   connect(&m_engine, &RawEngine::isDefaultChanged, this,
           &RawViewport::isDefaultChanged);
+  connect(&m_engine, &RawEngine::geometryBakedChanged, this,
+          &RawViewport::geometryBakedChanged);
 
   // Creative Connections
   connect(&m_engine, &RawEngine::grainAmountChanged, this, [this]() {
@@ -1021,6 +1023,16 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
       // Full resolution RAW data is ready - use it
       m_bufferWidth = width;
       m_bufferHeight = height;
+
+      // Update logical image dimensions when geometry changes actual size
+      if (m_imageWidth != width || m_imageHeight != height) {
+        m_imageWidth = width;
+        m_imageHeight = height;
+        QMetaObject::invokeMethod(
+            this, [this]() { emit sourceSizeChanged(); },
+            Qt::QueuedConnection);
+      }
+
       if (m_showingPreview) {
         m_showingPreview = false;
         QMetaObject::invokeMethod(

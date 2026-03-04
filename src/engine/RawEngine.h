@@ -212,6 +212,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
   Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
   Q_PROPERTY(bool isDefault READ isDefault NOTIFY isDefaultChanged)
+  Q_PROPERTY(bool geometryBaked READ geometryBaked NOTIFY geometryBakedChanged)
   Q_PROPERTY(QString previewPath READ previewPath NOTIFY previewPathChanged)
   Q_PROPERTY(QImage previewImage READ previewImage NOTIFY previewImageChanged)
 
@@ -488,6 +489,18 @@ class RawEngine : public QObject {
   bool canRedo() const { return m_editIndex < (int)m_editStack.size() - 1; }
   bool isDefault() const;
 
+  bool geometryBaked() const { return m_geometryBaked; }
+  bool hasNonDefaultGeometry() const;
+
+  // Geometry pipeline: bake orient/flip/straighten/crop into pixel buffer
+  void reloadWithGeometry();
+  void enterCropMode();
+  void exitCropMode();
+  static QImage applyGeometryTransforms(const QImage& input, int orientSteps,
+                                        bool flipH, bool flipV,
+                                        double straighten,
+                                        const QRectF& cropRect);
+
  signals:
   void sourceChanged();
   void exposureChanged();
@@ -592,6 +605,7 @@ class RawEngine : public QObject {
   void canUndoChanged();
   void canRedoChanged();
   void isDefaultChanged();
+  void geometryBakedChanged();
   void errorOccurred(const QString& error);
 
  private:
@@ -716,6 +730,13 @@ class RawEngine : public QObject {
   bool m_flipHorizontal = false;
   bool m_flipVertical = false;
 
+  // Geometry baking state
+  std::vector<uint8_t> m_geometryBuffer;
+  int m_geometryWidth = 0;
+  int m_geometryHeight = 0;
+  bool m_geometryBaked = false;
+  bool m_inCropMode = false;
+
   bool m_isLoading = false;
   bool m_isDenoising = false;
   bool m_isPanning = false;
@@ -739,6 +760,7 @@ class RawEngine : public QObject {
   QFutureWatcher<LoadResult> m_loadWatcher;
   QFutureWatcher<QImage> m_denoiseWatcher;
   QFutureWatcher<QImage> m_previewWatcher;
+  QFutureWatcher<LoadResult> m_geometryLoadWatcher;
   QFuture<void> m_histogramFuture;
 
   // Debounce timer for preview refresh (avoid piling up heavy tasks)

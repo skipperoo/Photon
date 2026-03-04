@@ -164,9 +164,9 @@ The right panel is divided into two parts: a **Tool Stack** (320px) and a **Sect
    - **Creative Section:** Clarity, Dehaze, Structure, Centre.
    - **Detail Section:** Sharpness, Masking (Scharr edge detection), Feather, Focus Detection.
 
-### Crop & Geometry (Phase 30)
+### Crop & Geometry (Phase 30–31)
 
-Non-destructive crop and geometry transformations:
+Non-destructive crop and geometry transformations with a **baked geometry pipeline** for pixel-accurate display.
 
 1. **Data Model (Q_PROPERTYs on RawEngine → RawViewport):**
    - `cropRect` (QRectF, default `0,0,1,1`): Normalized crop rectangle.
@@ -174,22 +174,30 @@ Non-destructive crop and geometry transformations:
    - `straightenAngle` (float, ±45°): Fine rotation for leveling horizons.
    - `orientationSteps` (int, 0–3): 90° CW rotation increments.
    - `flipHorizontal` / `flipVertical` (bool): Mirror transforms.
+   - `geometryBaked` (bool, read-only): Indicates the display buffer has geometry transforms baked in.
 
 2. **CropPanel.qml (Sidebar, slot 2 in StackLayout):**
    - **Aspect Ratio:** 3-column grid of presets (Free, Original, 1:1, 5:4, 4:3, 3:2, 16:9, 21:9, 65:24). Clicking the active preset toggles landscape ↔ portrait.
    - **Straighten:** ±45° slider + readout. Ruler icon activates the **Straighten Tool** (draw a reference line on the viewport; if angle ≤ 45° from horizontal → align to horizontal, else → align to vertical). Reset button.
    - **Orientation:** 2×2 grid — Rotate Left/Right (90° steps), Flip Horizontal/Vertical (toggle with accent highlight).
+   - **Commit-on-Enter:** Changes are previewed live via QML transforms; only committed to the engine (and JSON sidecar) when the user presses **Enter**. **ESC** discards uncommitted changes.
 
 3. **CropOverlay.qml (Viewport overlay):**
    - Visible only when Crop panel is active (`activeSidebar === 2`).
-   - Semi-transparent dark mask outside crop rect, white border with Rule of Thirds grid.
+   - Semi-transparent dark mask (50% opacity in crop mode, 100% outside) outside crop rect, white border with Rule of Thirds grid.
    - 8 drag handles (4 corners + 4 edges) for resizing; center drag to move.
    - Aspect ratio constraint enforced during handle drag when ratio is locked.
    - Straighten tool: Canvas overlay draws a dashed reference line during drag, computes and applies correction angle on release.
 
-4. **Visual Transforms (QML only, no shader changes):**
-   - `orientationSteps × 90° + straightenAngle` applied as `Rotation` transform on ShaderEffect.
-   - `flipHorizontal`/`flipVertical` applied as `Scale` transform on ShaderEffect.
+4. **Baked Geometry Pipeline (Phase 31):**
+   - **Commit (Enter):** Engine re-decodes the RAW from disk → converts to QImage → applies geometry transforms (orientation → flip → straighten with auto-crop → crop rect) → stores result in `m_geometryBuffer` → sets `geometryBaked = true` → emits `imageLoaded`. The viewport renders the pre-transformed image; QML transforms are set to neutral.
+   - **Enter Crop Mode:** Clears the geometry bake → triggers re-process of the original image → QML transforms re-enabled for live preview.
+   - **Exit Crop Mode (ESC):** Discards uncommitted changes → if geometry is non-default, re-bakes.
+   - **Undo/Redo:** Outside crop mode, geometry is re-baked when undo/redo changes geometry properties.
+   - **Reset to Defaults:** Clears geometry bake alongside all other properties.
+   - **Transform Order** (matches `ImageDeveloper::develop`): orientation steps (N × 90° `QTransform::rotate`) → flip (`QTransform::scale(-1, …)`) → straighten (`QTransform::rotate(angle)` + auto-crop inscribed rectangle via `cos(θ) + sin(θ)` factor) → crop rect extraction (`QImage::copy`).
+   - **`applyGeometryTransforms()`:** Static utility on `RawEngine`, reusable by both the bake pipeline and `ImageDeveloper`.
+   - **Dimension Sync:** `updatePaintNode()` detects when the geometry buffer has different dimensions from the original and updates `m_imageWidth`/`m_imageHeight` so `calculateTargetRect()` computes the correct aspect ratio.
 
 5. **Export Integration (ImageDeveloper::develop):**
    - Applied after all color processing, in order: orientation steps → flip → straighten (with auto-crop of black borders) → crop rect extraction.

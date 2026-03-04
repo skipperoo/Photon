@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QMutexLocker>
 #include <QRgba64>
+#include <QTransform>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -149,8 +150,39 @@ RawEngine::RawEngine(QObject* parent)
             if (res.success) {
               m_isLoaded = true;
               m_hasDenoisedResult = false;
+
+              // If sidecar had geometry, bake it now
+              if (hasNonDefaultGeometry() && !m_inCropMode) {
+                reloadWithGeometry();
+                return;
+              }
+
               requestHistogramUpdate();
-              if (m_denoiseAmount > 0.0f) {
+              if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
+                startAsyncDenoise();
+              }
+              emit imageLoaded();
+            }
+          });
+
+  connect(&m_geometryLoadWatcher, &QFutureWatcher<LoadResult>::finished, this,
+          [this]() {
+            auto res = m_geometryLoadWatcher.result();
+            if (res.id != m_currentLoadId) return;
+
+            m_isLoading = false;
+            emit isLoadingChanged();
+            if (res.success) {
+              m_isLoaded = true;
+              m_hasDenoisedResult = false;
+              if (m_geometryWidth > 0 && m_geometryHeight > 0) {
+                m_geometryBaked = true;
+              } else {
+                m_geometryBaked = false;
+              }
+              emit geometryBakedChanged();
+              requestHistogramUpdate();
+              if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
                 startAsyncDenoise();
               }
               emit imageLoaded();
@@ -291,6 +323,14 @@ void RawEngine::setSource(const QString& source) {
   m_exposure = 0.0f;
   m_contrast = 1.0f;
   m_hasDenoisedResult = false;
+
+  // Clear geometry bake state
+  m_geometryBaked = false;
+  m_geometryBuffer.clear();
+  m_geometryWidth = 0;
+  m_geometryHeight = 0;
+  m_inCropMode = false;
+  emit geometryBakedChanged();
 
   // Reset denoising state to prevent spinner showing when switching photos
   if (m_isDenoising) {
@@ -1721,6 +1761,22 @@ const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
 
   QMutexLocker locker(&m_processorMutex);
 
+  // If geometry is baked, return the transformed buffer
+  if (m_geometryBaked && !m_geometryBuffer.empty()) {
+    // Check for denoised result on the geometry buffer first
+    if (!m_isPanning && m_denoiseEnabled && m_hasDenoisedResult &&
+        m_denoiseAmount > 0.0f) {
+      width = m_denoisedWidth;
+      height = m_denoisedHeight;
+      colors = 4;
+      return m_denoisedBuffer.data();
+    }
+    width = m_geometryWidth;
+    height = m_geometryHeight;
+    colors = 4;  // RGBA64
+    return m_geometryBuffer.data();
+  }
+
   // If panning, always show the noisy developed image (or a proxy)
   if (!m_isPanning && m_denoiseEnabled && m_hasDenoisedResult &&
       m_denoiseAmount > 0.0f) {
@@ -2224,6 +2280,19 @@ void RawEngine::undo() {
   emit isDefaultChanged();
   requestHistogramUpdate();
 
+  // Re-bake geometry if not in crop mode
+  if (!m_inCropMode && hasNonDefaultGeometry()) {
+    reloadWithGeometry();
+  } else if (!m_inCropMode && m_geometryBaked) {
+    // Was baked but no longer has geometry
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+    emit imageLoaded();
+  }
+
   m_previewRefreshTimer.start();
 }
 
@@ -2237,6 +2306,18 @@ void RawEngine::redo() {
   emit isDefaultChanged();
   requestHistogramUpdate();
 
+  // Re-bake geometry if not in crop mode
+  if (!m_inCropMode && hasNonDefaultGeometry()) {
+    reloadWithGeometry();
+  } else if (!m_inCropMode && m_geometryBaked) {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+    emit imageLoaded();
+  }
+
   m_previewRefreshTimer.start();
 }
 
@@ -2247,8 +2328,26 @@ void RawEngine::applySettings(const QVariantMap& settings) {
 
 void RawEngine::resetToOriginal() {
   resetToDefaults(this);
+
+  // Clear geometry bake since all geometry is now default
+  if (m_geometryBaked) {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+  }
+
   commitEdit();
   emit isDefaultChanged();
+
+  // Force re-process to show clean original
+  {
+    QMutexLocker locker(&m_processorMutex);
+    clearProcessedImage();
+    updateProcessingParams();
+  }
+  emit imageLoaded();
 }
 
 bool RawEngine::isDefault() const {
@@ -2349,4 +2448,212 @@ bool RawEngine::isDefault() const {
   if (m_flipVertical) return false;
 
   return true;
+}
+
+bool RawEngine::hasNonDefaultGeometry() const {
+  if (m_orientationSteps != 0) return true;
+  if (m_flipHorizontal) return true;
+  if (m_flipVertical) return true;
+  if (std::abs(m_straightenAngle) > 0.01f) return true;
+  if (m_cropRect != QRectF(0, 0, 1, 1)) return true;
+  return false;
+}
+
+QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
+                                          bool flipH, bool flipV,
+                                          double straighten,
+                                          const QRectF& cropRect) {
+  QImage output = input;
+
+  // 1. Orientation steps (90° CW rotations)
+  orientSteps = ((orientSteps % 4) + 4) % 4;
+  if (orientSteps > 0) {
+    QTransform rot;
+    rot.rotate(orientSteps * 90.0);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+  }
+
+  // 2. Flip
+  if (flipH && flipV) {
+    output = output.transformed(QTransform().scale(-1, -1),
+                                Qt::SmoothTransformation);
+  } else if (flipH) {
+    output = output.transformed(QTransform().scale(-1, 1),
+                                Qt::SmoothTransformation);
+  } else if (flipV) {
+    output = output.transformed(QTransform().scale(1, -1),
+                                Qt::SmoothTransformation);
+  }
+
+  // 3. Straighten (fine rotation + auto-crop inscribed rectangle)
+  if (std::abs(straighten) > 0.01) {
+    QTransform rot;
+    rot.rotate(straighten);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+    int rw = output.width(), rh = output.height();
+    double rad = std::abs(straighten) * M_PI / 180.0;
+    double cosA = std::cos(rad), sinA = std::sin(rad);
+    double factor = cosA + sinA;
+    if (factor > 1e-6) {
+      int cw = static_cast<int>(rw / factor);
+      int ch = static_cast<int>(rh / factor);
+      int cx = (rw - cw) / 2;
+      int cy = (rh - ch) / 2;
+      if (cw > 0 && ch > 0 && cx >= 0 && cy >= 0)
+        output = output.copy(cx, cy, cw, ch);
+    }
+  }
+
+  // 4. Crop rect (normalized 0–1)
+  double cx = cropRect.x(), cy = cropRect.y();
+  double cw = cropRect.width(), ch = cropRect.height();
+  if (cx > 0.001 || cy > 0.001 || cw < 0.999 || ch < 0.999) {
+    int px = static_cast<int>(cx * output.width());
+    int py = static_cast<int>(cy * output.height());
+    int pw = static_cast<int>(cw * output.width());
+    int ph = static_cast<int>(ch * output.height());
+    pw = std::min(pw, output.width() - px);
+    ph = std::min(ph, output.height() - py);
+    if (pw > 0 && ph > 0) output = output.copy(px, py, pw, ph);
+  }
+
+  return output;
+}
+
+void RawEngine::reloadWithGeometry() {
+  if (m_source.isEmpty() || !m_isLoaded) return;
+
+  LogManager::instance()->log(
+      "[ RawEngine.cpp ] - reloadWithGeometry: re-decoding with geometry bake",
+      "DEBUG");
+
+  m_inCropMode = false;
+  m_isLoading = true;
+  emit isLoadingChanged();
+
+  QString path = m_source;
+  int loadId = ++m_currentLoadId;
+  int orientSteps = m_orientationSteps;
+  bool flipH = m_flipHorizontal;
+  bool flipV = m_flipVertical;
+  double straighten = m_straightenAngle;
+  QRectF crop = m_cropRect;
+  bool hasGeom = hasNonDefaultGeometry();
+
+  QFuture<LoadResult> future = QtConcurrent::run(
+      [this, path, loadId, orientSteps, flipH, flipV, straighten, crop,
+       hasGeom]() {
+        QMutexLocker locker(&m_processorMutex);
+        if (loadId != m_currentLoadId)
+          return LoadResult{false, loadId};
+
+        // Re-decode from RAW file
+        bool ok = loadRawFileSync(path, loadId);
+        if (!ok || loadId != m_currentLoadId)
+          return LoadResult{false, loadId};
+
+        if (!hasGeom) {
+          m_geometryBuffer.clear();
+          m_geometryWidth = 0;
+          m_geometryHeight = 0;
+          return LoadResult{true, loadId};
+        }
+
+        // Get processed image from LibRaw
+        if (!m_processedImage) {
+          int ret = m_processor->dcraw_process();
+          if (ret != LIBRAW_SUCCESS) return LoadResult{false, loadId};
+          m_processedImage = m_processor->dcraw_make_mem_image(&ret);
+          if (!m_processedImage) return LoadResult{false, loadId};
+        }
+
+        int w = m_processedImage->width;
+        int h = m_processedImage->height;
+        int colors = m_processedImage->colors;
+
+        // Convert LibRaw buffer to QImage
+        QImage srcImg;
+        if (colors == 3) {
+          srcImg = QImage(w, h, QImage::Format_RGBX64);
+          const ushort* src =
+              reinterpret_cast<const ushort*>(m_processedImage->data);
+          QRgba64* dst = reinterpret_cast<QRgba64*>(srcImg.bits());
+          for (int i = 0; i < w * h; ++i) {
+            dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1],
+                                          src[i * 3 + 2], 65535);
+          }
+        } else {
+          srcImg =
+              QImage(reinterpret_cast<const uchar*>(m_processedImage->data), w,
+                     h, QImage::Format_RGBA64)
+                  .copy();
+        }
+
+        // Apply geometry transforms
+        QImage transformed = applyGeometryTransforms(srcImg, orientSteps, flipH,
+                                                     flipV, straighten, crop);
+
+        // Convert back to RGBA64 buffer for getProcessedData
+        transformed = transformed.convertToFormat(QImage::Format_RGBA64);
+        int tw = transformed.width();
+        int th = transformed.height();
+        size_t bufSize = static_cast<size_t>(tw) * th * 8;
+        m_geometryBuffer.resize(bufSize);
+        memcpy(m_geometryBuffer.data(), transformed.constBits(), bufSize);
+        m_geometryWidth = tw;
+        m_geometryHeight = th;
+
+        return LoadResult{true, loadId};
+      });
+
+  m_geometryLoadWatcher.setFuture(future);
+}
+
+void RawEngine::enterCropMode() {
+  if (m_source.isEmpty() || !m_isLoaded) return;
+
+  LogManager::instance()->log(
+      "[ RawEngine.cpp ] - enterCropMode: showing full image for editing",
+      "DEBUG");
+
+  m_inCropMode = true;
+
+  // Clear geometry bake - show original image with QML transforms
+  if (m_geometryBaked) {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+  }
+
+  // Clear denoised result (will be re-run on original)
+  m_hasDenoisedResult = false;
+  emit denoisingFinished();
+
+  // Force re-process from LibRaw (clear cached processed image)
+  {
+    QMutexLocker locker(&m_processorMutex);
+    clearProcessedImage();
+    updateProcessingParams();
+  }
+
+  // Emit imageLoaded to trigger viewport refresh with original dimensions
+  emit imageLoaded();
+}
+
+void RawEngine::exitCropMode() {
+  LogManager::instance()->log(
+      "[ RawEngine.cpp ] - exitCropMode: re-baking geometry", "DEBUG");
+
+  m_inCropMode = false;
+
+  if (hasNonDefaultGeometry()) {
+    reloadWithGeometry();
+  } else {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    emit geometryBakedChanged();
+    emit imageLoaded();
+  }
 }

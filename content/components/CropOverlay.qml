@@ -249,11 +249,26 @@ Item {
                         }
                     }
 
-                    // Clamp to image bounds
-                    nx = Math.max(0, Math.min(nx, 1 - nw));
-                    ny = Math.max(0, Math.min(ny, 1 - nh));
-                    nw = Math.min(nw, 1 - nx);
-                    nh = Math.min(nh, 1 - ny);
+                    // Clamp to image bounds, preserving aspect ratio
+                    if (lockRatio) {
+                        var imgAR = root.imgW / root.imgH;
+                        var normR = ratio / imgAR;
+
+                        // Clamp size to fit within [0,1]
+                        if (nw > 1) { nw = 1; nh = nw / normR; }
+                        if (nh > 1) { nh = 1; nw = nh * normR; }
+
+                        // Clamp position, then re-check if size still fits
+                        if (nx < 0) nx = 0;
+                        if (ny < 0) ny = 0;
+                        if (nx + nw > 1) { nx = 1 - nw; if (nx < 0) { nx = 0; nw = 1; nh = nw / normR; } }
+                        if (ny + nh > 1) { ny = 1 - nh; if (ny < 0) { ny = 0; nh = 1; nw = nh * normR; } }
+                    } else {
+                        nx = Math.max(0, Math.min(nx, 1 - nw));
+                        ny = Math.max(0, Math.min(ny, 1 - nh));
+                        nw = Math.min(nw, 1 - nx);
+                        nh = Math.min(nh, 1 - ny);
+                    }
 
                     root.viewport.cropRect = Qt.rect(nx, ny, nw, nh);
                 }

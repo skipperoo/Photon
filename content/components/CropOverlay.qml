@@ -57,12 +57,17 @@ Item {
         if (fH) rx = 2 * cx - rx - rw;
         if (fV) ry = 2 * cy - ry - rh;
 
-        // Step 3: Shrink for straighten auto-crop (inscribed rectangle)
+        // Step 3: Shrink for straighten auto-crop (same-aspect-ratio inscribed rect)
         if (Math.abs(straighten) > 0.01) {
             var rad = Math.abs(straighten) * Math.PI / 180;
-            var factor = Math.cos(rad) + Math.sin(rad);
-            var newW = rw / factor;
-            var newH = rh / factor;
+            var cosT = Math.cos(rad);
+            var sinT = Math.sin(rad);
+            // Largest rect with same aspect ratio inscribed in rotated rw×rh
+            var s1 = rw / (rw * cosT + rh * sinT);
+            var s2 = rh / (rw * sinT + rh * cosT);
+            var s = Math.min(s1, s2);
+            var newW = rw * s;
+            var newH = rh * s;
             rx += (rw - newW) / 2;
             ry += (rh - newH) / 2;
             rw = newW;

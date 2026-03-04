@@ -631,24 +631,22 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   double straighten = obj.contains("straightenAngle")
                           ? obj["straightenAngle"].toDouble() : 0.0;
   if (std::abs(straighten) > 0.01) {
+    int origW = output.width(), origH = output.height();
     QTransform rot;
     rot.rotate(straighten);
     output = output.transformed(rot, Qt::SmoothTransformation);
-    // After rotation, the image has black borders. Auto-crop to largest
-    // inscribed rectangle at the same aspect ratio.
-    int rw = output.width(), rh = output.height();
+    // Auto-crop to largest same-aspect-ratio inscribed rectangle
     double rad = std::abs(straighten) * M_PI / 180.0;
     double cosA = std::cos(rad), sinA = std::sin(rad);
-    // The rotated image is larger by factor of (cos+sin)
-    double factor = cosA + sinA;
-    if (factor > 1e-6) {
-      int cw = static_cast<int>(rw / factor);
-      int ch = static_cast<int>(rh / factor);
-      int cx = (rw - cw) / 2;
-      int cy = (rh - ch) / 2;
-      if (cw > 0 && ch > 0 && cx >= 0 && cy >= 0)
-        output = output.copy(cx, cy, cw, ch);
-    }
+    double s1 = static_cast<double>(origW) / (origW * cosA + origH * sinA);
+    double s2 = static_cast<double>(origH) / (origW * sinA + origH * cosA);
+    double s = std::min(s1, s2);
+    int cw = static_cast<int>(origW * s);
+    int ch = static_cast<int>(origH * s);
+    int cx = (output.width() - cw) / 2;
+    int cy = (output.height() - ch) / 2;
+    if (cw > 0 && ch > 0 && cx >= 0 && cy >= 0)
+      output = output.copy(cx, cy, cw, ch);
   }
 
   // 4. Crop rect (normalized 0–1)

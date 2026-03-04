@@ -2485,23 +2485,23 @@ QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
                                 Qt::SmoothTransformation);
   }
 
-  // 3. Straighten (fine rotation + auto-crop inscribed rectangle)
+  // 3. Straighten (fine rotation + auto-crop same-aspect-ratio inscribed rect)
   if (std::abs(straighten) > 0.01) {
+    int origW = output.width(), origH = output.height();
     QTransform rot;
     rot.rotate(straighten);
     output = output.transformed(rot, Qt::SmoothTransformation);
-    int rw = output.width(), rh = output.height();
     double rad = std::abs(straighten) * M_PI / 180.0;
     double cosA = std::cos(rad), sinA = std::sin(rad);
-    double factor = cosA + sinA;
-    if (factor > 1e-6) {
-      int cw = static_cast<int>(rw / factor);
-      int ch = static_cast<int>(rh / factor);
-      int cx = (rw - cw) / 2;
-      int cy = (rh - ch) / 2;
-      if (cw > 0 && ch > 0 && cx >= 0 && cy >= 0)
-        output = output.copy(cx, cy, cw, ch);
-    }
+    double s1 = static_cast<double>(origW) / (origW * cosA + origH * sinA);
+    double s2 = static_cast<double>(origH) / (origW * sinA + origH * cosA);
+    double s = std::min(s1, s2);
+    int cw = static_cast<int>(origW * s);
+    int ch = static_cast<int>(origH * s);
+    int cx = (output.width() - cw) / 2;
+    int cy = (output.height() - ch) / 2;
+    if (cw > 0 && ch > 0 && cx >= 0 && cy >= 0)
+      output = output.copy(cx, cy, cw, ch);
   }
 
   // 4. Crop rect (normalized 0–1)

@@ -9,7 +9,7 @@ Button {
 
     property bool variantOutline: false
     property bool variantDestructive: false
-    property font fontSize: Theme.fontMedium
+    property font fontType: Theme.fontMedium
 
     contentItem: RowLayout {
         spacing: 8
@@ -32,7 +32,7 @@ Button {
         }
         Text {
             text: control.text
-            font: fontSize
+            font: fontType
             color: {
                 if (control.variantDestructive) return "#ffffff"
                 if (control.variantOutline) return Theme.foreground

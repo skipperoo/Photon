@@ -1119,6 +1119,21 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
                   roi.width() * rect.width(), roi.height() * rect.height());
   }
 
+  if (m_engine.geometryBaked()) {
+    LogManager::instance()->log(
+        QString("[ RawViewport ] - cropDebug render data=%1x%2 rect=(%3,%4,%5,%6) zoom=%7 pan=(%8,%9)")
+            .arg(m_bufferWidth)
+            .arg(m_bufferHeight)
+            .arg(rect.x(), 0, 'f', 2)
+            .arg(rect.y(), 0, 'f', 2)
+            .arg(rect.width(), 0, 'f', 2)
+            .arg(rect.height(), 0, 'f', 2)
+            .arg(m_zoom, 0, 'f', 3)
+            .arg(m_panOffset.x(), 0, 'f', 2)
+            .arg(m_panOffset.y(), 0, 'f', 2),
+        "DEBUG");
+  }
+
   // --- THREAD-SAFE SIGNAL EMISSION ---
   if (m_imageRect != rect) {
     m_imageRect = rect;

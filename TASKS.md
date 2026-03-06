@@ -371,7 +371,7 @@
 - [x] **Visual Transforms**
   - [x] QML `Rotation` + `Scale` transforms on ShaderEffect for orientationSteps, straighten, flip.
 - [x] **Export Integration**
-  - [x] `ImageDeveloper::develop()` applies orientation steps → flip → straighten (auto-crop) → crop rect.
+  - [x] `ImageDeveloper::develop()` applies orientation steps → flip → straighten → crop rect on rotated frame.
 - [x] **Icons**
   - [x] Lucide SVGs: rotate-cw, flip-horizontal, flip-vertical, ruler.
 - [x] **isDefault() & resetToDefaults()**
@@ -386,7 +386,7 @@
   - [x] Add `Q_PROPERTY(bool geometryBaked)` exposed to QML.
   - [x] Add `QFutureWatcher<void> m_geometryLoadWatcher` for async geometry baking.
 - [x] **`applyGeometryTransforms()` Static Utility**
-  - [x] Reusable `QImage` transform: orientation (N×90°) → flip → straighten (auto-crop inscribed rect) → crop.
+  - [x] Reusable `QImage` transform: orientation (N×90°) → flip → straighten → crop on rotated frame.
   - [x] Transform order matches `ImageDeveloper::develop()`.
 - [x] **`reloadWithGeometry()`**
   - [x] Async re-decode RAW from disk → apply geometry → store in `m_geometryBuffer`.
@@ -411,6 +411,22 @@
 - [x] **Documentation**
   - [x] Updated SPECIFICATION.md with baked geometry pipeline details.
   - [x] Updated TASKS.md with Phase 31.
+
+## Phase 32: Crop Coordinate Parity & Domain Clamp [DONE]
+
+- [x] **Domain-Safe Crop Interaction**
+  - [x] Enforced crop validity against rotated image quadrilateral domain (not only [0,1] bounds).
+  - [x] Incremental drag updates with projection from last valid rect to avoid border skips/jumps.
+- [x] **Preview Behavior Refinement**
+  - [x] Crop mode resets zoom/pan and auto-fits transformed bounds for full-domain visibility.
+  - [x] Disabled extra non-active crop mask when geometry is already baked (avoid double-crop visual mismatch).
+- [x] **Bake/Export Coordinate Parity**
+  - [x] Unified deterministic normalized→pixel crop mapping in engine/export:
+    - `left=floor(x*W)`, `top=floor(y*H)`, `right=ceil((x+w)*W)`, `bottom=ceil((y+h)*H)` (clamped).
+  - [x] Verified parity between `RawEngine::applyGeometryTransforms()` and `ImageDeveloper::develop()`.
+- [x] **Diagnostics & Verification**
+  - [x] Added temporary crop debug traces in QML/C++ for preview vs bake reconciliation.
+  - [x] Build + tests pass; user-validated that crop overlay domain movement and preview/bake match.
 
 ## Backlog / Future
 

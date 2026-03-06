@@ -164,7 +164,11 @@ Window {
                              rawViewport.straightenAngle.toFixed(3) + " steps=" + rawViewport.orientationSteps +
                              " flipH=" + rawViewport.flipHorizontal + " flipV=" + rawViewport.flipVertical +
                              " zoom=" + rawViewport.zoom.toFixed(3) + " pan=(" +
-                             rawViewport.pan.x.toFixed(2) + "," + rawViewport.pan.y.toFixed(2) + ")");
+                             rawViewport.pan.x.toFixed(2) + "," + rawViewport.pan.y.toFixed(2) + ")" +
+                             " display=(" + cropOverlay.displayRect.x.toFixed(2) + "," +
+                             cropOverlay.displayRect.y.toFixed(2) + "," +
+                             cropOverlay.displayRect.width.toFixed(2) + "," +
+                             cropOverlay.displayRect.height.toFixed(2) + ")");
                 cropPanel.applyCrop()
                 rawViewport.reloadWithGeometry()
                 developLayout.activeSidebar = 1  // Back to Edit panel
@@ -234,6 +238,27 @@ Window {
                 spacing: 0
                 
                 property int activeSidebar: 1 // 0: Metadata, 1: Edit, 2: Crop, 3: Lens, 4: Presets, 5: Export
+                property bool adjustingCropZoom: false
+
+                function fitCropViewport() {
+                    if (activeSidebar !== 2 || !cropOverlay.active) return;
+                    if (rawViewport.width <= 0 || rawViewport.height <= 0) return;
+                    var dr = cropOverlay.displayRect;
+                    if (dr.width <= 0 || dr.height <= 0) return;
+
+                    var factor = Math.max(dr.width / rawViewport.width, dr.height / rawViewport.height);
+                    if (factor <= 0.0) return;
+                    var target = Math.min(1.0, Math.max(0.1, rawViewport.zoom / factor));
+                    if (Math.abs(target - rawViewport.zoom) < 0.004) return;
+
+                    adjustingCropZoom = true;
+                    rawViewport.zoom = target;
+                    adjustingCropZoom = false;
+                    console.info("[CropApply] fit crop zoom factor=" + factor.toFixed(4) +
+                                 " targetZoom=" + target.toFixed(4) +
+                                 " display=(" + dr.x.toFixed(2) + "," + dr.y.toFixed(2) + "," +
+                                 dr.width.toFixed(2) + "," + dr.height.toFixed(2) + ")");
+                }
 
                 RowLayout {
                     spacing: 0
@@ -417,6 +442,33 @@ Window {
                             onStraightenFinished: {
                                 cropPanel.straightenToolActive = false;
                                 rawViewport.commitEdit();
+                            }
+                        }
+                        Connections {
+                            target: cropOverlay
+                            function onDisplayRectChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                if (developLayout.adjustingCropZoom) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
+                        }
+                        Connections {
+                            target: rawViewport
+                            function onStraightenAngleChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
+                            function onOrientationStepsChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
+                            function onFlipHorizontalChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
+                            function onFlipVerticalChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
                             }
                         }
 
@@ -791,6 +843,7 @@ Window {
                                                     cropPanel.saveEntryState();
                                                     rawViewport.enterCropMode();
                                                     console.info("[CropApply] Entering crop mode with zoom reset/pan reset");
+                                                    Qt.callLater(() => developLayout.fitCropViewport());
                                                 }
                                                 developLayout.activeSidebar = modelData.index;
                                             }

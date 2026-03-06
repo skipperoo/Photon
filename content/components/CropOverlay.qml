@@ -14,7 +14,6 @@ Item {
     onActiveChanged: {
         if (active) {
             maybeApplyAutoStraightenCrop();
-            ensureCurrentCropRectValid();
         }
     }
     property bool straightenToolActive: false
@@ -23,7 +22,8 @@ Item {
         var cr = cropRect;
         return cr.x > 0.001 || cr.y > 0.001 || cr.width < 0.999 || cr.height < 0.999;
     }
-    readonly property bool showPreview: !active && hasCrop && imageRect.width > 0
+    readonly property bool showPreview: !active && hasCrop && imageRect.width > 0 &&
+                                        (!viewport || !viewport.geometryBaked)
 
     signal straightenFinished()
 
@@ -315,8 +315,6 @@ Item {
                 !root.rectClose(root.viewport.cropRect, root._lastAutoStraightenRect, 0.002)) {
                 root._autoStraightenCropLinked = false;
             }
-            if (root._draggingCrop) return;
-            root.ensureCurrentCropRectValid();
         }
     }
 

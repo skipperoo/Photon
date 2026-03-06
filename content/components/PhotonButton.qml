@@ -9,7 +9,7 @@ Button {
 
     property bool variantOutline: false
     property bool variantDestructive: false
-    property int fontSize: Theme.fontMedium
+    property font fontSize: Theme.fontMedium
 
     contentItem: RowLayout {
         spacing: 8

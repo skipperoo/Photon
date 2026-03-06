@@ -31,8 +31,15 @@ else
 fi
 
 NEW_VERSION="v$MAJOR.$MINOR.$PATCH"
+CMAKE_VERSION="$MAJOR.$MINOR.$PATCH"
 
 echo "Bumping version from v$CURRENT_VERSION to $NEW_VERSION"
+
+# Update CMake project version line
+if ! sed -i -E "s/^project\\(Photon VERSION [0-9]+\\.[0-9]+\\.[0-9]+ LANGUAGES CXX\\)$/project(Photon VERSION ${CMAKE_VERSION} LANGUAGES CXX)/" CMakeLists.txt; then
+    echo "Failed to update CMakeLists.txt project version."
+    exit 1
+fi
 
 # Create and push tag
 git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"

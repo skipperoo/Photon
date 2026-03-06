@@ -349,13 +349,91 @@
   - [x] Library and filmstrip both read/write the same properties; sort order stays in sync.
   - [x] App.qml `refreshFiles()` applies identical sort logic (Name/Date/Rating, asc/desc).
 
+## Phase 30: Crop & Geometry [DONE]
+
+- [x] **Backend Q_PROPERTYs**
+  - [x] `cropRect` (QRectF), `cropAspectRatio` (float), `straightenAngle` (float ±45°), `orientationSteps` (int 0–3), `flipHorizontal`/`flipVertical` (bool) on RawEngine → RawViewport.
+  - [x] Added to `stateToJson()`, `applyJsonToState()`, `resetToDefaults()`.
+- [x] **CropPanel.qml**
+  - [x] Aspect ratio preset grid (Free, Original, 1:1, 5:4, 4:3, 3:2, 16:9, 21:9, 65:24).
+  - [x] Landscape/portrait toggle (click active preset).
+  - [x] Straighten slider ±45° with reset button.
+  - [x] Straighten tool (ruler icon) — draw reference line to auto-level.
+  - [x] Rotate Left/Right (90° steps), Flip Horizontal/Vertical toggles.
+  - [x] Reset all crop/geometry button.
+  - [x] Commit-on-Enter: changes saved to engine only on Enter; ESC discards.
+- [x] **CropOverlay.qml**
+  - [x] Semi-transparent dark mask outside crop rect (50% in crop mode, 100% otherwise).
+  - [x] Rule of Thirds grid lines.
+  - [x] 8 drag handles (corners + edges) for resize with aspect ratio lock.
+  - [x] Center drag to move crop rect.
+  - [x] Straighten tool Canvas overlay with dashed reference line.
+- [x] **Visual Transforms**
+  - [x] QML `Rotation` + `Scale` transforms on ShaderEffect for orientationSteps, straighten, flip.
+- [x] **Export Integration**
+  - [x] `ImageDeveloper::develop()` applies orientation steps → flip → straighten → crop rect on rotated frame.
+- [x] **Icons**
+  - [x] Lucide SVGs: rotate-cw, flip-horizontal, flip-vertical, ruler.
+- [x] **isDefault() & resetToDefaults()**
+  - [x] Crop and geometry properties included in both.
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md and TASKS.md.
+
+## Phase 31: Baked Geometry Pipeline [DONE]
+
+- [x] **Engine Infrastructure**
+  - [x] Add `m_geometryBuffer`, `m_geometryWidth`, `m_geometryHeight`, `m_geometryBaked`, `m_inCropMode` state to `RawEngine`.
+  - [x] Add `Q_PROPERTY(bool geometryBaked)` exposed to QML.
+  - [x] Add `QFutureWatcher<void> m_geometryLoadWatcher` for async geometry baking.
+- [x] **`applyGeometryTransforms()` Static Utility**
+  - [x] Reusable `QImage` transform: orientation (N×90°) → flip → straighten → crop on rotated frame.
+  - [x] Transform order matches `ImageDeveloper::develop()`.
+- [x] **`reloadWithGeometry()`**
+  - [x] Async re-decode RAW from disk → apply geometry → store in `m_geometryBuffer`.
+  - [x] Sets `geometryBaked = true`, emits `imageLoaded`.
+- [x] **`enterCropMode()` / `exitCropMode()`**
+  - [x] Enter: clears geometry bake, re-processes original image for live QML preview.
+  - [x] Exit (ESC): re-bakes geometry if non-default; returns to develop panel.
+- [x] **`getProcessedData()` Integration**
+  - [x] Returns `m_geometryBuffer` when geometry is baked, otherwise existing pipeline.
+- [x] **RawViewport Bridge**
+  - [x] `geometryBaked` Q_PROPERTY, `geometryBakedChanged` signal.
+  - [x] `Q_INVOKABLE reloadWithGeometry()`, `enterCropMode()`, `exitCropMode()`.
+  - [x] `updatePaintNode()` syncs `m_imageWidth`/`m_imageHeight` when buffer dimensions change.
+- [x] **QML Integration**
+  - [x] ShaderEffect transforms conditional on `!geometryBaked` (neutral when baked).
+  - [x] Enter → `commitEdit()` + `reloadWithGeometry()` + switch to Edit panel.
+  - [x] ESC → `discardCrop()` + `exitCropMode()`.
+  - [x] Sidebar button clicks call `enterCropMode()`/`exitCropMode()` appropriately.
+- [x] **Undo/Redo & Reset**
+  - [x] Undo/redo outside crop mode re-bakes geometry when properties changed.
+  - [x] `resetToOriginal()` clears geometry bake.
+- [x] **Documentation**
+  - [x] Updated SPECIFICATION.md with baked geometry pipeline details.
+  - [x] Updated TASKS.md with Phase 31.
+
+## Phase 32: Crop Coordinate Parity & Domain Clamp [DONE]
+
+- [x] **Domain-Safe Crop Interaction**
+  - [x] Enforced crop validity against rotated image quadrilateral domain (not only [0,1] bounds).
+  - [x] Incremental drag updates with projection from last valid rect to avoid border skips/jumps.
+- [x] **Preview Behavior Refinement**
+  - [x] Crop mode resets zoom/pan and auto-fits transformed bounds for full-domain visibility.
+  - [x] Disabled extra non-active crop mask when geometry is already baked (avoid double-crop visual mismatch).
+- [x] **Bake/Export Coordinate Parity**
+  - [x] Unified deterministic normalized→pixel crop mapping in engine/export:
+    - `left=floor(x*W)`, `top=floor(y*H)`, `right=ceil((x+w)*W)`, `bottom=ceil((y+h)*H)` (clamped).
+  - [x] Verified parity between `RawEngine::applyGeometryTransforms()` and `ImageDeveloper::develop()`.
+- [x] **Diagnostics & Verification**
+  - [x] Added temporary crop debug traces in QML/C++ for preview vs bake reconciliation.
+  - [x] Build + tests pass; user-validated that crop overlay domain movement and preview/bake match.
+
 ## Backlog / Future
 
-- [ ] **Crop & Transform**
-  - [ ] Aspect ratio selection (1:1, 4:5, 16:9, etc.).
-  - [ ] Straighten tool and arbitrary rotation.
-  - [ ] Perspective correction.
+- [ ] **Perspective Correction**
+  - [ ] Keystone/perspective transform controls.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Multi-image batch processing.
 - [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
+- [ ] Log rotation

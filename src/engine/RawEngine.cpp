@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QMutexLocker>
 #include <QRgba64>
+#include <QTransform>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -149,8 +150,39 @@ RawEngine::RawEngine(QObject* parent)
             if (res.success) {
               m_isLoaded = true;
               m_hasDenoisedResult = false;
+
+              // If sidecar had geometry, bake it now
+              if (hasNonDefaultGeometry() && !m_inCropMode) {
+                reloadWithGeometry();
+                return;
+              }
+
               requestHistogramUpdate();
-              if (m_denoiseAmount > 0.0f) {
+              if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
+                startAsyncDenoise();
+              }
+              emit imageLoaded();
+            }
+          });
+
+  connect(&m_geometryLoadWatcher, &QFutureWatcher<LoadResult>::finished, this,
+          [this]() {
+            auto res = m_geometryLoadWatcher.result();
+            if (res.id != m_currentLoadId) return;
+
+            m_isLoading = false;
+            emit isLoadingChanged();
+            if (res.success) {
+              m_isLoaded = true;
+              m_hasDenoisedResult = false;
+              if (m_geometryWidth > 0 && m_geometryHeight > 0) {
+                m_geometryBaked = true;
+              } else {
+                m_geometryBaked = false;
+              }
+              emit geometryBakedChanged();
+              requestHistogramUpdate();
+              if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
                 startAsyncDenoise();
               }
               emit imageLoaded();
@@ -291,6 +323,14 @@ void RawEngine::setSource(const QString& source) {
   m_exposure = 0.0f;
   m_contrast = 1.0f;
   m_hasDenoisedResult = false;
+
+  // Clear geometry bake state
+  m_geometryBaked = false;
+  m_geometryBuffer.clear();
+  m_geometryWidth = 0;
+  m_geometryHeight = 0;
+  m_inCropMode = false;
+  emit geometryBakedChanged();
 
   // Reset denoising state to prevent spinner showing when switching photos
   if (m_isDenoising) {
@@ -1089,6 +1129,50 @@ void RawEngine::setToneCurveBlue(const QVariantList& pts) {
   emit isDefaultChanged();
 }
 
+// Crop & Geometry setters
+void RawEngine::setCropRect(const QRectF& rect) {
+  if (m_cropRect == rect) return;
+  m_cropRect = rect;
+  emit cropRectChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCropAspectRatio(float ratio) {
+  if (qFuzzyCompare(m_cropAspectRatio, ratio)) return;
+  m_cropAspectRatio = ratio;
+  emit cropAspectRatioChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setStraightenAngle(float angle) {
+  if (qFuzzyCompare(m_straightenAngle, angle)) return;
+  m_straightenAngle = std::clamp(angle, -45.0f, 45.0f);
+  emit straightenAngleChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setOrientationSteps(int steps) {
+  steps = ((steps % 4) + 4) % 4;  // Normalize to 0-3
+  if (m_orientationSteps == steps) return;
+  m_orientationSteps = steps;
+  emit orientationStepsChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setFlipHorizontal(bool flip) {
+  if (m_flipHorizontal == flip) return;
+  m_flipHorizontal = flip;
+  emit flipHorizontalChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setFlipVertical(bool flip) {
+  if (m_flipVertical == flip) return;
+  m_flipVertical = flip;
+  emit flipVerticalChanged();
+  emit isDefaultChanged();
+}
+
 std::vector<float> RawEngine::evalMonotonicSpline(const QVariantList& pts,
                                                    int lutSize) {
   std::vector<float> lut(lutSize);
@@ -1677,6 +1761,22 @@ const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
 
   QMutexLocker locker(&m_processorMutex);
 
+  // If geometry is baked, return the transformed buffer
+  if (m_geometryBaked && !m_geometryBuffer.empty()) {
+    // Check for denoised result on the geometry buffer first
+    if (!m_isPanning && m_denoiseEnabled && m_hasDenoisedResult &&
+        m_denoiseAmount > 0.0f) {
+      width = m_denoisedWidth;
+      height = m_denoisedHeight;
+      colors = 4;
+      return m_denoisedBuffer.data();
+    }
+    width = m_geometryWidth;
+    height = m_geometryHeight;
+    colors = 4;  // RGBA64
+    return m_geometryBuffer.data();
+  }
+
   // If panning, always show the noisy developed image (or a proxy)
   if (!m_isPanning && m_denoiseEnabled && m_hasDenoisedResult &&
       m_denoiseAmount > 0.0f) {
@@ -1791,6 +1891,19 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["toneCurveRed"] = pointsToArray(e->toneCurveRed());
   obj["toneCurveGreen"] = pointsToArray(e->toneCurveGreen());
   obj["toneCurveBlue"] = pointsToArray(e->toneCurveBlue());
+
+  // Crop & Geometry
+  QJsonObject cropObj;
+  cropObj["x"] = e->cropRect().x();
+  cropObj["y"] = e->cropRect().y();
+  cropObj["w"] = e->cropRect().width();
+  cropObj["h"] = e->cropRect().height();
+  obj["cropRect"] = cropObj;
+  obj["cropAspectRatio"] = e->cropAspectRatio();
+  obj["straightenAngle"] = e->straightenAngle();
+  obj["orientationSteps"] = e->orientationSteps();
+  obj["flipHorizontal"] = e->flipHorizontal();
+  obj["flipVertical"] = e->flipVertical();
 
   return obj;
 }
@@ -1939,6 +2052,23 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setToneCurveGreen(arrayToPoints(obj["toneCurveGreen"].toArray()));
   if (obj.contains("toneCurveBlue"))
     e->setToneCurveBlue(arrayToPoints(obj["toneCurveBlue"].toArray()));
+
+  // Crop & Geometry
+  if (obj.contains("cropRect")) {
+    auto c = obj["cropRect"].toObject();
+    e->setCropRect(QRectF(c["x"].toDouble(), c["y"].toDouble(),
+                          c["w"].toDouble(1.0), c["h"].toDouble(1.0)));
+  }
+  if (obj.contains("cropAspectRatio"))
+    e->setCropAspectRatio(obj["cropAspectRatio"].toDouble(-1.0));
+  if (obj.contains("straightenAngle"))
+    e->setStraightenAngle(obj["straightenAngle"].toDouble());
+  if (obj.contains("orientationSteps"))
+    e->setOrientationSteps(obj["orientationSteps"].toInt());
+  if (obj.contains("flipHorizontal"))
+    e->setFlipHorizontal(obj["flipHorizontal"].toBool());
+  if (obj.contains("flipVertical"))
+    e->setFlipVertical(obj["flipVertical"].toBool());
 }
 
 static void resetToDefaults(RawEngine* e) {
@@ -2026,6 +2156,14 @@ static void resetToDefaults(RawEngine* e) {
   e->setToneCurveRed(defaultPts);
   e->setToneCurveGreen(defaultPts);
   e->setToneCurveBlue(defaultPts);
+
+  // Reset crop & geometry
+  e->setCropRect(QRectF(0, 0, 1, 1));
+  e->setCropAspectRatio(-1.0f);
+  e->setStraightenAngle(0.0f);
+  e->setOrientationSteps(0);
+  e->setFlipHorizontal(false);
+  e->setFlipVertical(false);
 }
 
 QVariantMap RawEngine::currentSettings() const {
@@ -2142,6 +2280,19 @@ void RawEngine::undo() {
   emit isDefaultChanged();
   requestHistogramUpdate();
 
+  // Re-bake geometry if not in crop mode
+  if (!m_inCropMode && hasNonDefaultGeometry()) {
+    reloadWithGeometry();
+  } else if (!m_inCropMode && m_geometryBaked) {
+    // Was baked but no longer has geometry
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+    emit imageLoaded();
+  }
+
   m_previewRefreshTimer.start();
 }
 
@@ -2155,6 +2306,18 @@ void RawEngine::redo() {
   emit isDefaultChanged();
   requestHistogramUpdate();
 
+  // Re-bake geometry if not in crop mode
+  if (!m_inCropMode && hasNonDefaultGeometry()) {
+    reloadWithGeometry();
+  } else if (!m_inCropMode && m_geometryBaked) {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+    emit imageLoaded();
+  }
+
   m_previewRefreshTimer.start();
 }
 
@@ -2165,8 +2328,26 @@ void RawEngine::applySettings(const QVariantMap& settings) {
 
 void RawEngine::resetToOriginal() {
   resetToDefaults(this);
+
+  // Clear geometry bake since all geometry is now default
+  if (m_geometryBaked) {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+  }
+
   commitEdit();
   emit isDefaultChanged();
+
+  // Force re-process to show clean original
+  {
+    QMutexLocker locker(&m_processorMutex);
+    clearProcessedImage();
+    updateProcessingParams();
+  }
+  emit imageLoaded();
 }
 
 bool RawEngine::isDefault() const {
@@ -2258,5 +2439,251 @@ bool RawEngine::isDefault() const {
   if (!isIdentityCurve(m_toneCurveGreen)) return false;
   if (!isIdentityCurve(m_toneCurveBlue)) return false;
 
+  // Crop & geometry checks
+  if (m_cropRect != QRectF(0, 0, 1, 1)) return false;
+  if (!qFuzzyCompare(m_cropAspectRatio, -1.0f)) return false;
+  if (!qFuzzyIsNull(m_straightenAngle)) return false;
+  if (m_orientationSteps != 0) return false;
+  if (m_flipHorizontal) return false;
+  if (m_flipVertical) return false;
+
   return true;
+}
+
+bool RawEngine::hasNonDefaultGeometry() const {
+  if (m_orientationSteps != 0) return true;
+  if (m_flipHorizontal) return true;
+  if (m_flipVertical) return true;
+  if (std::abs(m_straightenAngle) > 0.01f) return true;
+  if (m_cropRect != QRectF(0, 0, 1, 1)) return true;
+  return false;
+}
+
+QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
+                                          bool flipH, bool flipV,
+                                          double straighten,
+                                          const QRectF& cropRect) {
+  const int inputW = input.width();
+  const int inputH = input.height();
+  QImage output = input;
+
+  // 1. Orientation steps (90° CW rotations)
+  orientSteps = ((orientSteps % 4) + 4) % 4;
+  if (orientSteps > 0) {
+    QTransform rot;
+    rot.rotate(orientSteps * 90.0);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+  }
+
+  // 2. Flip
+  if (flipH && flipV) {
+    output = output.transformed(QTransform().scale(-1, -1),
+                                Qt::SmoothTransformation);
+  } else if (flipH) {
+    output = output.transformed(QTransform().scale(-1, 1),
+                                Qt::SmoothTransformation);
+  } else if (flipV) {
+    output = output.transformed(QTransform().scale(1, -1),
+                                Qt::SmoothTransformation);
+  }
+
+  // 3. Straighten (fine rotation)
+  if (std::abs(straighten) > 0.01) {
+    QTransform rot;
+    rot.rotate(straighten);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+  }
+
+  // 4. Crop rect (normalized 0–1)
+  double cx = cropRect.x(), cy = cropRect.y();
+  double cw = cropRect.width(), ch = cropRect.height();
+  const int preCropW = output.width();
+  const int preCropH = output.height();
+  int cropLeft = 0;
+  int cropTop = 0;
+  int cropRight = preCropW;
+  int cropBottom = preCropH;
+  if (cx > 0.001 || cy > 0.001 || cw < 0.999 || ch < 0.999) {
+    double x0 = std::clamp(cx, 0.0, 1.0);
+    double y0 = std::clamp(cy, 0.0, 1.0);
+    double x1 = std::clamp(cx + cw, 0.0, 1.0);
+    double y1 = std::clamp(cy + ch, 0.0, 1.0);
+    if (x1 > x0 && y1 > y0) {
+      cropLeft = static_cast<int>(std::floor(x0 * preCropW));
+      cropTop = static_cast<int>(std::floor(y0 * preCropH));
+      cropRight = static_cast<int>(std::ceil(x1 * preCropW));
+      cropBottom = static_cast<int>(std::ceil(y1 * preCropH));
+
+      cropLeft = std::clamp(cropLeft, 0, std::max(0, preCropW - 1));
+      cropTop = std::clamp(cropTop, 0, std::max(0, preCropH - 1));
+      cropRight = std::clamp(cropRight, cropLeft + 1, preCropW);
+      cropBottom = std::clamp(cropBottom, cropTop + 1, preCropH);
+
+      int pw = cropRight - cropLeft;
+      int ph = cropBottom - cropTop;
+      if (pw > 0 && ph > 0) output = output.copy(cropLeft, cropTop, pw, ph);
+    }
+  }
+
+  LogManager::instance()->log(
+      QString("[ RawEngine.cpp ] - cropDebug applyGeometry in=%1x%2 orient=%3 flipH=%4 flipV=%5 straighten=%6 cropN=(%7,%8,%9,%10) preCrop=%11x%12 cropPx=[%13,%14 -> %15,%16] out=%17x%18")
+          .arg(inputW)
+          .arg(inputH)
+          .arg(orientSteps)
+          .arg(flipH)
+          .arg(flipV)
+          .arg(straighten, 0, 'f', 3)
+          .arg(cropRect.x(), 0, 'f', 4)
+          .arg(cropRect.y(), 0, 'f', 4)
+          .arg(cropRect.width(), 0, 'f', 4)
+          .arg(cropRect.height(), 0, 'f', 4)
+          .arg(preCropW)
+          .arg(preCropH)
+          .arg(cropLeft)
+          .arg(cropTop)
+          .arg(cropRight)
+          .arg(cropBottom)
+          .arg(output.width())
+          .arg(output.height()),
+      "DEBUG");
+
+  return output;
+}
+
+void RawEngine::reloadWithGeometry() {
+  if (m_source.isEmpty() || !m_isLoaded) return;
+
+  LogManager::instance()->log(
+      "[ RawEngine.cpp ] - reloadWithGeometry: re-decoding with geometry bake",
+      "DEBUG");
+
+  m_inCropMode = false;
+  m_isLoading = true;
+  emit isLoadingChanged();
+
+  QString path = m_source;
+  int loadId = ++m_currentLoadId;
+  int orientSteps = m_orientationSteps;
+  bool flipH = m_flipHorizontal;
+  bool flipV = m_flipVertical;
+  double straighten = m_straightenAngle;
+  QRectF crop = m_cropRect;
+  bool hasGeom = hasNonDefaultGeometry();
+
+  QFuture<LoadResult> future = QtConcurrent::run(
+      [this, path, loadId, orientSteps, flipH, flipV, straighten, crop,
+       hasGeom]() {
+        QMutexLocker locker(&m_processorMutex);
+        if (loadId != m_currentLoadId)
+          return LoadResult{false, loadId};
+
+        // Re-decode from RAW file
+        bool ok = loadRawFileSync(path, loadId);
+        if (!ok || loadId != m_currentLoadId)
+          return LoadResult{false, loadId};
+
+        if (!hasGeom) {
+          m_geometryBuffer.clear();
+          m_geometryWidth = 0;
+          m_geometryHeight = 0;
+          return LoadResult{true, loadId};
+        }
+
+        // Get processed image from LibRaw
+        if (!m_processedImage) {
+          int ret = m_processor->dcraw_process();
+          if (ret != LIBRAW_SUCCESS) return LoadResult{false, loadId};
+          m_processedImage = m_processor->dcraw_make_mem_image(&ret);
+          if (!m_processedImage) return LoadResult{false, loadId};
+        }
+
+        int w = m_processedImage->width;
+        int h = m_processedImage->height;
+        int colors = m_processedImage->colors;
+
+        // Convert LibRaw buffer to QImage
+        QImage srcImg;
+        if (colors == 3) {
+          srcImg = QImage(w, h, QImage::Format_RGBX64);
+          const ushort* src =
+              reinterpret_cast<const ushort*>(m_processedImage->data);
+          QRgba64* dst = reinterpret_cast<QRgba64*>(srcImg.bits());
+          for (int i = 0; i < w * h; ++i) {
+            dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1],
+                                          src[i * 3 + 2], 65535);
+          }
+        } else {
+          srcImg =
+              QImage(reinterpret_cast<const uchar*>(m_processedImage->data), w,
+                     h, QImage::Format_RGBA64)
+                  .copy();
+        }
+
+        // Apply geometry transforms
+        QImage transformed = applyGeometryTransforms(srcImg, orientSteps, flipH,
+                                                     flipV, straighten, crop);
+
+        // Convert back to RGBA64 buffer for getProcessedData
+        transformed = transformed.convertToFormat(QImage::Format_RGBA64);
+        int tw = transformed.width();
+        int th = transformed.height();
+        size_t bufSize = static_cast<size_t>(tw) * th * 8;
+        m_geometryBuffer.resize(bufSize);
+        memcpy(m_geometryBuffer.data(), transformed.constBits(), bufSize);
+        m_geometryWidth = tw;
+        m_geometryHeight = th;
+
+        return LoadResult{true, loadId};
+      });
+
+  m_geometryLoadWatcher.setFuture(future);
+}
+
+void RawEngine::enterCropMode() {
+  if (m_source.isEmpty() || !m_isLoaded) return;
+
+  LogManager::instance()->log(
+      "[ RawEngine.cpp ] - enterCropMode: showing original for crop editing",
+      "DEBUG");
+
+  m_inCropMode = true;
+
+  // Unbake geometry so user sees original image with QML visual transforms
+  if (m_geometryBaked) {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+  }
+
+  // Clear denoised result (will be re-run on original)
+  m_hasDenoisedResult = false;
+  emit denoisingFinished();
+
+  // Force re-process from LibRaw (clear cached processed image)
+  {
+    QMutexLocker locker(&m_processorMutex);
+    clearProcessedImage();
+    updateProcessingParams();
+  }
+
+  // Emit imageLoaded to trigger viewport refresh with original dimensions
+  emit imageLoaded();
+}
+
+void RawEngine::exitCropMode() {
+  LogManager::instance()->log(
+      "[ RawEngine.cpp ] - exitCropMode: re-baking geometry", "DEBUG");
+
+  m_inCropMode = false;
+
+  if (hasNonDefaultGeometry()) {
+    reloadWithGeometry();
+  } else {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    emit geometryBakedChanged();
+    emit imageLoaded();
+  }
 }

@@ -188,6 +188,14 @@ class RawEngine : public QObject {
   Q_PROPERTY(QVariantMap metadata READ metadata NOTIFY metadataChanged)
   Q_PROPERTY(int orientation READ orientation NOTIFY orientationChanged)
 
+  // Crop & Geometry
+  Q_PROPERTY(QRectF cropRect READ cropRect WRITE setCropRect NOTIFY cropRectChanged)
+  Q_PROPERTY(float cropAspectRatio READ cropAspectRatio WRITE setCropAspectRatio NOTIFY cropAspectRatioChanged)
+  Q_PROPERTY(float straightenAngle READ straightenAngle WRITE setStraightenAngle NOTIFY straightenAngleChanged)
+  Q_PROPERTY(int orientationSteps READ orientationSteps WRITE setOrientationSteps NOTIFY orientationStepsChanged)
+  Q_PROPERTY(bool flipHorizontal READ flipHorizontal WRITE setFlipHorizontal NOTIFY flipHorizontalChanged)
+  Q_PROPERTY(bool flipVertical READ flipVertical WRITE setFlipVertical NOTIFY flipVerticalChanged)
+
   Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
   Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
   Q_PROPERTY(
@@ -204,6 +212,7 @@ class RawEngine : public QObject {
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
   Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
   Q_PROPERTY(bool isDefault READ isDefault NOTIFY isDefaultChanged)
+  Q_PROPERTY(bool geometryBaked READ geometryBaked NOTIFY geometryBakedChanged)
   Q_PROPERTY(QString previewPath READ previewPath NOTIFY previewPathChanged)
   Q_PROPERTY(QImage previewImage READ previewImage NOTIFY previewImageChanged)
 
@@ -425,6 +434,20 @@ class RawEngine : public QObject {
   int orientation() const { return m_orientation; }
   void requestHistogramUpdate();
 
+  // Crop & Geometry
+  QRectF cropRect() const { return m_cropRect; }
+  void setCropRect(const QRectF& rect);
+  float cropAspectRatio() const { return m_cropAspectRatio; }
+  void setCropAspectRatio(float ratio);
+  float straightenAngle() const { return m_straightenAngle; }
+  void setStraightenAngle(float angle);
+  int orientationSteps() const { return m_orientationSteps; }
+  void setOrientationSteps(int steps);
+  bool flipHorizontal() const { return m_flipHorizontal; }
+  void setFlipHorizontal(bool flip);
+  bool flipVertical() const { return m_flipVertical; }
+  void setFlipVertical(bool flip);
+
   bool isLoading() const { return m_isLoading; }
   bool isDenoising() const { return m_isDenoising; }
   bool hasDenoisedResult() const { return m_hasDenoisedResult; }
@@ -465,6 +488,18 @@ class RawEngine : public QObject {
   bool canUndo() const { return m_editIndex > 0; }
   bool canRedo() const { return m_editIndex < (int)m_editStack.size() - 1; }
   bool isDefault() const;
+
+  bool geometryBaked() const { return m_geometryBaked; }
+  bool hasNonDefaultGeometry() const;
+
+  // Geometry pipeline: bake orient/flip/straighten/crop into pixel buffer
+  void reloadWithGeometry();
+  void enterCropMode();
+  void exitCropMode();
+  static QImage applyGeometryTransforms(const QImage& input, int orientSteps,
+                                        bool flipH, bool flipV,
+                                        double straighten,
+                                        const QRectF& cropRect);
 
  signals:
   void sourceChanged();
@@ -549,6 +584,12 @@ class RawEngine : public QObject {
   void histogramChanged();
   void metadataChanged();
   void orientationChanged();
+  void cropRectChanged();
+  void cropAspectRatioChanged();
+  void straightenAngleChanged();
+  void orientationStepsChanged();
+  void flipHorizontalChanged();
+  void flipVerticalChanged();
 
   void imageLoaded();
   void isLoadingChanged();
@@ -564,6 +605,7 @@ class RawEngine : public QObject {
   void canUndoChanged();
   void canRedoChanged();
   void isDefaultChanged();
+  void geometryBakedChanged();
   void errorOccurred(const QString& error);
 
  private:
@@ -680,6 +722,21 @@ class RawEngine : public QObject {
   QVariantMap m_metadata;
   int m_orientation = 1;
 
+  // Crop & Geometry
+  QRectF m_cropRect{0, 0, 1, 1};
+  float m_cropAspectRatio = -1.0f;  // -1 = free, 0 = original, >0 = locked
+  float m_straightenAngle = 0.0f;
+  int m_orientationSteps = 0;  // 0-3, each step = 90° CW
+  bool m_flipHorizontal = false;
+  bool m_flipVertical = false;
+
+  // Geometry baking state
+  std::vector<uint8_t> m_geometryBuffer;
+  int m_geometryWidth = 0;
+  int m_geometryHeight = 0;
+  bool m_geometryBaked = false;
+  bool m_inCropMode = false;
+
   bool m_isLoading = false;
   bool m_isDenoising = false;
   bool m_isPanning = false;
@@ -703,6 +760,7 @@ class RawEngine : public QObject {
   QFutureWatcher<LoadResult> m_loadWatcher;
   QFutureWatcher<QImage> m_denoiseWatcher;
   QFutureWatcher<QImage> m_previewWatcher;
+  QFutureWatcher<LoadResult> m_geometryLoadWatcher;
   QFuture<void> m_histogramFuture;
 
   // Debounce timer for preview refresh (avoid piling up heavy tasks)

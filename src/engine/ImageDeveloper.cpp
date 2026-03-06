@@ -4,8 +4,10 @@
 #include <QJsonObject>
 #include <QString>
 #include <QThread>
+#include <QTransform>
 #include <QtConcurrent>
 #include <cstdio>
+#include <cmath>
 #include <numeric>
 
 #include "../managers/LogManager.h"
@@ -600,6 +602,89 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       output = output.convertToFormat(QImage::Format_RGB888);
     }
   }
+
+  // === Crop & Geometry transforms ===
+  // 1. Orientation steps (90° rotations)
+  int orientSteps = obj.contains("orientationSteps")
+                        ? obj["orientationSteps"].toInt() : 0;
+  orientSteps = ((orientSteps % 4) + 4) % 4;
+  if (orientSteps > 0) {
+    QTransform rot;
+    rot.rotate(orientSteps * 90.0);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+  }
+
+  // 2. Flip
+  bool flipH = obj.contains("flipHorizontal")
+                   ? obj["flipHorizontal"].toBool() : false;
+  bool flipV = obj.contains("flipVertical")
+                   ? obj["flipVertical"].toBool() : false;
+  if (flipH && flipV) {
+    output = output.transformed(QTransform().scale(-1, -1), Qt::SmoothTransformation);
+  } else if (flipH) {
+    output = output.transformed(QTransform().scale(-1, 1), Qt::SmoothTransformation);
+  } else if (flipV) {
+    output = output.transformed(QTransform().scale(1, -1), Qt::SmoothTransformation);
+  }
+
+  // 3. Straighten (fine rotation)
+  double straighten = obj.contains("straightenAngle")
+                          ? obj["straightenAngle"].toDouble() : 0.0;
+  if (std::abs(straighten) > 0.01) {
+    QTransform rot;
+    rot.rotate(straighten);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+  }
+
+  // 4. Crop rect (normalized 0–1)
+  int preCropW = output.width();
+  int preCropH = output.height();
+  int cropLeft = 0;
+  int cropTop = 0;
+  int cropRight = preCropW;
+  int cropBottom = preCropH;
+  if (obj.contains("cropRect")) {
+    auto cropObj = obj["cropRect"].toObject();
+    double cx = cropObj.contains("x") ? cropObj["x"].toDouble() : 0.0;
+    double cy = cropObj.contains("y") ? cropObj["y"].toDouble() : 0.0;
+    double cw = cropObj.contains("w") ? cropObj["w"].toDouble() : 1.0;
+    double ch = cropObj.contains("h") ? cropObj["h"].toDouble() : 1.0;
+    // Only crop if not the full image
+    if (cx > 0.001 || cy > 0.001 || cw < 0.999 || ch < 0.999) {
+      double x0 = std::clamp(cx, 0.0, 1.0);
+      double y0 = std::clamp(cy, 0.0, 1.0);
+      double x1 = std::clamp(cx + cw, 0.0, 1.0);
+      double y1 = std::clamp(cy + ch, 0.0, 1.0);
+      if (x1 > x0 && y1 > y0) {
+        cropLeft = static_cast<int>(std::floor(x0 * preCropW));
+        cropTop = static_cast<int>(std::floor(y0 * preCropH));
+        cropRight = static_cast<int>(std::ceil(x1 * preCropW));
+        cropBottom = static_cast<int>(std::ceil(y1 * preCropH));
+
+        cropLeft = std::clamp(cropLeft, 0, std::max(0, preCropW - 1));
+        cropTop = std::clamp(cropTop, 0, std::max(0, preCropH - 1));
+        cropRight = std::clamp(cropRight, cropLeft + 1, preCropW);
+        cropBottom = std::clamp(cropBottom, cropTop + 1, preCropH);
+
+        int pw = cropRight - cropLeft;
+        int ph = cropBottom - cropTop;
+        if (pw > 0 && ph > 0)
+          output = output.copy(cropLeft, cropTop, pw, ph);
+      }
+    }
+  }
+
+  LogManager::instance()->log(
+      QString("[ ImageDeveloper ] - cropDebug preCrop=%1x%2 cropPx=[%3,%4 -> %5,%6] out=%7x%8")
+          .arg(preCropW)
+          .arg(preCropH)
+          .arg(cropLeft)
+          .arg(cropTop)
+          .arg(cropRight)
+          .arg(cropBottom)
+          .arg(output.width())
+          .arg(output.height()),
+      "DEBUG");
 
   LogManager::instance()->log(
       QString("[ ImageDeveloper ] - export END: %1x%2").arg(output.width()).arg(output.height()),

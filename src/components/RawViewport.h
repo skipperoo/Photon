@@ -193,12 +193,21 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(QVariantMap metadata READ metadata NOTIFY metadataChanged)
   Q_PROPERTY(int orientation READ orientation NOTIFY orientationChanged)
 
+  // Crop & Geometry
+  Q_PROPERTY(QRectF cropRect READ cropRect WRITE setCropRect NOTIFY cropRectChanged)
+  Q_PROPERTY(float cropAspectRatio READ cropAspectRatio WRITE setCropAspectRatio NOTIFY cropAspectRatioChanged)
+  Q_PROPERTY(float straightenAngle READ straightenAngle WRITE setStraightenAngle NOTIFY straightenAngleChanged)
+  Q_PROPERTY(int orientationSteps READ orientationSteps WRITE setOrientationSteps NOTIFY orientationStepsChanged)
+  Q_PROPERTY(bool flipHorizontal READ flipHorizontal WRITE setFlipHorizontal NOTIFY flipHorizontalChanged)
+  Q_PROPERTY(bool flipVertical READ flipVertical WRITE setFlipVertical NOTIFY flipVerticalChanged)
+
   Q_PROPERTY(QRectF imageRect READ imageRect NOTIFY imageRectChanged)
   Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
   Q_PROPERTY(QVariantList editStack READ editStack NOTIFY editStackChanged)
   Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
   Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
   Q_PROPERTY(bool isDefault READ isDefault NOTIFY isDefaultChanged)
+  Q_PROPERTY(bool geometryBaked READ geometryBaked NOTIFY geometryBakedChanged)
   Q_PROPERTY(QPointF pan READ pan WRITE setPan NOTIFY panChanged)
   QML_ELEMENT
 
@@ -430,6 +439,20 @@ class RawViewport : public QQuickItem {
   QVariantMap metadata() const { return m_engine.metadata(); }
   int orientation() const { return m_engine.orientation(); }
 
+  // Crop & Geometry proxies
+  QRectF cropRect() const { return m_engine.cropRect(); }
+  void setCropRect(const QRectF& r) { m_engine.setCropRect(r); }
+  float cropAspectRatio() const { return m_engine.cropAspectRatio(); }
+  void setCropAspectRatio(float r) { m_engine.setCropAspectRatio(r); }
+  float straightenAngle() const { return m_engine.straightenAngle(); }
+  void setStraightenAngle(float a) { m_engine.setStraightenAngle(a); }
+  int orientationSteps() const { return m_engine.orientationSteps(); }
+  void setOrientationSteps(int s) { m_engine.setOrientationSteps(s); }
+  bool flipHorizontal() const { return m_engine.flipHorizontal(); }
+  void setFlipHorizontal(bool f) { m_engine.setFlipHorizontal(f); }
+  bool flipVertical() const { return m_engine.flipVertical(); }
+  void setFlipVertical(bool f) { m_engine.setFlipVertical(f); }
+
   QRectF imageRect() const { return m_imageRect; }
   float zoom() const { return m_zoom; }
   void setZoom(float zoom);
@@ -438,6 +461,7 @@ class RawViewport : public QQuickItem {
   bool canUndo() const { return m_engine.canUndo(); }
   bool canRedo() const { return m_engine.canRedo(); }
   bool isDefault() const { return m_engine.isDefault(); }
+  bool geometryBaked() const { return m_engine.geometryBaked(); }
 
   Q_INVOKABLE QRectF visibleImageRect();
   Q_INVOKABLE QVariantMap currentSettings() const;
@@ -445,6 +469,9 @@ class RawViewport : public QQuickItem {
     m_engine.applySettings(settings);
   }
   Q_INVOKABLE void commitEdit() { m_engine.commitEdit(); }
+  Q_INVOKABLE void reloadWithGeometry() { m_engine.reloadWithGeometry(); }
+  Q_INVOKABLE void enterCropMode() { m_engine.enterCropMode(); }
+  Q_INVOKABLE void exitCropMode() { m_engine.exitCropMode(); }
   Q_INVOKABLE void startAsyncDenoise(bool final = false, float zoom = 1.0f,
                                      const QRectF& roi = QRectF(0, 0, 1, 1));
   Q_INVOKABLE void undo() { m_engine.undo(); }
@@ -547,12 +574,19 @@ class RawViewport : public QQuickItem {
   void histogramChanged();
   void metadataChanged();
   void orientationChanged();
+  void cropRectChanged();
+  void cropAspectRatioChanged();
+  void straightenAngleChanged();
+  void orientationStepsChanged();
+  void flipHorizontalChanged();
+  void flipVerticalChanged();
 
   void zoomChanged();
   void editStackChanged();
   void canUndoChanged();
   void canRedoChanged();
   void isDefaultChanged();
+  void geometryBakedChanged();
   void panChanged();
 
  protected:

@@ -92,6 +92,8 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   });
   connect(&m_engine, &RawEngine::isDefaultChanged, this,
           &RawViewport::isDefaultChanged);
+  connect(&m_engine, &RawEngine::geometryBakedChanged, this,
+          &RawViewport::geometryBakedChanged);
 
   // Creative Connections
   connect(&m_engine, &RawEngine::grainAmountChanged, this, [this]() {
@@ -373,6 +375,18 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
           &RawViewport::metadataChanged);
   connect(&m_engine, &RawEngine::orientationChanged, this,
           &RawViewport::orientationChanged);
+  connect(&m_engine, &RawEngine::cropRectChanged, this,
+          &RawViewport::cropRectChanged);
+  connect(&m_engine, &RawEngine::cropAspectRatioChanged, this,
+          &RawViewport::cropAspectRatioChanged);
+  connect(&m_engine, &RawEngine::straightenAngleChanged, this,
+          &RawViewport::straightenAngleChanged);
+  connect(&m_engine, &RawEngine::orientationStepsChanged, this,
+          &RawViewport::orientationStepsChanged);
+  connect(&m_engine, &RawEngine::flipHorizontalChanged, this,
+          &RawViewport::flipHorizontalChanged);
+  connect(&m_engine, &RawEngine::flipVerticalChanged, this,
+          &RawViewport::flipVerticalChanged);
 
   // History Connections
   connect(&m_engine, &RawEngine::editStackChanged, this,
@@ -1009,6 +1023,24 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
       // Full resolution RAW data is ready - use it
       m_bufferWidth = width;
       m_bufferHeight = height;
+
+      // Keep logical dimensions stable while showing partial denoise ROI.
+      // ROI textures are temporary and should not drive targetRect/pan math.
+      const QRectF denoisedRoi = m_engine.denoisedRoi();
+      const bool hasPartialDenoiseRoi =
+          m_engine.hasDenoisedResult() && denoisedRoi.isValid() &&
+          (denoisedRoi.width() < 0.999 || denoisedRoi.height() < 0.999);
+
+      // Update logical image dimensions only for full-frame buffers.
+      if (!hasPartialDenoiseRoi &&
+          (m_imageWidth != width || m_imageHeight != height)) {
+        m_imageWidth = width;
+        m_imageHeight = height;
+        QMetaObject::invokeMethod(
+            this, [this]() { emit sourceSizeChanged(); },
+            Qt::QueuedConnection);
+      }
+
       if (m_showingPreview) {
         m_showingPreview = false;
         QMetaObject::invokeMethod(
@@ -1093,6 +1125,21 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     rect = QRectF(rect.x() + roi.x() * rect.width(),
                   rect.y() + roi.y() * rect.height(),
                   roi.width() * rect.width(), roi.height() * rect.height());
+  }
+
+  if (m_engine.geometryBaked()) {
+    LogManager::instance()->log(
+        QString("[ RawViewport ] - cropDebug render data=%1x%2 rect=(%3,%4,%5,%6) zoom=%7 pan=(%8,%9)")
+            .arg(m_bufferWidth)
+            .arg(m_bufferHeight)
+            .arg(rect.x(), 0, 'f', 2)
+            .arg(rect.y(), 0, 'f', 2)
+            .arg(rect.width(), 0, 'f', 2)
+            .arg(rect.height(), 0, 'f', 2)
+            .arg(m_zoom, 0, 'f', 3)
+            .arg(m_panOffset.x(), 0, 'f', 2)
+            .arg(m_panOffset.y(), 0, 'f', 2),
+        "DEBUG");
   }
 
   // --- THREAD-SAFE SIGNAL EMISSION ---

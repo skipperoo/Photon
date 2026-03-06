@@ -145,6 +145,35 @@ Window {
         Shortcut { sequence: "Right"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(1) }
         Shortcut { sequence: "\\"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
         Shortcut { sequence: "B"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
+
+        // Crop panel: ESC to discard, Enter to apply
+        Shortcut {
+            sequence: "Escape"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
+            onActivated: {
+                cropPanel.discardCrop()
+                rawViewport.exitCropMode()
+                developLayout.activeSidebar = 1  // Back to Edit panel
+            }
+        }
+        Shortcut {
+            sequence: "Return"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
+            onActivated: {
+                console.info("[CropApply] Enter cropRect=(" + rawViewport.cropRect.x.toFixed(4) + "," +
+                             rawViewport.cropRect.y.toFixed(4) + "," + rawViewport.cropRect.width.toFixed(4) + "," +
+                             rawViewport.cropRect.height.toFixed(4) + ") straighten=" +
+                             rawViewport.straightenAngle.toFixed(3) + " steps=" + rawViewport.orientationSteps +
+                             " flipH=" + rawViewport.flipHorizontal + " flipV=" + rawViewport.flipVertical +
+                             " zoom=" + rawViewport.zoom.toFixed(3) + " pan=(" +
+                             rawViewport.pan.x.toFixed(2) + "," + rawViewport.pan.y.toFixed(2) + ")" +
+                             " display=(" + cropOverlay.displayRect.x.toFixed(2) + "," +
+                             cropOverlay.displayRect.y.toFixed(2) + "," +
+                             cropOverlay.displayRect.width.toFixed(2) + "," +
+                             cropOverlay.displayRect.height.toFixed(2) + ")");
+                cropPanel.applyCrop()
+                rawViewport.reloadWithGeometry()
+                developLayout.activeSidebar = 1  // Back to Edit panel
+            }
+        }
     }
 
     // --- Main Layout ---
@@ -209,6 +238,27 @@ Window {
                 spacing: 0
                 
                 property int activeSidebar: 1 // 0: Metadata, 1: Edit, 2: Crop, 3: Lens, 4: Presets, 5: Export
+                property bool adjustingCropZoom: false
+
+                function fitCropViewport() {
+                    if (activeSidebar !== 2 || !cropOverlay.active) return;
+                    if (rawViewport.width <= 0 || rawViewport.height <= 0) return;
+                    var dr = cropOverlay.displayRect;
+                    if (dr.width <= 0 || dr.height <= 0) return;
+
+                    var factor = Math.max(dr.width / rawViewport.width, dr.height / rawViewport.height);
+                    if (factor <= 0.0) return;
+                    var target = Math.min(1.0, Math.max(0.1, rawViewport.zoom / factor));
+                    if (Math.abs(target - rawViewport.zoom) < 0.004) return;
+
+                    adjustingCropZoom = true;
+                    rawViewport.zoom = target;
+                    adjustingCropZoom = false;
+                    console.info("[CropApply] fit crop zoom factor=" + factor.toFixed(4) +
+                                 " targetZoom=" + target.toFixed(4) +
+                                 " display=(" + dr.x.toFixed(2) + "," + dr.y.toFixed(2) + "," +
+                                 dr.width.toFixed(2) + "," + dr.height.toFixed(2) + ")");
+                }
 
                 RowLayout {
                     spacing: 0
@@ -227,6 +277,7 @@ Window {
                             id: rawViewport
                             anchors.fill: parent
                             anchors.margins: 2
+                            anchors.bottomMargin: 38
                             source: AppState.currentImage
                             visible: true
                         }
@@ -264,8 +315,31 @@ Window {
                             smooth: false
                         }
 
-                        ShaderEffect {
+                        // Clipped transform container for visual rotation/flip
+                        Item {
+                            id: shaderClip
                             anchors.fill: rawViewport
+                            clip: true
+
+                            ShaderEffect {
+                                id: shaderFx
+                                anchors.fill: parent
+
+                                // Visual transforms: neutral when geometry is baked into pixels
+                                transform: [
+                                    Scale {
+                                        origin.x: shaderFx.width / 2
+                                        origin.y: shaderFx.height / 2
+                                        xScale: (!rawViewport.geometryBaked && rawViewport.flipHorizontal) ? -1 : 1
+                                        yScale: (!rawViewport.geometryBaked && rawViewport.flipVertical) ? -1 : 1
+                                    },
+                                    Rotation {
+                                        origin.x: shaderFx.width / 2
+                                        origin.y: shaderFx.height / 2
+                                        angle: rawViewport.geometryBaked ? 0 : (rawViewport.orientationSteps * 90 + rawViewport.straightenAngle)
+                                    }
+                                ]
+
                             property variant source: ShaderEffectSource { 
                                 sourceItem: rawViewport
                                 hideSource: true
@@ -355,6 +429,47 @@ Window {
                             property real cgBlending: rawViewport.cgBlending
                             
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
+                            }
+                        } // shaderClip
+
+                        // Crop overlay (axis-aligned, outside transform group)
+                        CropOverlay {
+                            id: cropOverlay
+                            anchors.fill: rawViewport
+                            viewport: rawViewport
+                            active: developLayout.activeSidebar === 2
+                            straightenToolActive: cropPanel.straightenToolActive
+                            onStraightenFinished: {
+                                cropPanel.straightenToolActive = false;
+                                rawViewport.commitEdit();
+                            }
+                        }
+                        Connections {
+                            target: cropOverlay
+                            function onDisplayRectChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                if (developLayout.adjustingCropZoom) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
+                        }
+                        Connections {
+                            target: rawViewport
+                            function onStraightenAngleChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
+                            function onOrientationStepsChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
+                            function onFlipHorizontalChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
+                            function onFlipVerticalChanged() {
+                                if (developLayout.activeSidebar !== 2) return;
+                                Qt.callLater(() => developLayout.fitCropViewport());
+                            }
                         }
 
                         // Interaction Layer
@@ -370,6 +485,10 @@ Window {
                             property bool isDragging: false
                             
                             onWheel: (wheel) => {
+                                if (developLayout.activeSidebar === 2) {
+                                    wheel.accepted = true;
+                                    return;
+                                }
                                 wheel.accepted = true;
                                 
                                 var delta = wheel.angleDelta.y;
@@ -402,6 +521,7 @@ Window {
                             }
                             
                             onDoubleClicked: (mouse) => {
+                                if (developLayout.activeSidebar === 2) return;
                                 // Cycle: 1.0 -> 2.0 -> 4.0 -> 1.0
                                 // Delay zoom to allow detecting if user wants to pan instead
                                 if (rawViewport.zoom < 1.0) doubleClickZoomTimer.targetZoom = 1.0;
@@ -413,6 +533,7 @@ Window {
                             }
                             
                             onPositionChanged: (mouse) => {
+                                if (developLayout.activeSidebar === 2) return;
                                 if (pressed) {
                                     var dx = mouse.x - startPos.x;
                                     var dy = mouse.y - startPos.y;
@@ -514,6 +635,8 @@ Window {
                                 PhotonSlider {
                                     id: zoomSlider
                                     Layout.preferredWidth: 200
+                                    enabled: developLayout.activeSidebar !== 2
+                                    opacity: enabled ? 1.0 : 0.5
                                     from: 0.1
                                     to: 10.0
                                     value: rawViewport.zoom
@@ -651,10 +774,12 @@ Window {
                                 }
 
                                 // 2: Crop
-                                Rectangle {
-                                    color: Theme.background
-                                    Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
-                                    Text { anchors.centerIn: parent; text: "Crop & Transform (Coming Soon)"; color: Theme.mutedFg }
+                                CropPanel {
+                                    id: cropPanel
+                                    viewport: rawViewport
+                                    viewTopPadding: 10
+                                    onCropConfirmed: developLayout.activeSidebar = 1
+                                    onCropDiscarded: developLayout.activeSidebar = 1
                                 }
 
                                 // 3: Lens
@@ -705,7 +830,23 @@ Window {
                                             Layout.preferredWidth: 48
                                             Layout.preferredHeight: 48
                                             flat: true
-                                            onClicked: developLayout.activeSidebar = modelData.index
+                                            onClicked: {
+                                                // Leaving crop mode without committing
+                                                if (developLayout.activeSidebar === 2 && modelData.index !== 2) {
+                                                    cropPanel.discardCrop();
+                                                    rawViewport.exitCropMode();
+                                                }
+                                                // Entering crop mode
+                                                if (modelData.index === 2) {
+                                                    rawViewport.zoom = 1.0;
+                                                    rawViewport.pan = Qt.point(0, 0);
+                                                    cropPanel.saveEntryState();
+                                                    rawViewport.enterCropMode();
+                                                    console.info("[CropApply] Entering crop mode with zoom reset/pan reset");
+                                                    Qt.callLater(() => developLayout.fitCropViewport());
+                                                }
+                                                developLayout.activeSidebar = modelData.index;
+                                            }
                                             
                                             icon.source: "qrc:/Main/assets/icons/" + modelData.icon + ".svg"
                                             icon.color: Theme.foreground

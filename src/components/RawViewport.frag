@@ -345,8 +345,34 @@ vec3 hsv_to_rgb(vec3 c) {
 
 float get_hsl_influence(float hue, float center, float width) {
     float dist = min(abs(hue - center), 1.0 - abs(hue - center));
-    float falloff = dist / (width * 0.5);
-    return exp(-1.5 * falloff * falloff);
+    float effectiveWidth = max(width * 1.25, 1e-6);
+    float falloff = dist / (effectiveWidth * 0.5);
+    return exp(-0.85 * falloff * falloff);
+}
+
+float compute_target_luma(float luma, float stops) {
+    float target = luma * pow(2.0, stops);
+    if (stops > 0.0) {
+        // Compress brightening to avoid harsh clipping artifacts.
+        float over = max(target - 1.0, 0.0);
+        if (over > 0.0) {
+            float shoulder = 1.2 + 3.0 * clamp(stops, 0.0, 1.0);
+            target = 1.0 + over / (1.0 + over * shoulder);
+        }
+    }
+    return max(target, 0.0);
+}
+
+vec3 apply_luma_target(vec3 color, float lumaIn, float targetLuma) {
+    targetLuma = max(targetLuma, 0.0);
+    float safeLuma = max(lumaIn, 1e-4);
+    float lumaDelta = targetLuma - lumaIn;
+    float lumaRatio = targetLuma / safeLuma;
+    // Additive in deep shadows, multiplicative in mids/highlights.
+    float blend = smoothstep(0.02, 0.34, lumaIn);
+    vec3 additive = color + vec3(lumaDelta);
+    vec3 multiplicative = color * lumaRatio;
+    return mix(additive, multiplicative, blend);
 }
 
 // --- Color Grading Math ---
@@ -601,56 +627,37 @@ void main()
     color = max(vec3(0.0), color);
     color = pow(color, vec3(ubuf.contrast));
     
-    // 4. Whites & Blacks
+    // 4. Whites & Blacks (smoother masks, bounded response)
+    float luma = get_luma(max(color, 0.0));
     if (ubuf.whites != 0.0) {
-        float white_level = 1.0 - (ubuf.whites / 100.0) * 0.5;
-        color = color / max(white_level, 0.01);
+        float w = clamp(ubuf.whites / 100.0, -1.0, 1.0);
+        float whiteMask = smoothstep(0.42, 1.20, luma);
+        float targetLuma = compute_target_luma(luma, w * 0.85 * whiteMask);
+        color = apply_luma_target(color, luma, targetLuma);
+        luma = get_luma(max(color, 0.0));
     }
     if (ubuf.blacks != 0.0) {
-        float luma_bl = get_luma(max(color, 0.0));
-        float black_mask = 1.0 - smoothstep(0.0, 0.3, luma_bl);
-        color = mix(color, color * pow(2.0, (ubuf.blacks / 100.0) * 1.5), black_mask);
+        float bAdj = clamp(ubuf.blacks / 100.0, -1.0, 1.0);
+        float blackMask = 1.0 - smoothstep(0.0, 0.48, luma);
+        float targetLuma = compute_target_luma(luma, bAdj * 0.90 * blackMask);
+        color = apply_luma_target(color, luma, targetLuma);
+        luma = get_luma(max(color, 0.0));
     }
 
-    // 5. Highlights & Shadows
-    float luma = get_luma(max(color, 0.0));
-    
-    // Shadow Mask (inspired by crossover logic at WGSL line 615)
+    // 5. Highlights & Shadows (broader crossover, gentler extremes)
     if (ubuf.shadows != 0.0) {
-        float shadow_mask = 1.0 - smoothstep(0.0, 0.25, luma);
-        float adjustment = (ubuf.shadows / 100.0) * 1.5;
-        color *= mix(1.0, pow(2.0, adjustment), shadow_mask);
+        float s = clamp(ubuf.shadows / 100.0, -1.0, 1.0);
+        float shadowMask = 1.0 - smoothstep(0.05, 0.62, luma);
+        float targetLuma = compute_target_luma(luma, s * 0.95 * shadowMask);
+        color = apply_luma_target(color, luma, targetLuma);
+        luma = get_luma(max(color, 0.0));
     }
-    
-    // Highlight Mask (inspired by crossover logic at WGSL line 615 + specialized reduction)
+
     if (ubuf.highlights != 0.0) {
-        float highlight_mask = smoothstep(0.3, 0.95, tanh(luma * 1.5));
-        float h_adj = ubuf.highlights / 100.0;
-        
-        vec3 h_color;
-        if (h_adj < 0.0) {
-            // Advanced Reduction: Gamma for normal range, Compression for over-exposed
-            float new_luma;
-            if (luma <= 1.0) {
-                float gamma = 1.0 - h_adj * 1.75;
-                new_luma = pow(max(luma, 0.0001), gamma);
-            } else {
-                float luma_excess = luma - 1.0;
-                float compression_strength = -h_adj * 6.0;
-                float compressed_excess = luma_excess / (1.0 + luma_excess * compression_strength);
-                new_luma = 1.0 + compressed_excess;
-            }
-            
-            h_color = color * (new_luma / max(luma, 0.0001));
-            
-            // Desaturate extremely bright highlights to avoid color shifts
-            float desat = smoothstep(1.0, 5.0, luma);
-            h_color = mix(h_color, vec3(new_luma), desat);
-        } else {
-            h_color = color * pow(2.0, h_adj * 1.5);
-        }
-        
-        color = mix(color, h_color, highlight_mask);
+        float h = clamp(ubuf.highlights / 100.0, -1.0, 1.0);
+        float highlightMask = smoothstep(0.22, 1.25, luma);
+        float targetLuma = compute_target_luma(luma, h * 0.90 * highlightMask);
+        color = apply_luma_target(color, luma, targetLuma);
     }
 
     // --- HSL PANEL ---
@@ -660,6 +667,7 @@ void main()
     float hue_shift = 0.0;
     float sat_mult = 0.0;
     float lum_adj = 0.0;
+    float influence_sum = 0.0;
 
     float centers[8] = { 358.0/360.0, 25.0/360.0, 60.0/360.0, 115.0/360.0, 180.0/360.0, 225.0/360.0, 280.0/360.0, 330.0/360.0 };
     float widths[8] = { 35.0/360.0, 45.0/360.0, 40.0/360.0, 90.0/360.0, 60.0/360.0, 60.0/360.0, 55.0/360.0, 50.0/360.0 };
@@ -669,15 +677,30 @@ void main()
 
     for (int i = 0; i < 8; i++) {
         float influence = get_hsl_influence(hue, centers[i], widths[i]);
+        influence_sum += influence;
         hue_shift += (h_adjs[i] / 100.0) * 0.1 * influence;
         sat_mult += (s_adjs[i] / 100.0) * influence;
         lum_adj += (l_adjs[i] / 100.0) * influence;
     }
 
+    float norm = max(1.0, influence_sum);
+    hue_shift /= norm;
+    sat_mult /= norm;
+    lum_adj /= norm;
+
+    float chromaProtect = smoothstep(0.04, 0.22, sat);
+    hue_shift *= chromaProtect;
+    sat_mult = mix(sat_mult * 0.35, sat_mult, chromaProtect);
+    lum_adj *= mix(0.4, 1.0, chromaProtect);
+
     hsv.x = fract(hsv.x + hue_shift);
-    hsv.y = clamp(hsv.y * (1.0 + sat_mult), 0.0, 1.0);
+    float satScale = 1.0 + clamp(sat_mult, -0.85, 1.25);
+    hsv.y = clamp(hsv.y * satScale, 0.0, 1.0);
     color = hsv_to_rgb(hsv);
-    color *= (1.0 + lum_adj);
+    float lumaAfterHueSat = get_luma(max(color, 0.0));
+    float lumStops = clamp(lum_adj, -0.75, 0.75) * 0.70;
+    float targetHslLuma = compute_target_luma(lumaAfterHueSat, lumStops);
+    color = apply_luma_target(color, lumaAfterHueSat, targetHslLuma);
 
     // --- COLOR GRADING --- (Applied before global saturation/vibrance)
     color = color_grade(color, get_luma(max(color, 0.0)));

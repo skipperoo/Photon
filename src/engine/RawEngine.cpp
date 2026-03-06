@@ -91,8 +91,9 @@ static void hsv_to_rgb_cpp(float h, float s, float v, float& r, float& g,
 static float get_hsl_influence_cpp(float hue, float center, float width) {
   float dist =
       std::min(std::abs(hue - center), 360.0f - std::abs(hue - center));
-  float falloff = dist / (width * 0.5f);
-  return std::exp(-1.5f * falloff * falloff);
+  float effectiveWidth = std::max(width * 1.25f, 1e-6f);
+  float falloff = dist / (effectiveWidth * 0.5f);
+  return std::exp(-0.85f * falloff * falloff);
 }
 
 static void apply_region_tint_cpp(float& r, float& g, float& b, float hue,
@@ -102,6 +103,33 @@ static void apply_region_tint_cpp(float& r, float& g, float& b, float hue,
   r = lerp(r, r * tr, sat / 100.0f) * (1.0f + lum / 100.0f);
   g = lerp(g, g * tg, sat / 100.0f) * (1.0f + lum / 100.0f);
   b = lerp(b, b * tb, sat / 100.0f) * (1.0f + lum / 100.0f);
+}
+
+static float compute_target_luma_hist(float luma, float stops) {
+  float target = luma * std::pow(2.0f, stops);
+  if (stops > 0.0f) {
+    float over = std::max(target - 1.0f, 0.0f);
+    if (over > 0.0f) {
+      float shoulder = 1.2f + 3.0f * std::clamp(stops, 0.0f, 1.0f);
+      target = 1.0f + over / (1.0f + over * shoulder);
+    }
+  }
+  return std::max(target, 0.0f);
+}
+
+static void apply_luma_target_hist(float& r, float& g, float& b, float lumaIn,
+                                   float targetLuma) {
+  targetLuma = std::max(targetLuma, 0.0f);
+  float safeLuma = std::max(lumaIn, 1e-4f);
+  float lumaDelta = targetLuma - lumaIn;
+  float lumaRatio = targetLuma / safeLuma;
+  float blend = smoothstep(0.02f, 0.34f, lumaIn);
+  float addR = r + lumaDelta;
+  float addG = g + lumaDelta;
+  float addB = b + lumaDelta;
+  r = lerp(addR, r * lumaRatio, blend);
+  g = lerp(addG, g * lumaRatio, blend);
+  b = lerp(addB, b * lumaRatio, blend);
 }
 
 RawEngine::RawEngine(QObject* parent)
@@ -1420,49 +1448,42 @@ void RawEngine::requestHistogramUpdate() {
       g = std::pow(std::max(0.0f, g), con);
       b = std::pow(std::max(0.0f, b), con);
 
-      // 3. Whites & Blacks
+      // 3. Whites & Blacks (smoother masks, bounded response)
+      float l_tone = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
+                     0.0722f * std::max(0.0f, b);
       if (whites != 0.0f) {
-        float wl = 1.0f - (whites / 100.0f) * 0.5f;
-        float inv_wl = 1.0f / std::max(wl, 0.01f);
-        r *= inv_wl;
-        g *= inv_wl;
-        b *= inv_wl;
+        float w = std::clamp(whites / 100.0f, -1.0f, 1.0f);
+        float whiteMask = smoothstep(0.42f, 1.20f, l_tone);
+        float target = compute_target_luma_hist(l_tone, w * 0.85f * whiteMask);
+        apply_luma_target_hist(r, g, b, l_tone, target);
+        l_tone = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
+                 0.0722f * std::max(0.0f, b);
       }
       if (blacks != 0.0f) {
-        float l_val = 0.2126f * r + 0.7152f * g + 0.0722f * b;
-        float mask = 1.0f - smoothstep(0.0f, 0.3f, l_val);
-        float b_factor = std::pow(2.0f, (blacks / 100.0f) * 1.5f);
-        float factor = 1.0f + (b_factor - 1.0f) * mask;
-        r *= factor;
-        g *= factor;
-        b *= factor;
+        float bAdj = std::clamp(blacks / 100.0f, -1.0f, 1.0f);
+        float blackMask = 1.0f - smoothstep(0.0f, 0.48f, l_tone);
+        float target =
+            compute_target_luma_hist(l_tone, bAdj * 0.90f * blackMask);
+        apply_luma_target_hist(r, g, b, l_tone, target);
+        l_tone = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
+                 0.0722f * std::max(0.0f, b);
       }
 
-      // 4. Highlights & Shadows
-      float l_tone = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+      // 4. Highlights & Shadows (broader crossover, gentler extremes)
       if (shad != 0.0f) {
-        float mask = std::pow(1.0f - smoothstep(0.0f, 0.5f, l_tone), 2.0f);
-        float s_factor = std::pow(2.0f, (shad / 100.0f) * 1.5f);
-        float factor = 1.0f + (s_factor - 1.0f) * mask;
-        r *= factor;
-        g *= factor;
-        b *= factor;
+        float s = std::clamp(shad / 100.0f, -1.0f, 1.0f);
+        float shadowMask = 1.0f - smoothstep(0.05f, 0.62f, l_tone);
+        float target = compute_target_luma_hist(l_tone, s * 0.95f * shadowMask);
+        apply_luma_target_hist(r, g, b, l_tone, target);
+        l_tone = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
+                 0.0722f * std::max(0.0f, b);
       }
       if (high != 0.0f) {
-        float mask = smoothstep(0.4f, 1.0f, std::tanh(l_tone * 1.5f));
-        float h_adj = high / 100.0f;
-        if (h_adj < 0.0f) {
-          float gamma = 1.0f - h_adj * 1.5f;
-          r = lerp(r, std::pow(std::max(r, 0.0001f), gamma), mask);
-          g = lerp(g, std::pow(std::max(g, 0.0001f), gamma), mask);
-          b = lerp(b, std::pow(std::max(b, 0.0001f), gamma), mask);
-        } else {
-          float h_factor = std::pow(2.0f, h_adj * 1.5f);
-          float factor = 1.0f + (h_factor - 1.0f) * mask;
-          r *= factor;
-          g *= factor;
-          b *= factor;
-        }
+        float h = std::clamp(high / 100.0f, -1.0f, 1.0f);
+        float highlightMask = smoothstep(0.22f, 1.25f, l_tone);
+        float target =
+            compute_target_luma_hist(l_tone, h * 0.90f * highlightMask);
+        apply_luma_target_hist(r, g, b, l_tone, target);
       }
 
       // 5. HSL PANEL
@@ -1470,20 +1491,36 @@ void RawEngine::requestHistogramUpdate() {
       float hue_shift = 0.0f;
       float sat_mult = 0.0f;
       float lum_adj = 0.0f;
+      float influence_sum = 0.0f;
       for (int b_idx = 0; b_idx < 8; b_idx++) {
         float influence =
             get_hsl_influence_cpp(hsv.h, centers[b_idx], widths[b_idx]);
+        influence_sum += influence;
         hue_shift += (hsl_h[b_idx] / 100.0f) * 0.1f * 360.0f * influence;
         sat_mult += (hsl_s[b_idx] / 100.0f) * influence;
         lum_adj += (hsl_l[b_idx] / 100.0f) * influence;
       }
+      float norm = std::max(1.0f, influence_sum);
+      hue_shift /= norm;
+      sat_mult /= norm;
+      lum_adj /= norm;
+      float chromaProtect = smoothstep(0.04f, 0.22f, hsv.s);
+      hue_shift *= chromaProtect;
+      sat_mult = lerp(sat_mult * 0.35f, sat_mult, chromaProtect);
+      lum_adj *= lerp(0.4f, 1.0f, chromaProtect);
       hsv.h = std::fmod(hsv.h + hue_shift + 360.0f, 360.0f);
-      hsv.s = std::clamp(hsv.s * (1.0f + sat_mult), 0.0f, 1.0f);
+      float satScale = 1.0f + std::clamp(sat_mult, -0.85f, 1.25f);
+      hsv.s = std::clamp(hsv.s * satScale, 0.0f, 1.0f);
       float r_hsl, g_hsl, b_hsl;
       hsv_to_rgb_cpp(hsv.h, hsv.s, hsv.v, r_hsl, g_hsl, b_hsl);
-      r = r_hsl * (1.0f + lum_adj);
-      g = g_hsl * (1.0f + lum_adj);
-      b = b_hsl * (1.0f + lum_adj);
+      r = r_hsl;
+      g = g_hsl;
+      b = b_hsl;
+      float l_hsl = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
+                    0.0722f * std::max(0.0f, b);
+      float lumStops = std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f;
+      float targetHsl = compute_target_luma_hist(l_hsl, lumStops);
+      apply_luma_target_hist(r, g, b, l_hsl, targetHsl);
 
       // 6. COLOR GRADING
       float l_cg = 0.2126f * r + 0.7152f * g + 0.0722f * b;

@@ -134,6 +134,42 @@ static float get_luma_cpp(float r, float g, float b) {
   return 0.2126f * r + 0.7152f * g + 0.0722f * b;
 }
 
+static float smoothstep_local(float edge0, float edge1, float x) {
+  float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+  return t * t * (3.0f - 2.0f * t);
+}
+
+static float mix_local(float a, float b, float t) { return a + t * (b - a); }
+
+static float compute_target_luma_cpp(float luma, float stops) {
+  float target = luma * std::pow(2.0f, stops);
+  if (stops > 0.0f) {
+    // Compress brightening to avoid harsh clipping artifacts.
+    float over = std::max(target - 1.0f, 0.0f);
+    if (over > 0.0f) {
+      float shoulder = 1.2f + 3.0f * std::clamp(stops, 0.0f, 1.0f);
+      target = 1.0f + over / (1.0f + over * shoulder);
+    }
+  }
+  return std::max(target, 0.0f);
+}
+
+static void apply_luma_target_cpp(float& r, float& g, float& b, float lumaIn,
+                                  float targetLuma) {
+  targetLuma = std::max(targetLuma, 0.0f);
+  float safeLuma = std::max(lumaIn, 1e-4f);
+  float lumaDelta = targetLuma - lumaIn;
+  float lumaRatio = targetLuma / safeLuma;
+  // Additive in deep shadows, multiplicative in mids/highlights.
+  float blend = smoothstep_local(0.02f, 0.34f, lumaIn);
+  float addR = r + lumaDelta;
+  float addG = g + lumaDelta;
+  float addB = b + lumaDelta;
+  r = mix_local(addR, r * lumaRatio, blend);
+  g = mix_local(addG, g * lumaRatio, blend);
+  b = mix_local(addB, b * lumaRatio, blend);
+}
+
 static std::vector<float> evalMonotonicSplineLut(const QVariantList& pts,
                                                   int lutSize) {
   std::vector<float> lut(lutSize);
@@ -384,56 +420,43 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       g = std::pow(g, con);
       b = std::pow(b, con);
 
-      // 3. Whites & Blacks
-      if (whites != 0.0f) {
-        float white_level = 1.0f - (whites / 100.0f) * 0.5f;
-        r /= std::max(white_level, 0.01f);
-        g /= std::max(white_level, 0.01f);
-        b /= std::max(white_level, 0.01f);
-      }
-      if (blacks != 0.0f) {
-        float l_val = get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g),
-                                   std::max(0.0f, b));
-        float black_mask = 1.0f - smoothstep(0.0f, 0.3f, l_val);
-        float factor =
-            mix(1.0f, std::pow(2.0f, (blacks / 100.0f) * 1.5f), black_mask);
-        r *= factor;
-        g *= factor;
-        b *= factor;
-      }
-
-      // 4. Highlights & Shadows
+      // 3. Whites & Blacks (smoother masks, bounded response)
       float luma =
           get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
+      if (whites != 0.0f) {
+        float w = std::clamp(whites / 100.0f, -1.0f, 1.0f);
+        float whiteMask = smoothstep(0.42f, 1.20f, luma);
+        float targetLuma = compute_target_luma_cpp(luma, w * 0.85f * whiteMask);
+        apply_luma_target_cpp(r, g, b, luma, targetLuma);
+        luma = get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g),
+                            std::max(0.0f, b));
+      }
+      if (blacks != 0.0f) {
+        float bAdj = std::clamp(blacks / 100.0f, -1.0f, 1.0f);
+        float blackMask = 1.0f - smoothstep(0.0f, 0.48f, luma);
+        float targetLuma =
+            compute_target_luma_cpp(luma, bAdj * 0.90f * blackMask);
+        apply_luma_target_cpp(r, g, b, luma, targetLuma);
+        luma = get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g),
+                            std::max(0.0f, b));
+      }
+
+      // 4. Highlights & Shadows (broader crossover, gentler extremes)
       if (shad != 0.0f) {
-        float shadow_mask = 1.0f - smoothstep(0.0f, 0.25f, luma);
-        float factor =
-            mix(1.0f, std::pow(2.0f, (shad / 100.0f) * 1.5f), shadow_mask);
-        r *= factor;
-        g *= factor;
-        b *= factor;
+        float s = std::clamp(shad / 100.0f, -1.0f, 1.0f);
+        float shadowMask = 1.0f - smoothstep(0.05f, 0.62f, luma);
+        float targetLuma =
+            compute_target_luma_cpp(luma, s * 0.95f * shadowMask);
+        apply_luma_target_cpp(r, g, b, luma, targetLuma);
+        luma = get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g),
+                            std::max(0.0f, b));
       }
       if (high != 0.0f) {
-        float highlight_mask =
-            smoothstep(0.3f, 0.95f, (float)std::tanh(luma * 1.5f));
-        float h_adj = high / 100.0f;
-        float h_factor_luma = 1.0f;
-        if (h_adj < 0.0f) {
-          if (luma <= 1.0f)
-            h_factor_luma =
-                std::pow(std::max(luma, 0.0001f), 1.0f - h_adj * 1.75f) /
-                std::max(luma, 0.0001f);
-          else
-            h_factor_luma =
-                (1.0f +
-                 (luma - 1.0f) / (1.0f + (luma - 1.0f) * (-h_adj * 6.0f))) /
-                luma;
-        } else {
-          h_factor_luma = std::pow(2.0f, h_adj * 1.5f);
-        }
-        r = mix(r, r * h_factor_luma, highlight_mask);
-        g = mix(g, g * h_factor_luma, highlight_mask);
-        b = mix(b, b * h_factor_luma, highlight_mask);
+        float h = std::clamp(high / 100.0f, -1.0f, 1.0f);
+        float highlightMask = smoothstep(0.22f, 1.25f, luma);
+        float targetLuma =
+            compute_target_luma_cpp(luma, h * 0.90f * highlightMask);
+        apply_luma_target_cpp(r, g, b, luma, targetLuma);
       }
 
       // 5. HSL
@@ -441,22 +464,38 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       float hue = hsv_struct.h;
       float h_norm = hue / 360.0f;
       float hue_shift = 0.0f, sat_mult = 0.0f, lum_adj = 0.0f;
+      float influence_sum = 0.0f;
       for (int b_idx = 0; b_idx < 8; b_idx++) {
         float dist = std::abs(h_norm - centers[b_idx]);
         if (dist > 0.5f) dist = 1.0f - dist;
-        float falloff = dist / (widths[b_idx] * 0.5f);
-        float influence = std::exp(-1.5f * falloff * falloff);
+        float effectiveWidth = widths[b_idx] * 1.25f;
+        float falloff = dist / (effectiveWidth * 0.5f);
+        float influence = std::exp(-0.85f * falloff * falloff);
+        influence_sum += influence;
 
         hue_shift += (hsl_h[b_idx] / 100.0f) * 0.1f * influence;
         sat_mult += (hsl_s[b_idx] / 100.0f) * influence;
         lum_adj += (hsl_l[b_idx] / 100.0f) * influence;
       }
+      float norm = std::max(1.0f, influence_sum);
+      hue_shift /= norm;
+      sat_mult /= norm;
+      lum_adj /= norm;
+
+      float chromaProtect = smoothstep(0.04f, 0.22f, hsv_struct.s);
+      hue_shift *= chromaProtect;
+      sat_mult = mix(sat_mult * 0.35f, sat_mult, chromaProtect);
+      lum_adj *= mix(0.4f, 1.0f, chromaProtect);
+
       float final_h = std::fmod(hue + hue_shift * 360.0f + 360.0f, 360.0f);
-      float final_s = std::clamp(hsv_struct.s * (1.0f + sat_mult), 0.0f, 1.0f);
+      float satScale = 1.0f + std::clamp(sat_mult, -0.85f, 1.25f);
+      float final_s = std::clamp(hsv_struct.s * satScale, 0.0f, 1.0f);
       hsv_to_rgb(final_h, final_s, hsv_struct.v, r, g, b);
-      r *= (1.0f + lum_adj);
-      g *= (1.0f + lum_adj);
-      b *= (1.0f + lum_adj);
+      float lumaAfterHueSat =
+          get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
+      float lumStops = std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f;
+      float targetHslLuma = compute_target_luma_cpp(lumaAfterHueSat, lumStops);
+      apply_luma_target_cpp(r, g, b, lumaAfterHueSat, targetHslLuma);
 
       // 6. Color Grading
       float l_cg =

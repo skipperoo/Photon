@@ -97,8 +97,9 @@ class ImageDeveloper {
   static float get_hsl_influence(float h, float center, float width) {
     float dist = std::abs(h - center);
     if (dist > 180.0f) dist = 360.0f - dist;
-    float falloff = dist / (width * 0.5f);
-    return std::exp(-1.5f * falloff * falloff);
+    float effectiveWidth = std::max(width * 1.25f, 1e-6f);
+    float falloff = dist / (effectiveWidth * 0.5f);
+    return std::exp(-0.85f * falloff * falloff);
   }
 };
 

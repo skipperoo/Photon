@@ -1024,8 +1024,16 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
       m_bufferWidth = width;
       m_bufferHeight = height;
 
-      // Update logical image dimensions when geometry changes actual size
-      if (m_imageWidth != width || m_imageHeight != height) {
+      // Keep logical dimensions stable while showing partial denoise ROI.
+      // ROI textures are temporary and should not drive targetRect/pan math.
+      const QRectF denoisedRoi = m_engine.denoisedRoi();
+      const bool hasPartialDenoiseRoi =
+          m_engine.hasDenoisedResult() && denoisedRoi.isValid() &&
+          (denoisedRoi.width() < 0.999 || denoisedRoi.height() < 0.999);
+
+      // Update logical image dimensions only for full-frame buffers.
+      if (!hasPartialDenoiseRoi &&
+          (m_imageWidth != width || m_imageHeight != height)) {
         m_imageWidth = width;
         m_imageHeight = height;
         QMetaObject::invokeMethod(

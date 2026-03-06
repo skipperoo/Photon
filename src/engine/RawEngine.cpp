@@ -13,6 +13,7 @@
 #include <QTransform>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <numeric>
 #include <vector>
 
@@ -1311,38 +1312,50 @@ std::vector<float> RawEngine::evalMonotonicSpline(const QVariantList& pts,
 }
 
 void RawEngine::rebuildToneLut() {
-  auto lutL = evalMonotonicSpline(m_toneCurveLuma, 256);
-  auto lutR = evalMonotonicSpline(m_toneCurveRed, 256);
-  auto lutG = evalMonotonicSpline(m_toneCurveGreen, 256);
-  auto lutB = evalMonotonicSpline(m_toneCurveBlue, 256);
+  constexpr int kToneLutEntries = 65536;
+  constexpr int kToneLutSide = 256;
+  constexpr int kToneLutRowsPerChannel = kToneLutEntries / kToneLutSide;  // 256
+  constexpr int kToneLutChannels = 4;
+  constexpr int kToneLutHeight = kToneLutRowsPerChannel * kToneLutChannels;  // 1024
 
-  // Check if any LUT deviates from identity after quantization to 8-bit.
-  // Near-identity splines (e.g. point placed very close to the diagonal) produce
-  // float deviations that vanish once quantized, so comparing uint8 values
-  // avoids false activation from sub-quantization-step differences.
+  auto lutL = evalMonotonicSpline(m_toneCurveLuma, kToneLutEntries);
+  auto lutR = evalMonotonicSpline(m_toneCurveRed, kToneLutEntries);
+  auto lutG = evalMonotonicSpline(m_toneCurveGreen, kToneLutEntries);
+  auto lutB = evalMonotonicSpline(m_toneCurveBlue, kToneLutEntries);
+
+  // Check if any LUT deviates from identity after quantization to 16-bit.
+  // This keeps toneCurveActive stable for near-identity curves while still
+  // honoring the full 65536-level LUT precision.
   bool active = false;
-  for (int i = 0; i < 256 && !active; i++) {
-    uint8_t vL = uint8_t(std::clamp(lutL[i] * 255.0f + 0.5f, 0.0f, 255.0f));
-    uint8_t vR = uint8_t(std::clamp(lutR[i] * 255.0f + 0.5f, 0.0f, 255.0f));
-    uint8_t vG = uint8_t(std::clamp(lutG[i] * 255.0f + 0.5f, 0.0f, 255.0f));
-    uint8_t vB = uint8_t(std::clamp(lutB[i] * 255.0f + 0.5f, 0.0f, 255.0f));
+  for (int i = 0; i < kToneLutEntries && !active; i++) {
+    uint16_t vL =
+        uint16_t(std::clamp(lutL[i] * 65535.0f + 0.5f, 0.0f, 65535.0f));
+    uint16_t vR =
+        uint16_t(std::clamp(lutR[i] * 65535.0f + 0.5f, 0.0f, 65535.0f));
+    uint16_t vG =
+        uint16_t(std::clamp(lutG[i] * 65535.0f + 0.5f, 0.0f, 65535.0f));
+    uint16_t vB =
+        uint16_t(std::clamp(lutB[i] * 65535.0f + 0.5f, 0.0f, 65535.0f));
     if (vL != i || vR != i || vG != i || vB != i)
       active = true;
   }
 
-  // 256×4 RGBA image — one row per channel, value in R, alpha=255
-  // Row 0=Luma, Row 1=Red, Row 2=Green, Row 3=Blue
-  m_toneLutImage = QImage(256, 4, QImage::Format_RGBA8888);
-  m_toneLutImage.fill(Qt::white);
+  // 256×1024 RGBA texture: 4 channel planes (Luma, R, G, B), each a 256×256
+  // tile encoding 65536 LUT entries packed as 16-bit in RG (high, low).
+  m_toneLutImage = QImage(kToneLutSide, kToneLutHeight, QImage::Format_RGBA8888);
+  m_toneLutImage.fill(Qt::black);
   const std::vector<float>* luts[4] = {&lutL, &lutR, &lutG, &lutB};
-  for (int row = 0; row < 4; row++) {
-    uchar* line = m_toneLutImage.scanLine(row);
-    for (int i = 0; i < 256; i++) {
-      uint8_t v = uint8_t(std::clamp((*luts[row])[i] * 255.0f + 0.5f, 0.0f, 255.0f));
-      line[i * 4 + 0] = v;
-      line[i * 4 + 1] = v;
-      line[i * 4 + 2] = v;
-      line[i * 4 + 3] = 255;
+  for (int channel = 0; channel < 4; channel++) {
+    for (int i = 0; i < kToneLutEntries; i++) {
+      uint16_t v = uint16_t(
+          std::clamp((*luts[channel])[i] * 65535.0f + 0.5f, 0.0f, 65535.0f));
+      int x = i & 255;
+      int y = channel * kToneLutRowsPerChannel + (i >> 8);
+      uchar* line = m_toneLutImage.scanLine(y);
+      line[x * 4 + 0] = uchar((v >> 8) & 0xFF);  // high byte
+      line[x * 4 + 1] = uchar(v & 0xFF);         // low byte
+      line[x * 4 + 2] = 0;
+      line[x * 4 + 3] = 255;
     }
   }
   m_toneLutVersion++;

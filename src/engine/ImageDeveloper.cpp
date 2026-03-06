@@ -8,6 +8,7 @@
 #include <QtConcurrent>
 #include <cstdio>
 #include <cmath>
+#include <cstdint>
 #include <numeric>
 
 #include "../managers/LogManager.h"
@@ -361,19 +362,26 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   QVariantList tcBlue = obj.contains("toneCurveBlue")
       ? jsonArrayToVariantList(obj["toneCurveBlue"].toArray()) : defaultPts;
 
-  std::vector<float> lutLuma = evalMonotonicSplineLut(tcLuma, 256);
-  std::vector<float> lutRed = evalMonotonicSplineLut(tcRed, 256);
-  std::vector<float> lutGreen = evalMonotonicSplineLut(tcGreen, 256);
-  std::vector<float> lutBlue = evalMonotonicSplineLut(tcBlue, 256);
+  constexpr int kToneLutEntries = 65536;
+  constexpr float kToneLutMaxIndex = float(kToneLutEntries - 1);
+  std::vector<float> lutLuma = evalMonotonicSplineLut(tcLuma, kToneLutEntries);
+  std::vector<float> lutRed = evalMonotonicSplineLut(tcRed, kToneLutEntries);
+  std::vector<float> lutGreen = evalMonotonicSplineLut(tcGreen, kToneLutEntries);
+  std::vector<float> lutBlue = evalMonotonicSplineLut(tcBlue, kToneLutEntries);
 
-  // Check if tone curve is identity (skip application if so)
+  // Check if tone curve is identity (skip application if so), using 16-bit
+  // quantization to match shader LUT precision.
   bool toneCurveActive = false;
-  for (int i = 0; i < 256 && !toneCurveActive; i++) {
-    float identity = float(i) / 255.0f;
-    if (std::abs(lutLuma[i] - identity) > 1e-4f ||
-        std::abs(lutRed[i] - identity) > 1e-4f ||
-        std::abs(lutGreen[i] - identity) > 1e-4f ||
-        std::abs(lutBlue[i] - identity) > 1e-4f)
+  for (int i = 0; i < kToneLutEntries && !toneCurveActive; i++) {
+    uint16_t qL = uint16_t(std::clamp(lutLuma[i] * kToneLutMaxIndex + 0.5f, 0.0f,
+                                      kToneLutMaxIndex));
+    uint16_t qR = uint16_t(std::clamp(lutRed[i] * kToneLutMaxIndex + 0.5f, 0.0f,
+                                      kToneLutMaxIndex));
+    uint16_t qG = uint16_t(std::clamp(lutGreen[i] * kToneLutMaxIndex + 0.5f, 0.0f,
+                                      kToneLutMaxIndex));
+    uint16_t qB = uint16_t(std::clamp(lutBlue[i] * kToneLutMaxIndex + 0.5f, 0.0f,
+                                      kToneLutMaxIndex));
+    if (qL != i || qR != i || qG != i || qB != i)
       toneCurveActive = true;
   }
 
@@ -550,16 +558,25 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         float cg = std::clamp(g, 0.0f, 1.0f);
         float cb = std::clamp(b, 0.0f, 1.0f);
         float lumaIn = get_luma_cpp(cr, cg, cb);
-        int idxL = std::clamp(int(lumaIn * 255.0f), 0, 255);
+        int idxL = std::clamp(int(lumaIn * kToneLutMaxIndex + 0.5f), 0,
+                              kToneLutEntries - 1);
         float lumaOut = lutLuma[idxL];
         float lumaDelta = lumaOut - lumaIn;
+        if (lumaDelta > 0.0f) {
+          // Soften black-point lift sensitivity near absolute black.
+          float blackLiftAtten = mix(0.60f, 1.0f, smoothstep(0.0f, 0.20f, lumaIn));
+          lumaDelta *= blackLiftAtten;
+        }
         float lumaRatio = (lumaIn > 0.001f) ? lumaOut / lumaIn : 1.0f;
         // Additive in shadows, multiplicative in mids/highs
         float t = std::clamp((lumaIn - 0.0f) / (0.36f - 0.0f), 0.0f, 1.0f);
         float blendShadow = t * t * (3.0f - 2.0f * t);  // smoothstep
-        int idxR = std::clamp(int(cr * 255.0f), 0, 255);
-        int idxG = std::clamp(int(cg * 255.0f), 0, 255);
-        int idxB = std::clamp(int(cb * 255.0f), 0, 255);
+        int idxR = std::clamp(int(cr * kToneLutMaxIndex + 0.5f), 0,
+                              kToneLutEntries - 1);
+        int idxG = std::clamp(int(cg * kToneLutMaxIndex + 0.5f), 0,
+                              kToneLutEntries - 1);
+        int idxB = std::clamp(int(cb * kToneLutMaxIndex + 0.5f), 0,
+                              kToneLutEntries - 1);
         cr = lutRed[idxR];
         cg = lutGreen[idxG];
         cb = lutBlue[idxB];

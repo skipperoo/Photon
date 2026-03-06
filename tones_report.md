@@ -166,3 +166,102 @@ Why this helps:
 ---
 
 If you want, next step I can convert this into an implementation checklist with exact code touchpoints (`RawViewport.frag` + `ImageDeveloper.cpp` + UI controls) so we can start iterating safely.
+
+---
+
+## 5) Addendum — Tone curve banding (Photon vs darktable)
+
+### Photon current behavior (banding-relevant)
+
+- Tone curve LUT is rebuilt at **256 samples/channel** and quantized to **8-bit RGBA**:
+  - `RawEngine.cpp:1314-1317`, `1335-1342`
+  - `ToneLutProvider.h:24-31`
+- Shader tone-curve sampling uses the 256×4 LUT rows (`toneLUT`) in the processing pass:
+  - `RawViewport.frag:721-738`
+  - `App.qml:348-353`
+- Photon dithering is currently a single pseudo-random per-pixel add at amplitude `1/255`:
+  - `RawViewport.frag:538-540`, `769-770`
+  - `ImageDeveloper.cpp:127-131`, `584-588`
+- In `ImageDeveloper`, dithering is applied **before** denoise (`579-589` then `596-637`), so part of anti-banding noise can be removed again by denoising.
+
+### darktable references
+
+- darktable tone curve uses float processing with a **0x10000 LUT** (65536 entries), not 256:
+  - `tmp/darktable/src/iop/tonecurve.c:136`, `755`
+- darktable has a dedicated **dither/posterize** module for output quantization control:
+  - module intent: reduce output banding/posterization (`dither.c:114-115`)
+  - auto bit-depth-aware mode (`dither.c:344-383`)
+  - methods include Floyd-Steinberg error diffusion and random TPDF (`dither.c:393-400`, `574-607`)
+
+### Why Photon shows more banding after strong tone-curve edits
+
+1. LUT precision is effectively 8-bit/256-sample in the GPU path, so steep/curvy segments can staircase.
+2. Dither strategy is fixed-amplitude and not export bit-depth aware.
+3. In CPU preview/export path, dither can be attenuated by subsequent denoise.
+
+### Suggested direction (engine-side)
+
+1. Raise tone-LUT precision (e.g., 4096+ samples or 65536 table, plus higher-precision LUT texture/storage).
+2. Keep curve application in high precision until final output quantization.
+3. Move/export dithering to the **final step** only (after denoise and all tone/color operations), with bit-depth aware amplitude.
+4. Prefer TPDF/blue-noise dithering for raster output; optional FS diffusion for 8-bit export paths.
+
+---
+
+## 6) Addendum — Denoise softness / detail loss (Photon vs darktable)
+
+### Photon current behavior (detail-relevant)
+
+- BM3D strength maps linearly from slider to sigma (`sigma = intensity * 80`):
+  - `Denoiser.h:19-22`
+- Pipeline is BM3D on luminance + chroma BM3D + multi-scale guided filter on chroma:
+  - `Denoiser.cpp:127-176`, `1059-1081`
+- Full denoised buffers are returned by the engine when available:
+  - `RawEngine.cpp:1804-1823`
+- Shader pass still applies real-time denoise from slider value unconditionally:
+  - `RawViewport.frag:567-568`
+- CPU developer path applies denoise after linear->sRGB conversion and after dithering:
+  - `ImageDeveloper.cpp:579-589`, `596-637`
+
+### darktable references
+
+- `raw denoise` is explicitly early, scene-linear/raw pipeline:
+  - `tmp/darktable/src/iop/rawdenoise.c:139-143`
+- raw denoise uses variance-stabilizing transform + wavelet denoise:
+  - `rawdenoise.c:219-233`, `449-450`
+- profiled denoise has camera/ISO-driven model + controls for preserving detail:
+  - modes (NLMeans/wavelets): `denoiseprofile.c:68-72`
+  - parameters (`shadows`, `central pixel weight`, `overshooting`): `99-114`
+  - adaptive preconditioning with shadows/WB and scaling: `1682-1705`
+  - noise-profile-driven auto inference (`radius/scattering/shadows/bias`): `2650-2668`
+- darktable NLMeans implementation includes scattering pattern to avoid grid artifacts and central-pixel weighting:
+  - `nlmeans_core.c:84-90`, `135-140`, `432-435`
+
+### Why Photon can look over-soft
+
+1. Strength mapping is global and not noise-profile adaptive (can oversmooth clean files).
+2. Denoise placement in `ImageDeveloper` is late (after gamma/8-bit conversion path), which is suboptimal for detail retention.
+3. Engine can provide denoised buffers while shader still applies denoise logic, increasing perceived softness.
+
+### Suggested direction (engine-side, no UI changes required)
+
+1. Ensure denoise is applied once in viewport path (skip shader denoise when `m_hasDenoisedResult` is active).
+2. Move CPU denoise earlier in `ImageDeveloper` (before sRGB quantization/dither).
+3. Replace fixed sigma scaling with profile/adaptive scaling (ISO/noise model + luma-aware strength).
+4. Keep denoise/detail separation explicit (edge/detail protection mask or blend-back strategy for high frequencies).
+
+---
+
+## 7) Practical implementation touchpoints for discussion
+
+- Tone-curve precision/banding:
+  - `src/engine/RawEngine.cpp` (`rebuildToneLut`)
+  - `src/components/ToneLutProvider.h`
+  - `content/views/App.qml` (tone LUT source path)
+  - `src/components/RawViewport.frag` (tone-LUT sample + final dither)
+  - `src/engine/ImageDeveloper.cpp` (CPU LUT + final dithering stage)
+- Denoise softness:
+  - `src/engine/Denoiser.h/.cpp` (strength mapping and BM3D/chroma strategy)
+  - `src/engine/RawEngine.cpp` (`startAsyncDenoise`, `getProcessedData`)
+  - `src/components/RawViewport.frag` (real-time denoise pass placement)
+  - `src/engine/ImageDeveloper.cpp` (denoise ordering in export/preview path)

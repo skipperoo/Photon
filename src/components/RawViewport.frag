@@ -375,6 +375,17 @@ vec3 apply_luma_target(vec3 color, float lumaIn, float targetLuma) {
     return mix(additive, multiplicative, blend);
 }
 
+float sample_tone_lut_channel(float value, int channel) {
+    int idx = int(clamp(floor(clamp(value, 0.0, 1.0) * 65535.0 + 0.5), 0.0, 65535.0));
+    int x = idx & 255;
+    int y = channel * 256 + (idx >> 8);
+    vec2 uv = vec2((float(x) + 0.5) / 256.0, (float(y) + 0.5) / 1024.0);
+    vec4 packed = texture(toneLUT, uv);
+    float hi = floor(packed.r * 255.0 + 0.5);
+    float lo = floor(packed.g * 255.0 + 0.5);
+    return (hi * 256.0 + lo) / 65535.0;
+}
+
 // --- Color Grading Math ---
 vec3 apply_region_tint(vec3 color, float hue, float sat, float lum) {
     vec3 tint_rgb = hsv_to_rgb(vec3(hue / 360.0, sat / 100.0, 1.0));
@@ -719,17 +730,23 @@ void main()
     }
 
     // 8. Tone Curve LUT (applied in linear, pre-sRGB)
-    // 256×4 texture: row 0=Luma, row 1=Red, row 2=Green, row 3=Blue
+    // 256×1024 texture: 4 stacked 256×256 planes (Luma, R, G, B),
+    // each encoding 65536 entries packed as 16-bit RG bytes.
     if (ubuf.toneCurveActive > 0.5) {
         vec3 c = clamp(color, 0.0, 1.0);
         float lumaIn = get_luma(c);
-        float lumaOut = texture(toneLUT, vec2(lumaIn, 0.125)).r;  // row 0
-        c.r = texture(toneLUT, vec2(c.r, 0.375)).r;               // row 1
-        c.g = texture(toneLUT, vec2(c.g, 0.625)).r;               // row 2
-        c.b = texture(toneLUT, vec2(c.b, 0.875)).r;               // row 3
+        float lumaOut = sample_tone_lut_channel(lumaIn, 0);
+        c.r = sample_tone_lut_channel(c.r, 1);
+        c.g = sample_tone_lut_channel(c.g, 2);
+        c.b = sample_tone_lut_channel(c.b, 3);
         // Blend additive (shadows) → multiplicative (mids/highs) to avoid
         // noise amplification when raising the black point
         float lumaDelta = lumaOut - lumaIn;
+        if (lumaDelta > 0.0) {
+            // Soften black-point lift sensitivity near absolute black.
+            float blackLiftAtten = mix(0.60, 1.0, smoothstep(0.0, 0.20, lumaIn));
+            lumaDelta *= blackLiftAtten;
+        }
         float lumaRatio = (lumaIn > 0.001) ? lumaOut / lumaIn : 1.0;
         float blend = smoothstep(0.0, 0.36, lumaIn);
         c = mix(c + lumaDelta, c * lumaRatio, blend);

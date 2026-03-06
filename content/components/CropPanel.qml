@@ -220,7 +220,7 @@ Control {
                                 anchors.centerIn: parent
                                 PhotonButton {
                                     text: modelData.name
-                                    fontSize: Theme.fontSmall
+                                    fontType: Theme.fontSmall
                                     width: (contentCol.width - 70) / 3
                                     height: 32
                                     font.pixelSize: 11

@@ -631,25 +631,18 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   double straighten = obj.contains("straightenAngle")
                           ? obj["straightenAngle"].toDouble() : 0.0;
   if (std::abs(straighten) > 0.01) {
-    int origW = output.width(), origH = output.height();
     QTransform rot;
     rot.rotate(straighten);
     output = output.transformed(rot, Qt::SmoothTransformation);
-    // Auto-crop to largest same-aspect-ratio inscribed rectangle
-    double rad = std::abs(straighten) * M_PI / 180.0;
-    double cosA = std::cos(rad), sinA = std::sin(rad);
-    double s1 = static_cast<double>(origW) / (origW * cosA + origH * sinA);
-    double s2 = static_cast<double>(origH) / (origW * sinA + origH * cosA);
-    double s = std::min(s1, s2);
-    int cw = static_cast<int>(origW * s);
-    int ch = static_cast<int>(origH * s);
-    int cx = (output.width() - cw) / 2;
-    int cy = (output.height() - ch) / 2;
-    if (cw > 0 && ch > 0 && cx >= 0 && cy >= 0)
-      output = output.copy(cx, cy, cw, ch);
   }
 
   // 4. Crop rect (normalized 0–1)
+  int preCropW = output.width();
+  int preCropH = output.height();
+  int cropLeft = 0;
+  int cropTop = 0;
+  int cropRight = preCropW;
+  int cropBottom = preCropH;
   if (obj.contains("cropRect")) {
     auto cropObj = obj["cropRect"].toObject();
     double cx = cropObj.contains("x") ? cropObj["x"].toDouble() : 0.0;
@@ -658,16 +651,40 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     double ch = cropObj.contains("h") ? cropObj["h"].toDouble() : 1.0;
     // Only crop if not the full image
     if (cx > 0.001 || cy > 0.001 || cw < 0.999 || ch < 0.999) {
-      int px = static_cast<int>(cx * output.width());
-      int py = static_cast<int>(cy * output.height());
-      int pw = static_cast<int>(cw * output.width());
-      int ph = static_cast<int>(ch * output.height());
-      pw = std::min(pw, output.width() - px);
-      ph = std::min(ph, output.height() - py);
-      if (pw > 0 && ph > 0)
-        output = output.copy(px, py, pw, ph);
+      double x0 = std::clamp(cx, 0.0, 1.0);
+      double y0 = std::clamp(cy, 0.0, 1.0);
+      double x1 = std::clamp(cx + cw, 0.0, 1.0);
+      double y1 = std::clamp(cy + ch, 0.0, 1.0);
+      if (x1 > x0 && y1 > y0) {
+        cropLeft = static_cast<int>(std::floor(x0 * preCropW));
+        cropTop = static_cast<int>(std::floor(y0 * preCropH));
+        cropRight = static_cast<int>(std::ceil(x1 * preCropW));
+        cropBottom = static_cast<int>(std::ceil(y1 * preCropH));
+
+        cropLeft = std::clamp(cropLeft, 0, std::max(0, preCropW - 1));
+        cropTop = std::clamp(cropTop, 0, std::max(0, preCropH - 1));
+        cropRight = std::clamp(cropRight, cropLeft + 1, preCropW);
+        cropBottom = std::clamp(cropBottom, cropTop + 1, preCropH);
+
+        int pw = cropRight - cropLeft;
+        int ph = cropBottom - cropTop;
+        if (pw > 0 && ph > 0)
+          output = output.copy(cropLeft, cropTop, pw, ph);
+      }
     }
   }
+
+  LogManager::instance()->log(
+      QString("[ ImageDeveloper ] - cropDebug preCrop=%1x%2 cropPx=[%3,%4 -> %5,%6] out=%7x%8")
+          .arg(preCropW)
+          .arg(preCropH)
+          .arg(cropLeft)
+          .arg(cropTop)
+          .arg(cropRight)
+          .arg(cropBottom)
+          .arg(output.width())
+          .arg(output.height()),
+      "DEBUG");
 
   LogManager::instance()->log(
       QString("[ ImageDeveloper ] - export END: %1x%2").arg(output.width()).arg(output.height()),

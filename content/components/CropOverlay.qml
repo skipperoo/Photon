@@ -7,6 +7,16 @@ Item {
     property var viewport: null
     property rect imageRect: viewport ? viewport.imageRect : Qt.rect(0, 0, 0, 0)
     property bool active: false
+    property bool _autoCropUpdate: false
+    property bool _autoStraightenCropLinked: false
+    property rect _lastAutoStraightenRect: Qt.rect(0, 0, 1, 1)
+    property bool _draggingCrop: false
+    onActiveChanged: {
+        if (active) {
+            maybeApplyAutoStraightenCrop();
+            ensureCurrentCropRectValid();
+        }
+    }
     property bool straightenToolActive: false
     // When not in active crop mode, show a preview mask if crop is non-default
     readonly property bool hasCrop: {
@@ -19,26 +29,41 @@ Item {
 
     visible: (active || showPreview) && imageRect.width > 0
     z: active ? 10 : (showPreview ? 5 : -1)
+    readonly property real domainEps: 0.0005
 
     // Display rect: the usable image area on screen after QML transforms.
     // For 90° steps + flip: exact rotated/mirrored position.
-    // For straighten: shrinks by the auto-crop factor (inscribed rectangle),
-    // matching the bake pipeline's cos(θ)+sin(θ) formula.
-    readonly property rect displayRect: {
+    // For straighten: axis-aligned bounding box of the rotated image.
+    // The default auto-crop for straighten is handled via cropRect updates.
+    function rectClose(a, b, eps) {
+        return Math.abs(a.x - b.x) <= eps &&
+               Math.abs(a.y - b.y) <= eps &&
+               Math.abs(a.width - b.width) <= eps &&
+               Math.abs(a.height - b.height) <= eps;
+    }
+
+    function rotatePoint(px, py, cx, cy, rad) {
+        var dx = px - cx;
+        var dy = py - cy;
+        var cosR = Math.cos(rad);
+        var sinR = Math.sin(rad);
+        return Qt.point(cx + dx * cosR - dy * sinR,
+                        cy + dx * sinR + dy * cosR);
+    }
+
+    function computeBaseRect() {
         var ir = imageRect;
         if (!viewport || viewport.geometryBaked) return ir;
 
         var steps = viewport.orientationSteps % 4;
         var fH = viewport.flipHorizontal || false;
         var fV = viewport.flipVertical || false;
-        var straighten = viewport.straightenAngle || 0;
 
-        if (steps === 0 && !fH && !fV && Math.abs(straighten) < 0.01) return ir;
+        if (steps === 0 && !fH && !fV) return ir;
 
         var cx = root.width / 2;
         var cy = root.height / 2;
 
-        // Step 1: Apply 90° rotation steps to imageRect
         var rx = ir.x, ry = ir.y, rw = ir.width, rh = ir.height;
         if (steps === 1) { // 90° CW
             rx = cx + cy - ir.y - ir.height;
@@ -53,29 +78,218 @@ Item {
             rw = ir.height; rh = ir.width;
         }
 
-        // Step 2: Apply flip around viewport center
         if (fH) rx = 2 * cx - rx - rw;
         if (fV) ry = 2 * cy - ry - rh;
 
-        // Step 3: Shrink for straighten auto-crop (same-aspect-ratio inscribed rect)
-        if (Math.abs(straighten) > 0.01) {
-            var rad = Math.abs(straighten) * Math.PI / 180;
-            var cosT = Math.cos(rad);
-            var sinT = Math.sin(rad);
-            // Largest rect with same aspect ratio inscribed in rotated rw×rh
-            var s1 = rw / (rw * cosT + rh * sinT);
-            var s2 = rh / (rw * sinT + rh * cosT);
-            var s = Math.min(s1, s2);
-            var newW = rw * s;
-            var newH = rh * s;
-            rx += (rw - newW) / 2;
-            ry += (rh - newH) / 2;
-            rw = newW;
-            rh = newH;
-        }
-
         return Qt.rect(rx, ry, rw, rh);
     }
+
+    function computeAutoStraightenCropRect() {
+        if (!viewport || viewport.geometryBaked) return Qt.rect(0, 0, 1, 1);
+        var straighten = Math.abs(viewport.straightenAngle || 0);
+        var br = baseRect;
+        if (straighten < 0.01 || br.width <= 0 || br.height <= 0) {
+            return Qt.rect(0, 0, 1, 1);
+        }
+
+        var rw = br.width;
+        var rh = br.height;
+        var rad = straighten * Math.PI / 180;
+        var cosT = Math.cos(rad);
+        var sinT = Math.sin(rad);
+        var boxW = rw * cosT + rh * sinT;
+        var boxH = rw * sinT + rh * cosT;
+        var s1 = rw / (rw * cosT + rh * sinT);
+        var s2 = rh / (rw * sinT + rh * cosT);
+        var s = Math.min(s1, s2);
+        var cropW = rw * s;
+        var cropH = rh * s;
+        var nw = cropW / boxW;
+        var nh = cropH / boxH;
+        return Qt.rect((1 - nw) / 2, (1 - nh) / 2, nw, nh);
+    }
+
+    function computeValidDomain() {
+        if (!viewport || viewport.geometryBaked || displayRect.width <= 0 || displayRect.height <= 0) {
+            return [Qt.point(0, 0), Qt.point(1, 0), Qt.point(1, 1), Qt.point(0, 1)];
+        }
+
+        var straighten = viewport.straightenAngle || 0;
+        if (Math.abs(straighten) < 0.01) {
+            return [Qt.point(0, 0), Qt.point(1, 0), Qt.point(1, 1), Qt.point(0, 1)];
+        }
+
+        var br = baseRect;
+        var dr = displayRect;
+        var cx = root.width / 2;
+        var cy = root.height / 2;
+        var rad = straighten * Math.PI / 180;
+        var pts = [
+            rotatePoint(br.x, br.y, cx, cy, rad),
+            rotatePoint(br.x + br.width, br.y, cx, cy, rad),
+            rotatePoint(br.x + br.width, br.y + br.height, cx, cy, rad),
+            rotatePoint(br.x, br.y + br.height, cx, cy, rad)
+        ];
+
+        var out = [];
+        for (var i = 0; i < pts.length; ++i) {
+            out.push(Qt.point((pts[i].x - dr.x) / dr.width,
+                              (pts[i].y - dr.y) / dr.height));
+        }
+        return out;
+    }
+
+    function isPointInsideDomain(p) {
+        var poly = validDomain;
+        var sign = 0;
+        var eps = domainEps;
+        for (var i = 0; i < poly.length; ++i) {
+            var a = poly[i];
+            var b = poly[(i + 1) % poly.length];
+            var cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+            if (Math.abs(cross) <= eps) continue;
+            var currentSign = cross > 0 ? 1 : -1;
+            if (sign === 0) {
+                sign = currentSign;
+            } else if (currentSign !== sign) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function isRectInDomain(r) {
+        var eps = domainEps;
+        if (r.width <= 0 || r.height <= 0) return false;
+        if (r.x < -eps || r.y < -eps) return false;
+        if (r.x + r.width > 1.0 + eps || r.y + r.height > 1.0 + eps) return false;
+
+        var c0 = Qt.point(r.x, r.y);
+        var c1 = Qt.point(r.x + r.width, r.y);
+        var c2 = Qt.point(r.x + r.width, r.y + r.height);
+        var c3 = Qt.point(r.x, r.y + r.height);
+        return isPointInsideDomain(c0) &&
+               isPointInsideDomain(c1) &&
+               isPointInsideDomain(c2) &&
+               isPointInsideDomain(c3);
+    }
+
+    function lerpRect(a, b, t) {
+        return Qt.rect(a.x + (b.x - a.x) * t,
+                       a.y + (b.y - a.y) * t,
+                       a.width + (b.width - a.width) * t,
+                       a.height + (b.height - a.height) * t);
+    }
+
+    function projectRectToValidFromStart(startRect, targetRect) {
+        var target = Qt.rect(
+            Math.max(0, Math.min(targetRect.x, 1 - targetRect.width)),
+            Math.max(0, Math.min(targetRect.y, 1 - targetRect.height)),
+            Math.min(targetRect.width, 1),
+            Math.min(targetRect.height, 1)
+        );
+
+        if (isRectInDomain(target)) return target;
+
+        var start = startRect;
+        if (!isRectInDomain(start)) {
+            var autoRect = computeAutoStraightenCropRect();
+            if (isRectInDomain(autoRect)) {
+                start = autoRect;
+            } else {
+                start = Qt.rect(0, 0, 1, 1);
+            }
+        }
+
+        if (!isRectInDomain(start)) return target;
+
+        var lo = 0.0;
+        var hi = 1.0;
+        for (var i = 0; i < 24; ++i) {
+            var mid = (lo + hi) * 0.5;
+            var probe = lerpRect(start, target, mid);
+            if (isRectInDomain(probe)) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+
+        return lerpRect(start, target, lo);
+    }
+
+    function ensureCurrentCropRectValid() {
+        if (!viewport || viewport.geometryBaked) return;
+        var current = viewport.cropRect;
+        if (isRectInDomain(current)) return;
+
+        var safeStart = computeAutoStraightenCropRect();
+        var fixed = projectRectToValidFromStart(safeStart, current);
+        if (!rectClose(current, fixed, 0.0005)) {
+            console.info("[CropOverlay] clamp adjust current=(" + current.x.toFixed(4) + "," + current.y.toFixed(4) + "," +
+                         current.width.toFixed(4) + "," + current.height.toFixed(4) + ") -> fixed=(" +
+                         fixed.x.toFixed(4) + "," + fixed.y.toFixed(4) + "," + fixed.width.toFixed(4) + "," +
+                         fixed.height.toFixed(4) + ")");
+            _autoCropUpdate = true;
+            viewport.cropRect = fixed;
+            _autoCropUpdate = false;
+        }
+    }
+
+    function maybeApplyAutoStraightenCrop() {
+        if (!active || !viewport || viewport.geometryBaked) return;
+
+        var angle = Math.abs(viewport.straightenAngle || 0);
+        var current = viewport.cropRect;
+        var fullRect = Qt.rect(0, 0, 1, 1);
+
+        if (angle < 0.01) {
+            if (_autoStraightenCropLinked && rectClose(current, _lastAutoStraightenRect, 0.002)) {
+                _autoCropUpdate = true;
+                viewport.cropRect = fullRect;
+                _autoCropUpdate = false;
+            }
+            _autoStraightenCropLinked = false;
+            return;
+        }
+
+        var shouldAuto = _autoStraightenCropLinked
+            ? rectClose(current, _lastAutoStraightenRect, 0.002)
+            : rectClose(current, fullRect, 0.002);
+        if (!shouldAuto) return;
+
+        var autoRect = computeAutoStraightenCropRect();
+        _autoCropUpdate = true;
+        viewport.cropRect = autoRect;
+        _autoCropUpdate = false;
+        _lastAutoStraightenRect = autoRect;
+        _autoStraightenCropLinked = true;
+    }
+
+    readonly property rect baseRect: computeBaseRect()
+    readonly property rect displayRect: {
+        var br = baseRect;
+        if (!viewport || viewport.geometryBaked) return br;
+
+        var straighten = viewport.straightenAngle || 0;
+        if (Math.abs(straighten) < 0.01) return br;
+
+        var cx = root.width / 2;
+        var cy = root.height / 2;
+        var rad = straighten * Math.PI / 180;
+
+        var p0 = rotatePoint(br.x, br.y, cx, cy, rad);
+        var p1 = rotatePoint(br.x + br.width, br.y, cx, cy, rad);
+        var p2 = rotatePoint(br.x + br.width, br.y + br.height, cx, cy, rad);
+        var p3 = rotatePoint(br.x, br.y + br.height, cx, cy, rad);
+
+        var minX = Math.min(p0.x, p1.x, p2.x, p3.x);
+        var maxX = Math.max(p0.x, p1.x, p2.x, p3.x);
+        var minY = Math.min(p0.y, p1.y, p2.y, p3.y);
+        var maxY = Math.max(p0.y, p1.y, p2.y, p3.y);
+        return Qt.rect(minX, minY, maxX - minX, maxY - minY);
+    }
+    readonly property var validDomain: computeValidDomain()
 
     // Map normalized crop (0–1) to pixel coords within displayRect
     readonly property real imgX: displayRect.x
@@ -88,6 +302,23 @@ Item {
     readonly property real cropY: imgY + cropRect.y * imgH
     readonly property real cropW: cropRect.width * imgW
     readonly property real cropH: cropRect.height * imgH
+
+    Connections {
+        target: root.viewport
+        function onStraightenAngleChanged() {
+            root.maybeApplyAutoStraightenCrop();
+            root.ensureCurrentCropRectValid();
+        }
+        function onCropRectChanged() {
+            if (!root.viewport || root._autoCropUpdate) return;
+            if (root._autoStraightenCropLinked &&
+                !root.rectClose(root.viewport.cropRect, root._lastAutoStraightenRect, 0.002)) {
+                root._autoStraightenCropLinked = false;
+            }
+            if (root._draggingCrop) return;
+            root.ensureCurrentCropRectValid();
+        }
+    }
 
     readonly property real handleSize: 10
     readonly property real minCropPx: 30
@@ -191,18 +422,20 @@ Item {
                     }
                 }
                 property point dragStart
-                property rect cropStart
+                property point dragLast
 
                 onPressed: (mouse) => {
                     dragStart = mapToItem(root, mouse.x, mouse.y);
-                    cropStart = root.viewport.cropRect;
+                    dragLast = dragStart;
+                    root._draggingCrop = true;
                 }
                 onPositionChanged: (mouse) => {
                     if (!pressed) return;
+                    if (root.imgW <= 0 || root.imgH <= 0) return;
                     var pos = mapToItem(root, mouse.x, mouse.y);
-                    var dx = (pos.x - dragStart.x) / root.imgW;
-                    var dy = (pos.y - dragStart.y) / root.imgH;
-                    var cr = cropStart;
+                    var dx = (pos.x - dragLast.x) / root.imgW;
+                    var dy = (pos.y - dragLast.y) / root.imgH;
+                    var cr = root.viewport.cropRect;
                     var ratio = root.viewport.cropAspectRatio;
                     var lockRatio = ratio > 0;
 
@@ -270,9 +503,19 @@ Item {
                         nh = Math.min(nh, 1 - ny);
                     }
 
-                    root.viewport.cropRect = Qt.rect(nx, ny, nw, nh);
+                    var candidate = Qt.rect(nx, ny, nw, nh);
+                    candidate = root.projectRectToValidFromStart(cr, candidate);
+                    root.viewport.cropRect = candidate;
+                    dragLast = pos;
                 }
                 onReleased: {
+                    root._draggingCrop = false;
+                    root.ensureCurrentCropRectValid();
+                    var cr = root.viewport.cropRect;
+                    console.info("[CropOverlay] handle release crop=(" + cr.x.toFixed(4) + "," + cr.y.toFixed(4) + "," +
+                                 cr.width.toFixed(4) + "," + cr.height.toFixed(4) + ") display=(" +
+                                 root.displayRect.x.toFixed(2) + "," + root.displayRect.y.toFixed(2) + "," +
+                                 root.displayRect.width.toFixed(2) + "," + root.displayRect.height.toFixed(2) + ")");
                 }
             }
         }
@@ -289,23 +532,42 @@ Item {
         enabled: root.active
 
         property point dragStart
-        property rect cropStart
+        property point dragLast
 
         onPressed: (mouse) => {
             dragStart = mapToItem(root, mouse.x, mouse.y);
-            cropStart = root.viewport.cropRect;
+            dragLast = dragStart;
+            root._draggingCrop = true;
         }
         onPositionChanged: (mouse) => {
             if (!pressed) return;
+            if (root.imgW <= 0 || root.imgH <= 0) return;
             var pos = mapToItem(root, mouse.x, mouse.y);
-            var dx = (pos.x - dragStart.x) / root.imgW;
-            var dy = (pos.y - dragStart.y) / root.imgH;
-            var cr = cropStart;
-            var nx = Math.max(0, Math.min(cr.x + dx, 1 - cr.width));
-            var ny = Math.max(0, Math.min(cr.y + dy, 1 - cr.height));
-            root.viewport.cropRect = Qt.rect(nx, ny, cr.width, cr.height);
+            var dx = (pos.x - dragLast.x) / root.imgW;
+            var dy = (pos.y - dragLast.y) / root.imgH;
+            var cr = root.viewport.cropRect;
+            var stepRect = cr;
+            if (Math.abs(dx) > 0.000001) {
+                var nx = Math.max(0, Math.min(stepRect.x + dx, 1 - stepRect.width));
+                var candX = Qt.rect(nx, stepRect.y, stepRect.width, stepRect.height);
+                stepRect = root.projectRectToValidFromStart(stepRect, candX);
+            }
+            if (Math.abs(dy) > 0.000001) {
+                var ny = Math.max(0, Math.min(stepRect.y + dy, 1 - stepRect.height));
+                var candY = Qt.rect(stepRect.x, ny, stepRect.width, stepRect.height);
+                stepRect = root.projectRectToValidFromStart(stepRect, candY);
+            }
+            root.viewport.cropRect = stepRect;
+            dragLast = pos;
         }
         onReleased: {
+            root._draggingCrop = false;
+            root.ensureCurrentCropRectValid();
+            var cr = root.viewport.cropRect;
+            console.info("[CropOverlay] move release crop=(" + cr.x.toFixed(4) + "," + cr.y.toFixed(4) + "," +
+                         cr.width.toFixed(4) + "," + cr.height.toFixed(4) + ") display=(" +
+                         root.displayRect.x.toFixed(2) + "," + root.displayRect.y.toFixed(2) + "," +
+                         root.displayRect.width.toFixed(2) + "," + root.displayRect.height.toFixed(2) + ")");
         }
     }
 

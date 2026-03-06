@@ -1,3 +1,4 @@
+#include <cmath>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -10,6 +11,9 @@ class TestRawEngine : public QObject {
   void testLoadInvalidFile();
   void testLoadValidFile();
   void testProperties();
+  void testApplyGeometryTransformsStraightenKeepsFullFrame();
+  void testApplyGeometryTransformsCropRectOnRotatedFrame();
+  void testApplyGeometryTransformsCropPreservesAspectAndFocus();
 };
 
 void TestRawEngine::testLoadInvalidFile() {
@@ -58,6 +62,62 @@ void TestRawEngine::testProperties() {
   engine.setVignetteAmount(-50.0f);
   QCOMPARE(engine.vignetteAmount(), -50.0f);
   QCOMPARE(vignetteSpy.count(), 1);
+}
+
+void TestRawEngine::testApplyGeometryTransformsStraightenKeepsFullFrame() {
+  QImage input(200, 100, QImage::Format_RGBA64);
+  input.fill(Qt::black);
+
+  const QImage output = RawEngine::applyGeometryTransforms(
+      input, 0, false, false, 10.0, QRectF(0, 0, 1, 1));
+
+  QVERIFY(output.width() > input.width());
+  QVERIFY(output.height() > input.height());
+}
+
+void TestRawEngine::testApplyGeometryTransformsCropRectOnRotatedFrame() {
+  QImage input(240, 120, QImage::Format_RGBA64);
+  input.fill(Qt::black);
+
+  const QImage full = RawEngine::applyGeometryTransforms(
+      input, 0, false, false, 12.0, QRectF(0, 0, 1, 1));
+  const QRectF cropRect(0.1, 0.2, 0.5, 0.4);
+  const QImage cropped = RawEngine::applyGeometryTransforms(
+      input, 0, false, false, 12.0, cropRect);
+
+  const int expectedWidth = static_cast<int>(std::ceil((cropRect.x() + cropRect.width()) * full.width())) -
+                            static_cast<int>(std::floor(cropRect.x() * full.width()));
+  const int expectedHeight = static_cast<int>(std::ceil((cropRect.y() + cropRect.height()) * full.height())) -
+                             static_cast<int>(std::floor(cropRect.y() * full.height()));
+  QCOMPARE(cropped.width(), expectedWidth);
+  QCOMPARE(cropped.height(), expectedHeight);
+}
+
+void TestRawEngine::testApplyGeometryTransformsCropPreservesAspectAndFocus() {
+  QImage input(333, 211, QImage::Format_RGBA64);
+  input.fill(Qt::black);
+
+  const QRectF cropRect(0.123, 0.234, 0.456, 0.321);
+  const QImage full = RawEngine::applyGeometryTransforms(
+      input, 0, false, false, 17.0, QRectF(0, 0, 1, 1));
+  const QImage cropped = RawEngine::applyGeometryTransforms(
+      input, 0, false, false, 17.0, cropRect);
+
+  const int left = static_cast<int>(std::floor(cropRect.x() * full.width()));
+  const int right = static_cast<int>(std::ceil((cropRect.x() + cropRect.width()) * full.width()));
+  const int top = static_cast<int>(std::floor(cropRect.y() * full.height()));
+  const int bottom = static_cast<int>(std::ceil((cropRect.y() + cropRect.height()) * full.height()));
+  const double expectedCenterX = 0.5 * (left + right);
+  const double expectedCenterY = 0.5 * (top + bottom);
+  const double actualCenterX = left + 0.5 * cropped.width();
+  const double actualCenterY = top + 0.5 * cropped.height();
+  QVERIFY(std::abs(actualCenterX - expectedCenterX) <= 0.5);
+  QVERIFY(std::abs(actualCenterY - expectedCenterY) <= 0.5);
+
+  const double expectedAspect =
+      static_cast<double>(right - left) / static_cast<double>(bottom - top);
+  const double actualAspect = static_cast<double>(cropped.width()) / cropped.height();
+  QVERIFY(std::abs(actualAspect - expectedAspect) < 0.0001);
 }
 
 QTEST_MAIN(TestRawEngine)

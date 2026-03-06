@@ -76,12 +76,27 @@ Control {
         // So cw/ch = ratio * srcH / srcW = ratio / srcAspect
         var srcW = root.viewport ? root.viewport.sourceWidth : 1;
         var srcH = root.viewport ? root.viewport.sourceHeight : 1;
-        // Account for orientation swapping effective dimensions
+        // Account for orientation steps (90° rotation swaps W/H)
         var steps = root.viewport ? (root.viewport.orientationSteps % 4) : 0;
         if (steps === 1 || steps === 3) {
             var tmp = srcW; srcW = srcH; srcH = tmp;
         }
         var srcAspect = srcW / srcH;
+
+        // When straightened in crop mode, cropRect is normalized against the
+        // rotated bounding box aspect.
+        var straighten = root.viewport ? Math.abs(root.viewport.straightenAngle || 0) : 0;
+        if (straighten > 0.01 && !(root.viewport && root.viewport.geometryBaked)) {
+            var rad = straighten * Math.PI / 180;
+            var cosT = Math.cos(rad);
+            var sinT = Math.sin(rad);
+            var boxW = srcW * cosT + srcH * sinT;
+            var boxH = srcW * sinT + srcH * cosT;
+            if (boxW > 0 && boxH > 0) {
+                srcAspect = boxW / boxH;
+            }
+        }
+
         var normRatio = ratio / srcAspect; // cw/ch in normalized space
         var cw, ch;
         if (normRatio >= 1) {
@@ -100,6 +115,7 @@ Control {
         root.viewport.orientationSteps = 0;
         root.viewport.flipHorizontal = false;
         root.viewport.flipVertical = false;
+        root.viewport.commitEdit();
     }
 
     function discardCrop() {
@@ -266,6 +282,7 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.straightenAngle = 0;
+                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered
@@ -275,6 +292,7 @@ Control {
                         }
 
                         PhotonSlider {
+                            id: straightenSlider
                             Layout.fillWidth: true
                             from: -45
                             to: 45
@@ -285,16 +303,18 @@ Control {
                                 if (root.viewport) root.viewport.straightenAngle = value;
                             }
                             onReleased: {
+                                if (root.viewport) root.viewport.commitEdit();
                             }
                             onDoubleClicked: {
                                 if (root.viewport) {
                                     root.viewport.straightenAngle = 0;
+                                    root.viewport.commitEdit();
                                 }
                             }
                             Connections {
                                 target: root.viewport
                                 function onStraightenAngleChanged() {
-                                    parent.value = root.viewport.straightenAngle;
+                                    straightenSlider.value = root.viewport.straightenAngle;
                                 }
                             }
                         }
@@ -327,6 +347,7 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.orientationSteps = (root.viewport.orientationSteps + 3) % 4;
+                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered
@@ -345,6 +366,7 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.orientationSteps = (root.viewport.orientationSteps + 1) % 4;
+                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered
@@ -363,6 +385,7 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.flipHorizontal = !root.viewport.flipHorizontal;
+                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered
@@ -381,6 +404,7 @@ Control {
                                 onClicked: {
                                     if (root.viewport) {
                                         root.viewport.flipVertical = !root.viewport.flipVertical;
+                                        root.viewport.commitEdit();
                                     }
                                 }
                                 T.ToolTip.visible: hovered

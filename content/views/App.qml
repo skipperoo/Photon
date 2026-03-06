@@ -158,6 +158,13 @@ Window {
         Shortcut {
             sequence: "Return"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
             onActivated: {
+                console.info("[CropApply] Enter cropRect=(" + rawViewport.cropRect.x.toFixed(4) + "," +
+                             rawViewport.cropRect.y.toFixed(4) + "," + rawViewport.cropRect.width.toFixed(4) + "," +
+                             rawViewport.cropRect.height.toFixed(4) + ") straighten=" +
+                             rawViewport.straightenAngle.toFixed(3) + " steps=" + rawViewport.orientationSteps +
+                             " flipH=" + rawViewport.flipHorizontal + " flipV=" + rawViewport.flipVertical +
+                             " zoom=" + rawViewport.zoom.toFixed(3) + " pan=(" +
+                             rawViewport.pan.x.toFixed(2) + "," + rawViewport.pan.y.toFixed(2) + ")");
                 cropPanel.applyCrop()
                 rawViewport.reloadWithGeometry()
                 developLayout.activeSidebar = 1  // Back to Edit panel
@@ -407,7 +414,10 @@ Window {
                             viewport: rawViewport
                             active: developLayout.activeSidebar === 2
                             straightenToolActive: cropPanel.straightenToolActive
-                            onStraightenFinished: cropPanel.straightenToolActive = false
+                            onStraightenFinished: {
+                                cropPanel.straightenToolActive = false;
+                                rawViewport.commitEdit();
+                            }
                         }
 
                         // Interaction Layer
@@ -423,6 +433,10 @@ Window {
                             property bool isDragging: false
                             
                             onWheel: (wheel) => {
+                                if (developLayout.activeSidebar === 2) {
+                                    wheel.accepted = true;
+                                    return;
+                                }
                                 wheel.accepted = true;
                                 
                                 var delta = wheel.angleDelta.y;
@@ -455,6 +469,7 @@ Window {
                             }
                             
                             onDoubleClicked: (mouse) => {
+                                if (developLayout.activeSidebar === 2) return;
                                 // Cycle: 1.0 -> 2.0 -> 4.0 -> 1.0
                                 // Delay zoom to allow detecting if user wants to pan instead
                                 if (rawViewport.zoom < 1.0) doubleClickZoomTimer.targetZoom = 1.0;
@@ -466,6 +481,7 @@ Window {
                             }
                             
                             onPositionChanged: (mouse) => {
+                                if (developLayout.activeSidebar === 2) return;
                                 if (pressed) {
                                     var dx = mouse.x - startPos.x;
                                     var dy = mouse.y - startPos.y;
@@ -567,6 +583,8 @@ Window {
                                 PhotonSlider {
                                     id: zoomSlider
                                     Layout.preferredWidth: 200
+                                    enabled: developLayout.activeSidebar !== 2
+                                    opacity: enabled ? 1.0 : 0.5
                                     from: 0.1
                                     to: 10.0
                                     value: rawViewport.zoom
@@ -768,8 +786,11 @@ Window {
                                                 }
                                                 // Entering crop mode
                                                 if (modelData.index === 2) {
+                                                    rawViewport.zoom = 1.0;
+                                                    rawViewport.pan = Qt.point(0, 0);
                                                     cropPanel.saveEntryState();
                                                     rawViewport.enterCropMode();
+                                                    console.info("[CropApply] Entering crop mode with zoom reset/pan reset");
                                                 }
                                                 developLayout.activeSidebar = modelData.index;
                                             }

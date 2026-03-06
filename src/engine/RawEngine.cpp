@@ -2463,6 +2463,8 @@ QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
                                           bool flipH, bool flipV,
                                           double straighten,
                                           const QRectF& cropRect) {
+  const int inputW = input.width();
+  const int inputH = input.height();
   QImage output = input;
 
   // 1. Orientation steps (90° CW rotations)
@@ -2485,37 +2487,65 @@ QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
                                 Qt::SmoothTransformation);
   }
 
-  // 3. Straighten (fine rotation + auto-crop same-aspect-ratio inscribed rect)
+  // 3. Straighten (fine rotation)
   if (std::abs(straighten) > 0.01) {
-    int origW = output.width(), origH = output.height();
     QTransform rot;
     rot.rotate(straighten);
     output = output.transformed(rot, Qt::SmoothTransformation);
-    double rad = std::abs(straighten) * M_PI / 180.0;
-    double cosA = std::cos(rad), sinA = std::sin(rad);
-    double s1 = static_cast<double>(origW) / (origW * cosA + origH * sinA);
-    double s2 = static_cast<double>(origH) / (origW * sinA + origH * cosA);
-    double s = std::min(s1, s2);
-    int cw = static_cast<int>(origW * s);
-    int ch = static_cast<int>(origH * s);
-    int cx = (output.width() - cw) / 2;
-    int cy = (output.height() - ch) / 2;
-    if (cw > 0 && ch > 0 && cx >= 0 && cy >= 0)
-      output = output.copy(cx, cy, cw, ch);
   }
 
   // 4. Crop rect (normalized 0–1)
   double cx = cropRect.x(), cy = cropRect.y();
   double cw = cropRect.width(), ch = cropRect.height();
+  const int preCropW = output.width();
+  const int preCropH = output.height();
+  int cropLeft = 0;
+  int cropTop = 0;
+  int cropRight = preCropW;
+  int cropBottom = preCropH;
   if (cx > 0.001 || cy > 0.001 || cw < 0.999 || ch < 0.999) {
-    int px = static_cast<int>(cx * output.width());
-    int py = static_cast<int>(cy * output.height());
-    int pw = static_cast<int>(cw * output.width());
-    int ph = static_cast<int>(ch * output.height());
-    pw = std::min(pw, output.width() - px);
-    ph = std::min(ph, output.height() - py);
-    if (pw > 0 && ph > 0) output = output.copy(px, py, pw, ph);
+    double x0 = std::clamp(cx, 0.0, 1.0);
+    double y0 = std::clamp(cy, 0.0, 1.0);
+    double x1 = std::clamp(cx + cw, 0.0, 1.0);
+    double y1 = std::clamp(cy + ch, 0.0, 1.0);
+    if (x1 > x0 && y1 > y0) {
+      cropLeft = static_cast<int>(std::floor(x0 * preCropW));
+      cropTop = static_cast<int>(std::floor(y0 * preCropH));
+      cropRight = static_cast<int>(std::ceil(x1 * preCropW));
+      cropBottom = static_cast<int>(std::ceil(y1 * preCropH));
+
+      cropLeft = std::clamp(cropLeft, 0, std::max(0, preCropW - 1));
+      cropTop = std::clamp(cropTop, 0, std::max(0, preCropH - 1));
+      cropRight = std::clamp(cropRight, cropLeft + 1, preCropW);
+      cropBottom = std::clamp(cropBottom, cropTop + 1, preCropH);
+
+      int pw = cropRight - cropLeft;
+      int ph = cropBottom - cropTop;
+      if (pw > 0 && ph > 0) output = output.copy(cropLeft, cropTop, pw, ph);
+    }
   }
+
+  LogManager::instance()->log(
+      QString("[ RawEngine.cpp ] - cropDebug applyGeometry in=%1x%2 orient=%3 flipH=%4 flipV=%5 straighten=%6 cropN=(%7,%8,%9,%10) preCrop=%11x%12 cropPx=[%13,%14 -> %15,%16] out=%17x%18")
+          .arg(inputW)
+          .arg(inputH)
+          .arg(orientSteps)
+          .arg(flipH)
+          .arg(flipV)
+          .arg(straighten, 0, 'f', 3)
+          .arg(cropRect.x(), 0, 'f', 4)
+          .arg(cropRect.y(), 0, 'f', 4)
+          .arg(cropRect.width(), 0, 'f', 4)
+          .arg(cropRect.height(), 0, 'f', 4)
+          .arg(preCropW)
+          .arg(preCropH)
+          .arg(cropLeft)
+          .arg(cropTop)
+          .arg(cropRight)
+          .arg(cropBottom)
+          .arg(output.width())
+          .arg(output.height()),
+      "DEBUG");
 
   return output;
 }
@@ -2613,12 +2643,12 @@ void RawEngine::enterCropMode() {
   if (m_source.isEmpty() || !m_isLoaded) return;
 
   LogManager::instance()->log(
-      "[ RawEngine.cpp ] - enterCropMode: showing full image for editing",
+      "[ RawEngine.cpp ] - enterCropMode: showing original for crop editing",
       "DEBUG");
 
   m_inCropMode = true;
 
-  // Clear geometry bake - show original image with QML transforms
+  // Unbake geometry so user sees original image with QML visual transforms
   if (m_geometryBaked) {
     m_geometryBaked = false;
     m_geometryBuffer.clear();

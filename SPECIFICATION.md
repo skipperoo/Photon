@@ -190,18 +190,18 @@ Non-destructive crop and geometry transformations with a **baked geometry pipeli
    - Straighten tool: Canvas overlay draws a dashed reference line during drag, computes and applies correction angle on release.
 
 4. **Baked Geometry Pipeline (Phase 31):**
-   - **Commit (Enter):** Engine re-decodes the RAW from disk → converts to QImage → applies geometry transforms (orientation → flip → straighten with auto-crop → crop rect) → stores result in `m_geometryBuffer` → sets `geometryBaked = true` → emits `imageLoaded`. The viewport renders the pre-transformed image; QML transforms are set to neutral.
+   - **Commit (Enter):** Engine re-decodes the RAW from disk → converts to QImage → applies geometry transforms (orientation → flip → straighten → crop rect) → stores result in `m_geometryBuffer` → sets `geometryBaked = true` → emits `imageLoaded`. The viewport renders the pre-transformed image; QML transforms are set to neutral.
    - **Enter Crop Mode:** Clears the geometry bake → triggers re-process of the original image → QML transforms re-enabled for live preview.
    - **Exit Crop Mode (ESC):** Discards uncommitted changes → if geometry is non-default, re-bakes.
    - **Undo/Redo:** Outside crop mode, geometry is re-baked when undo/redo changes geometry properties.
    - **Reset to Defaults:** Clears geometry bake alongside all other properties.
-   - **Transform Order** (matches `ImageDeveloper::develop`): orientation steps (N × 90° `QTransform::rotate`) → flip (`QTransform::scale(-1, …)`) → straighten (`QTransform::rotate(angle)` + auto-crop inscribed rectangle via `cos(θ) + sin(θ)` factor) → crop rect extraction (`QImage::copy`).
+   - **Transform Order** (matches `ImageDeveloper::develop`): orientation steps (N × 90° `QTransform::rotate`) → flip (`QTransform::scale(-1, …)`) → straighten (`QTransform::rotate(angle)`) → crop rect extraction (`QImage::copy`) on the rotated frame.
    - **`applyGeometryTransforms()`:** Static utility on `RawEngine`, reusable by both the bake pipeline and `ImageDeveloper`.
    - **Dimension Sync:** `updatePaintNode()` detects when the geometry buffer has different dimensions from the original and updates `m_imageWidth`/`m_imageHeight` so `calculateTargetRect()` computes the correct aspect ratio.
 
 5. **Export Integration (ImageDeveloper::develop):**
-   - Applied after all color processing, in order: orientation steps → flip → straighten (with auto-crop of black borders) → crop rect extraction.
-   - Straighten auto-crop uses `cos(θ) + sin(θ)` factor to compute largest inscribed rectangle.
+   - Applied after all color processing, in order: orientation steps → flip → straighten → crop rect extraction on the rotated frame.
+   - In crop mode, the default straighten-safe crop window is initialized in the UI, and the same normalized crop rect is then consumed by bake/export.
 
 6. **JSON Serialization:** All properties stored in sidecar JSON, round-tripped through `stateToJson`/`applyJsonToState`/`resetToDefaults`.
 

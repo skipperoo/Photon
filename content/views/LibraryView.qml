@@ -7,9 +7,8 @@ import "../components"
 Control {
     id: root
     property real viewTopPadding: 0
-    property int ratingFilter: 0
-    property int ratingOperator: 2 // 0: =, 1: >, 2: >=, 3: <, 4: <=
-    readonly property var operatorLabels: ["=", ">", "≥", "<", "≤"]
+    property string menuSourcePath: ""
+    readonly property var operatorLabels: window.ratingOperatorLabels
     property int sortProperty: window.sortProperty
     property bool sortAscending: window.sortAscending
     readonly property var sortLabels: ["Name", "Date", "Rating"]
@@ -28,6 +27,28 @@ Control {
         id: rawFilesModel
     }
 
+    PhotoContextMenu {
+        id: thumbnailContextMenu
+        selectionCount: AppState.selectionCount
+        canPaste: Object.keys(window.copiedSettings).length > 0
+        showFilterSection: true
+        filterOperator: window.ratingOperator
+        filterRating: window.ratingFilter
+        operatorLabels: window.ratingOperatorLabels
+        onCopyRequested: {
+            if (root.menuSourcePath)
+                window.openCopySettingsDialogForPath(root.menuSourcePath)
+        }
+        onPasteRequested: window.pasteCopiedSettingsToSelection()
+        onRatingRequested: (rating) => AppState.setRatingForSelected(rating)
+        onFilterOperatorCycleRequested: window.ratingOperator = (window.ratingOperator + 1) % 5
+        onFilterRatingRequested: (rating) => window.ratingFilter = rating
+        onRotateRightRequested: AppState.rotateSelectedRight("")
+        onRotateLeftRequested: AppState.rotateSelectedLeft("")
+        onFlipHorizontalRequested: AppState.flipSelectedHorizontal("")
+        onFlipVerticalRequested: AppState.flipSelectedVertical("")
+    }
+
     // Function to refresh the file list
     function refreshFiles() {
         rawFilesModel.clear();
@@ -42,15 +63,15 @@ Control {
             var r = file.rating || 0;
             
             var match = true;
-            if (root.ratingFilter > 0) {
-                switch (root.ratingOperator) {
-                    case 0: match = (r === root.ratingFilter); break;
-                    case 1: match = (r > root.ratingFilter); break;
-                    case 2: match = (r >= root.ratingFilter); break;
-                    case 3: match = (r < root.ratingFilter); break;
-                    case 4: match = (r <= root.ratingFilter); break;
+            if (window.ratingFilter > 0) {
+                switch (window.ratingOperator) {
+                    case 0: match = (r === window.ratingFilter); break;
+                    case 1: match = (r > window.ratingFilter); break;
+                    case 2: match = (r >= window.ratingFilter); break;
+                    case 3: match = (r < window.ratingFilter); break;
+                    case 4: match = (r <= window.ratingFilter); break;
                 }
-            } else if (root.ratingFilter === 0 && root.ratingOperator === 0) {
+            } else if (window.ratingFilter === 0 && window.ratingOperator === 0) {
                 match = (r === 0);
             }
 
@@ -104,6 +125,18 @@ Control {
         function onRatingUpdated() {
             refreshFiles();
         }
+        function onEditsUpdated() {
+            refreshFiles();
+        }
+    }
+    Connections {
+        target: window
+        function onRatingFilterChanged() {
+            refreshFiles();
+        }
+        function onRatingOperatorChanged() {
+            refreshFiles();
+        }
     }
 
     onSortPropertyChanged: refreshFiles()
@@ -123,15 +156,15 @@ Control {
             var newFiles = allFiles.filter(f => !existing.has(f.path));
             for (var j = 0; j < newFiles.length; j++) {
                 var f = newFiles[j];
-                if (root.ratingFilter > 0) {
+                if (window.ratingFilter > 0) {
                     var r = f.rating || 0;
                     var pass = false;
-                    switch (root.ratingOperator) {
-                        case 0: pass = (r === root.ratingFilter); break;
-                        case 1: pass = (r > root.ratingFilter); break;
-                        case 2: pass = (r >= root.ratingFilter); break;
-                        case 3: pass = (r < root.ratingFilter); break;
-                        case 4: pass = (r <= root.ratingFilter); break;
+                    switch (window.ratingOperator) {
+                        case 0: pass = (r === window.ratingFilter); break;
+                        case 1: pass = (r > window.ratingFilter); break;
+                        case 2: pass = (r >= window.ratingFilter); break;
+                        case 3: pass = (r < window.ratingFilter); break;
+                        case 4: pass = (r <= window.ratingFilter); break;
                     }
                     if (!pass) continue;
                 }
@@ -171,7 +204,7 @@ Control {
             // Filter Control
             PhotonButton {
                 id: filterButton
-                text: "Filter: " + (root.ratingFilter === 0 ? "All" : root.operatorLabels[root.ratingOperator] + " " + root.ratingFilter + "★")
+                text: "Filter: " + (window.ratingFilter === 0 ? "All" : root.operatorLabels[window.ratingOperator] + " " + window.ratingFilter + "★")
                 variantOutline: true
                 onClicked: filterPopup.open()
                 
@@ -197,12 +230,12 @@ Control {
                             spacing: 8
                             
                             PhotonButton {
-                                text: root.operatorLabels[root.ratingOperator]
+                                text: root.operatorLabels[window.ratingOperator]
                                 Layout.preferredWidth: 40
                                 Layout.preferredHeight: 40
                                 variantOutline: true
                                 onClicked: {
-                                    root.ratingOperator = (root.ratingOperator + 1) % 5
+                                    window.ratingOperator = (window.ratingOperator + 1) % 5
                                     root.refreshFiles()
                                 }
                             }
@@ -215,9 +248,9 @@ Control {
                                         text: index === 0 ? "Off" : "★"
                                         Layout.preferredWidth: 40
                                         Layout.preferredHeight: 40
-                                        variantOutline: (index === 0 && root.ratingFilter > 0) || root.ratingFilter < index
+                                        variantOutline: (index === 0 && window.ratingFilter > 0) || window.ratingFilter < index
                                         onClicked: {
-                                            root.ratingFilter = index
+                                            window.ratingFilter = index
                                             root.refreshFiles()
                                         }
                                     }
@@ -435,6 +468,15 @@ Control {
                                 AppState.toggleSelection(model.path)
                                 AppState.setCurrentImage(model.path)
                             }
+                        } else if (mouse.button === Qt.RightButton) {
+                            if (!isSelected) {
+                                AppState.clearSelection()
+                                AppState.toggleSelection(model.path)
+                                AppState.setCurrentImage(model.path)
+                            }
+                            root.menuSourcePath = model.path
+                            var p = mapToItem(null, mouse.x, mouse.y)
+                            thumbnailContextMenu.openAt(p.x, p.y)
                         }
                     }
                 }

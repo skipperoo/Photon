@@ -10,6 +10,7 @@ PhotonCheckbox 1.0 PhotonCheckbox.qml
 PhotonSwitch 1.0 PhotonSwitch.qml
 PresetPanel 1.0 PresetPanel.qml
 SettingsSelectionDialog 1.0 SettingsSelectionDialog.qml
+PhotoContextMenu 1.0 PhotoContextMenu.qml
 MetadataPanel 1.0 MetadataPanel.qml
 ExportPanel 1.0 ExportPanel.qml
 PhotonScrollBar 1.0 PhotonScrollBar.qml

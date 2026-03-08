@@ -4,6 +4,8 @@
 
 #include <QDebug>
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -15,6 +17,38 @@
 #include "Version.h"
 
 using namespace photon;
+
+namespace {
+QString editsPathForImage(const QString& imagePath, bool ensureDirectory) {
+  if (imagePath.isEmpty()) return QString();
+
+  QFileInfo fileInfo(imagePath);
+  QString editsDir = QDir::toNativeSeparators(fileInfo.absolutePath() +
+                                              "/.PhotonData/edits");
+  if (ensureDirectory) QDir().mkpath(editsDir);
+  return QDir::toNativeSeparators(editsDir + "/" + fileInfo.fileName() +
+                                  ".json");
+}
+
+QJsonArray readEditStates(const QString& editsPath) {
+  QJsonArray arr;
+  if (!QFile::exists(editsPath)) return arr;
+
+  QFile file(editsPath);
+  if (!file.open(QIODevice::ReadOnly)) return arr;
+
+  QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+  if (doc.isArray()) arr = doc.array();
+  return arr;
+}
+
+bool writeEditStates(const QString& editsPath, const QJsonArray& arr) {
+  QFile file(editsPath);
+  if (!file.open(QIODevice::WriteOnly)) return false;
+  file.write(QJsonDocument(arr).toJson());
+  return true;
+}
+}  // namespace
 
 AppStateManager* AppStateManager::s_instance = nullptr;
 
@@ -316,6 +350,171 @@ void AppStateManager::setRatingForSelected(int rating) {
   }
 
   emit ratingUpdated();
+}
+
+QVariantMap AppStateManager::loadSettingsForImage(const QString& path) const {
+  QString editsPath = editsPathForImage(path, false);
+  if (editsPath.isEmpty()) return {};
+
+  QJsonArray arr = readEditStates(editsPath);
+  if (arr.isEmpty()) return {};
+
+  return arr.last().toObject().toVariantMap();
+}
+
+void AppStateManager::applySettingsForSelected(const QVariantMap& settings,
+                                               const QString& excludePath) {
+  if (m_selectedImages.isEmpty() || settings.isEmpty()) return;
+
+  bool changedAny = false;
+  for (const QString& path : m_selectedImages) {
+    if (path.isEmpty() || path == excludePath) continue;
+
+    QString editsPath = editsPathForImage(path, true);
+    if (editsPath.isEmpty()) continue;
+
+    QJsonArray arr = readEditStates(editsPath);
+    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+
+    bool changed = false;
+    for (auto it = settings.constBegin(); it != settings.constEnd(); ++it) {
+      QJsonValue value = QJsonValue::fromVariant(it.value());
+      if (!lastState.contains(it.key()) || lastState[it.key()] != value) {
+        lastState[it.key()] = value;
+        changed = true;
+      }
+    }
+
+    if (!changed) continue;
+
+    if (arr.isEmpty()) {
+      arr.append(lastState);
+    } else {
+      arr.replace(arr.size() - 1, lastState);
+    }
+
+    if (writeEditStates(editsPath, arr)) {
+      changedAny = true;
+    }
+  }
+
+  if (changedAny) emit editsUpdated();
+}
+
+void AppStateManager::rotateSelectedRight(const QString& excludePath) {
+  if (m_selectedImages.isEmpty()) return;
+
+  bool changedAny = false;
+  for (const QString& path : m_selectedImages) {
+    if (path.isEmpty() || path == excludePath) continue;
+
+    QString editsPath = editsPathForImage(path, true);
+    if (editsPath.isEmpty()) continue;
+
+    QJsonArray arr = readEditStates(editsPath);
+    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    int steps = lastState.value("orientationSteps").toInt(0);
+    lastState["orientationSteps"] = ((steps % 4) + 1) % 4;
+
+    if (arr.isEmpty()) {
+      arr.append(lastState);
+    } else {
+      arr.replace(arr.size() - 1, lastState);
+    }
+
+    if (writeEditStates(editsPath, arr)) {
+      changedAny = true;
+    }
+  }
+
+  if (changedAny) emit editsUpdated();
+}
+
+void AppStateManager::rotateSelectedLeft(const QString& excludePath) {
+  if (m_selectedImages.isEmpty()) return;
+
+  bool changedAny = false;
+  for (const QString& path : m_selectedImages) {
+    if (path.isEmpty() || path == excludePath) continue;
+
+    QString editsPath = editsPathForImage(path, true);
+    if (editsPath.isEmpty()) continue;
+
+    QJsonArray arr = readEditStates(editsPath);
+    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    int steps = lastState.value("orientationSteps").toInt(0);
+    lastState["orientationSteps"] = ((steps % 4) + 3) % 4;
+
+    if (arr.isEmpty()) {
+      arr.append(lastState);
+    } else {
+      arr.replace(arr.size() - 1, lastState);
+    }
+
+    if (writeEditStates(editsPath, arr)) {
+      changedAny = true;
+    }
+  }
+
+  if (changedAny) emit editsUpdated();
+}
+
+void AppStateManager::flipSelectedHorizontal(const QString& excludePath) {
+  if (m_selectedImages.isEmpty()) return;
+
+  bool changedAny = false;
+  for (const QString& path : m_selectedImages) {
+    if (path.isEmpty() || path == excludePath) continue;
+
+    QString editsPath = editsPathForImage(path, true);
+    if (editsPath.isEmpty()) continue;
+
+    QJsonArray arr = readEditStates(editsPath);
+    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    bool flip = lastState.value("flipHorizontal").toBool(false);
+    lastState["flipHorizontal"] = !flip;
+
+    if (arr.isEmpty()) {
+      arr.append(lastState);
+    } else {
+      arr.replace(arr.size() - 1, lastState);
+    }
+
+    if (writeEditStates(editsPath, arr)) {
+      changedAny = true;
+    }
+  }
+
+  if (changedAny) emit editsUpdated();
+}
+
+void AppStateManager::flipSelectedVertical(const QString& excludePath) {
+  if (m_selectedImages.isEmpty()) return;
+
+  bool changedAny = false;
+  for (const QString& path : m_selectedImages) {
+    if (path.isEmpty() || path == excludePath) continue;
+
+    QString editsPath = editsPathForImage(path, true);
+    if (editsPath.isEmpty()) continue;
+
+    QJsonArray arr = readEditStates(editsPath);
+    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    bool flip = lastState.value("flipVertical").toBool(false);
+    lastState["flipVertical"] = !flip;
+
+    if (arr.isEmpty()) {
+      arr.append(lastState);
+    } else {
+      arr.replace(arr.size() - 1, lastState);
+    }
+
+    if (writeEditStates(editsPath, arr)) {
+      changedAny = true;
+    }
+  }
+
+  if (changedAny) emit editsUpdated();
 }
 
 void AppStateManager::setPreferredGpu(const QString& gpu) {

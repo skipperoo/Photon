@@ -9,6 +9,7 @@
 #include <QStandardPaths>
 #include <QString>
 #include <QStringList>
+#include <QVariantMap>
 
 /**
  * @brief Manages application state and persistent settings.
@@ -98,6 +99,13 @@ class AppStateManager : public QObject {
   Q_INVOKABLE void clearSelection();
   Q_INVOKABLE bool isSelected(const QString& path) const;
   Q_INVOKABLE void setRatingForSelected(int rating);
+  Q_INVOKABLE QVariantMap loadSettingsForImage(const QString& path) const;
+  Q_INVOKABLE void applySettingsForSelected(const QVariantMap& settings,
+                                            const QString& excludePath);
+  Q_INVOKABLE void rotateSelectedRight(const QString& excludePath);
+  Q_INVOKABLE void rotateSelectedLeft(const QString& excludePath);
+  Q_INVOKABLE void flipSelectedHorizontal(const QString& excludePath);
+  Q_INVOKABLE void flipSelectedVertical(const QString& excludePath);
 
  public slots:
   void setCurrentView(ViewState view);
@@ -119,6 +127,7 @@ class AppStateManager : public QObject {
   void selectedImagesChanged();
   void lastOpenedFolderChanged();
   void ratingUpdated();
+  void editsUpdated();
   void hasLastSessionChanged();
   void preferredGpuChanged();
   void availableGpusChanged();

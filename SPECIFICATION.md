@@ -404,17 +404,21 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
 
 **Mouse Interactions:**
 
-- **Right-Click on Filmstrip/Library:**
-- _Context Menu:_
-- "Copy Settings" (Ctrl+Shift+C)
-- "Paste Settings" (Ctrl+Shift+V)
-- "Reset to Original"
-- "Export..."
+- **Right-Click on Viewport / Filmstrip / Library thumbnails:**
+- _Context Menu (shared reusable component):_
+  - **Copy settings** (opens the reusable settings-selection dialog and stores only checked keys).
+  - **Paste settings** (label becomes **"Paste settings to N photos"** when multiple are selected).
+  - **Rating actions** (No rating, 1★..5★) applied to all selected photos.
+  - **Rating submenu** exposes No rating + 1★..5★ actions.
+  - **Filter submenu** exposes criteria cycle (`= / > / ≥ / < / ≤`) plus star threshold actions using the same rating-filter model as Library top bar.
+  - Criteria cycling keeps the context-menu workflow active so users can iterate criteria quickly without reopening from scratch.
+  - **Rotate right / Rotate left / Flip horizontally / Flip vertically** for selected photos.
+  - Actions are context-safe: when used in Develop and the current image is selected, the viewport updates live and the remaining selected photos are updated via sidecar edits.
 
 - **Multi-Select:**
 - Shift+Click to select a range.
 - Ctrl+Click to toggle individual selection.
-- _Paste Settings_ applies to ALL selected images.
+- _Paste Settings_, rating, rotate, and flip actions apply to ALL selected images.
 
 **Keyboard Shortcuts:**
 

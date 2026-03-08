@@ -154,6 +154,7 @@ qt_add_qml_module(Photon
         content/components/ToneCurve.qml
         content/components/PresetPanel.qml
         content/components/SettingsSelectionDialog.qml
+        content/components/PhotoContextMenu.qml
         content/components/MetadataPanel.qml
         content/components/ExportPanel.qml
         content/theme/Theme.qml
@@ -183,6 +184,15 @@ qt_add_qml_module(Photon
         assets/icons/folder.svg
         assets/icons/home.svg
         assets/icons/eye.svg
+        assets/icons/copy.svg
+        assets/icons/clipboard-paste.svg
+        assets/icons/star.svg
+        assets/icons/filter.svg
+        assets/icons/copy-menu.svg
+        assets/icons/clipboard-paste-menu.svg
+        assets/icons/rotate-cw-menu.svg
+        assets/icons/flip-horizontal-menu.svg
+        assets/icons/flip-vertical-menu.svg
 )
 
 set_target_properties(Photon PROPERTIES

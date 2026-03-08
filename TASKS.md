@@ -472,6 +472,32 @@
 - [x] Registered the new component in QML module files (`qmldir`, `CMakeLists.txt`).
 - [x] Updated SPECIFICATION.md and TASKS.md.
 
+## Phase 36: Reusable Right-Click Edit Context Menu [DONE]
+
+- [x] Added reusable `PhotoContextMenu.qml` component for thumbnail/viewport contextual actions.
+- [x] Wired right-click activation in:
+  - [x] Library grid thumbnails (`LibraryView.qml`)
+  - [x] Filmstrip thumbnails (`App.qml`)
+  - [x] Develop viewport (`App.qml`)
+- [x] Implemented contextual actions:
+  - [x] Copy settings (opens reusable `SettingsSelectionDialog`, stores filtered keys only).
+  - [x] Paste settings (dynamic text: "Paste settings to N photos" when multi-selection is active).
+  - [x] Rating actions (No rating + 1★..5★) for selected photos.
+  - [x] Filter actions (criteria cycle + star threshold) synchronized with library filter state.
+  - [x] Rotate right/left and flip horizontal/vertical actions.
+- [x] Extended `AppStateManager` with batch sidecar edit operations for selected photos:
+  - [x] `loadSettingsForImage(...)`
+  - [x] `applySettingsForSelected(...)`
+  - [x] `rotateSelectedRight/Left(...)`
+  - [x] `flipSelectedHorizontal/Vertical(...)`
+  - [x] `editsUpdated()` signal for UI refresh.
+- [x] Added missing Lucide-style icon assets (`copy`, `clipboard-paste`, `star`, `filter`) and registered resources.
+- [x] Polished context-menu UX:
+  - [x] Fixed menu icon contrast via dedicated high-contrast menu icon assets.
+  - [x] Restored rating/filter submenu structure.
+  - [x] Kept filter criteria cycling in active context-menu flow for faster iteration.
+- [x] Build + tests + offscreen runtime smoke validated after integration.
+
 ## Backlog / Future
 
 - [ ] **Perspective Correction**

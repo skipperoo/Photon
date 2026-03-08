@@ -21,6 +21,11 @@ Window {
     // Sort settings shared between library and filmstrip
     property int sortProperty: 0      // 0: Name, 1: Date, 2: Rating
     property bool sortAscending: true
+    property int ratingFilter: 0
+    property int ratingOperator: 2
+    readonly property var ratingOperatorLabels: ["=", ">", "≥", "<", "≤"]
+    property var copiedSettings: ({})
+    property string contextMenuSourcePath: ""
 
     // File scanner for finding RAW files in the current folder
     FileScanner {
@@ -39,6 +44,39 @@ Window {
     // List model to hold the RAW files
     ListModel {
         id: rawFilesModel
+    }
+
+    SettingsSelectionDialog {
+        id: copySettingsDialog
+        dialogTitle: "Copy Settings"
+        dialogDescription: "Choose which settings to copy."
+        confirmButtonText: "Copy"
+        onSelectionAccepted: (filteredSettings, selectedKeys) => {
+            window.copiedSettings = filteredSettings
+        }
+    }
+
+    PhotoContextMenu {
+        id: developContextMenu
+        selectionCount: AppState.selectionCount
+        canPaste: Object.keys(window.copiedSettings).length > 0
+        showFilterSection: true
+        filterOperator: window.ratingOperator
+        filterRating: window.ratingFilter
+        operatorLabels: window.ratingOperatorLabels
+        onCopyRequested: {
+            var sourcePath = window.contextMenuSourcePath || AppState.currentImage
+            if (sourcePath)
+                window.openCopySettingsDialogForPath(sourcePath)
+        }
+        onPasteRequested: window.pasteCopiedSettingsToSelection()
+        onRatingRequested: (rating) => AppState.setRatingForSelected(rating)
+        onFilterOperatorCycleRequested: window.ratingOperator = (window.ratingOperator + 1) % 5
+        onFilterRatingRequested: (rating) => window.ratingFilter = rating
+        onRotateRightRequested: window.rotateSelectionRight()
+        onRotateLeftRequested: window.rotateSelectionLeft()
+        onFlipHorizontalRequested: window.flipSelectionHorizontal()
+        onFlipVerticalRequested: window.flipSelectionVertical()
     }
 
     // Function to refresh the file list
@@ -87,6 +125,85 @@ Window {
         return paths;
     }
 
+    function openCopySettingsDialogForPath(path) {
+        if (!path) return
+
+        var settings = ({})
+        if (rawViewport && path === AppState.currentImage &&
+                AppState.currentView === AppState.ViewState.Develop) {
+            settings = rawViewport.currentSettings()
+        } else {
+            settings = AppState.loadSettingsForImage(path)
+        }
+
+        if (!settings || Object.keys(settings).length === 0) return
+        copySettingsDialog.openForSettings(settings)
+    }
+
+    function pasteCopiedSettingsToSelection() {
+        if (!window.copiedSettings || Object.keys(window.copiedSettings).length === 0)
+            return
+        if (AppState.selectionCount <= 0)
+            return
+
+        var currentPath = AppState.currentImage
+        var currentSelected = AppState.selectedImages.indexOf(currentPath) !== -1
+        if (currentSelected && rawViewport && AppState.currentView === AppState.ViewState.Develop) {
+            rawViewport.applySettings(window.copiedSettings)
+            AppState.applySettingsForSelected(window.copiedSettings, currentPath)
+        } else {
+            AppState.applySettingsForSelected(window.copiedSettings, "")
+        }
+    }
+
+    function rotateSelectionRight() {
+        var currentPath = AppState.currentImage
+        var currentSelected = AppState.selectedImages.indexOf(currentPath) !== -1
+        if (currentSelected && rawViewport && AppState.currentView === AppState.ViewState.Develop) {
+            rawViewport.orientationSteps = (rawViewport.orientationSteps + 1) % 4
+            rawViewport.commitEdit()
+            AppState.rotateSelectedRight(currentPath)
+        } else {
+            AppState.rotateSelectedRight("")
+        }
+    }
+
+    function rotateSelectionLeft() {
+        var currentPath = AppState.currentImage
+        var currentSelected = AppState.selectedImages.indexOf(currentPath) !== -1
+        if (currentSelected && rawViewport && AppState.currentView === AppState.ViewState.Develop) {
+            rawViewport.orientationSteps = (rawViewport.orientationSteps + 3) % 4
+            rawViewport.commitEdit()
+            AppState.rotateSelectedLeft(currentPath)
+        } else {
+            AppState.rotateSelectedLeft("")
+        }
+    }
+
+    function flipSelectionHorizontal() {
+        var currentPath = AppState.currentImage
+        var currentSelected = AppState.selectedImages.indexOf(currentPath) !== -1
+        if (currentSelected && rawViewport && AppState.currentView === AppState.ViewState.Develop) {
+            rawViewport.flipHorizontal = !rawViewport.flipHorizontal
+            rawViewport.commitEdit()
+            AppState.flipSelectedHorizontal(currentPath)
+        } else {
+            AppState.flipSelectedHorizontal("")
+        }
+    }
+
+    function flipSelectionVertical() {
+        var currentPath = AppState.currentImage
+        var currentSelected = AppState.selectedImages.indexOf(currentPath) !== -1
+        if (currentSelected && rawViewport && AppState.currentView === AppState.ViewState.Develop) {
+            rawViewport.flipVertical = !rawViewport.flipVertical
+            rawViewport.commitEdit()
+            AppState.flipSelectedVertical(currentPath)
+        } else {
+            AppState.flipSelectedVertical("")
+        }
+    }
+
     function navigateFilmstrip(offset) {
         if (rawFilesModel.count === 0) return;
         var currentPath = AppState.currentImage;
@@ -125,6 +242,9 @@ Window {
             }
         }
         function onRatingUpdated() {
+            refreshFiles();
+        }
+        function onEditsUpdated() {
             refreshFiles();
         }
     }
@@ -476,7 +596,7 @@ Window {
                         MouseArea {
                             anchors.fill: rawViewport
                             hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
                             scrollGestureEnabled: false
                             preventStealing: true
                             
@@ -504,12 +624,16 @@ Window {
                             }
                             
                             onPressed: (mouse) => {
+                                if (mouse.button === Qt.RightButton)
+                                    return;
                                 lastPos = Qt.point(mouse.x, mouse.y)
                                 startPos = Qt.point(mouse.x, mouse.y)
                                 isDragging = false
                             }
                             
                             onReleased: (mouse) => {
+                                if (mouse.button !== Qt.LeftButton)
+                                    return;
                                 if (rawViewport.isPanning) {
                                     rawViewport.isPanning = false;
                                 }
@@ -518,6 +642,18 @@ Window {
                                     interactionDenoiseTimer.restart();
                                 }
                                 isDragging = false;
+                            }
+
+                            onClicked: (mouse) => {
+                                if (mouse.button !== Qt.RightButton || !AppState.currentImage)
+                                    return;
+                                if (AppState.selectedImages.indexOf(AppState.currentImage) === -1) {
+                                    AppState.clearSelection()
+                                    AppState.toggleSelection(AppState.currentImage)
+                                }
+                                window.contextMenuSourcePath = AppState.currentImage
+                                var p = mapToItem(null, mouse.x, mouse.y)
+                                developContextMenu.openAt(p.x, p.y)
                             }
                             
                             onDoubleClicked: (mouse) => {
@@ -534,6 +670,7 @@ Window {
                             
                             onPositionChanged: (mouse) => {
                                 if (developLayout.activeSidebar === 2) return;
+                                if (!(pressedButtons & Qt.LeftButton)) return;
                                 if (pressed) {
                                     var dx = mouse.x - startPos.x;
                                     var dy = mouse.y - startPos.y;
@@ -1014,6 +1151,15 @@ Window {
                                             AppState.toggleSelection(model.path)
                                             AppState.setCurrentImage(model.path)
                                         }
+                                    } else if (mouse.button === Qt.RightButton) {
+                                        if (!isSelected) {
+                                            AppState.clearSelection()
+                                            AppState.toggleSelection(model.path)
+                                            AppState.setCurrentImage(model.path)
+                                        }
+                                        window.contextMenuSourcePath = model.path
+                                        var p = mapToItem(null, mouse.x, mouse.y)
+                                        developContextMenu.openAt(p.x, p.y)
                                     }
                                 }
                             }

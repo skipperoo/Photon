@@ -389,7 +389,14 @@ To achieve professional-grade results, Photon employs a high-fidelity GPU pipeli
   - Clicking a preset applies all contained adjustment parameters to the active image.
   - Applying a preset is a non-destructive action and adds a single step to the undo/redo stack.
   - Hovering over a preset name provides a "Delete" option.
-  - A "Save Current" button at the top of the panel captures the current tool panel state into a new preset file.
+  - A "Save Current" button opens a centered **settings selection dialog** before naming the preset.
+  - The selection dialog uses hierarchical parent/child checkboxes (sections like Light/Presence/etc. with per-setting children).
+  - Parent checkbox toggle behavior is cascading: checking parent checks all children; unchecking parent unchecks all children.
+  - HSL adjustments are represented as a single **Color Correction** option (instead of per-channel H/S/L entries), and tone-curve channels are represented as a single **Tone Curve** option.
+  - The selection dialog uses a wider plain section layout (no boxed cards) and flows sections top-to-bottom, then into the next column when the visible height is exceeded.
+  - Dialog corners are rounded consistently (including top corners).
+  - Only checked keys are serialized into the preset JSON; unchecked keys are omitted (never saved as defaults), so applying the preset does not change those fields.
+  - The selection dialog is implemented as a reusable standalone component so the same UX can be reused for copy/paste settings workflows.
 
 ---
 

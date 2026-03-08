@@ -153,6 +153,7 @@ qt_add_qml_module(Photon
         content/components/Histogram.qml
         content/components/ToneCurve.qml
         content/components/PresetPanel.qml
+        content/components/SettingsSelectionDialog.qml
         content/components/MetadataPanel.qml
         content/components/ExportPanel.qml
         content/theme/Theme.qml

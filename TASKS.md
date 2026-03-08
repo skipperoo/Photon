@@ -453,6 +453,25 @@
 - [x] Reduced black-point aggressiveness by attenuating positive low-luma tone-curve lift (shader + CPU parity).
 - [x] Updated SPECIFICATION.md and TASKS.md to reflect the new precision contract and completed work.
 
+## Phase 35: Selective Preset Save Workflow [DONE]
+
+- [x] Added reusable `SettingsSelectionDialog.qml` component for settings-key selection (designed for preset save now, copy/paste reuse later).
+- [x] Implemented hierarchical checkbox groups with cascading parent behavior (parent check/uncheck applies to all children).
+- [x] Added sectioned key coverage for Light, Presence, Color, HSL, Color Grading, Effects, Creative, Detail, Denoise, Tone Curve, and Geometry.
+- [x] Simplified preset selection granularity to match workflow expectations:
+  - [x] HSL grouped into single **Color Correction** checkbox.
+  - [x] Tone curve channels grouped into single **Tone Curve** checkbox.
+- [x] Improved selection dialog usability:
+  - [x] Increased dialog width and switched to plain section layout with column wrapping by visible height.
+  - [x] Kept rounded dialog corners consistent (including top corners).
+- [x] Updated preset save flow in `PresetPanel.qml`:
+  - [x] Save button opens selection dialog first.
+  - [x] After selection, user names preset.
+  - [x] Only selected keys are saved to preset JSON.
+- [x] Preset apply behavior remains partial-safe (`RawEngine::applyJsonToState` only applies keys present in the preset map).
+- [x] Registered the new component in QML module files (`qmldir`, `CMakeLists.txt`).
+- [x] Updated SPECIFICATION.md and TASKS.md.
+
 ## Backlog / Future
 
 - [ ] **Perspective Correction**

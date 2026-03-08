@@ -198,6 +198,7 @@
   - [x] Create `Version.h.in` template for CMake.
   - [x] Display version string in Settings footer.
   - [x] Implement `tag_release.sh` for automated tagging.
+  - [x] `tag_release.sh` now also updates `project(Photon VERSION X.Y.Z LANGUAGES CXX)` in `CMakeLists.txt`.
 - [x] **CI/CD Infrastructure**
   - [x] Create GitHub Actions workflow for cross-platform builds.
   - [x] Configure Nightly builds for `develop` and Stable for `master`.
@@ -322,8 +323,8 @@
   - [x] Endpoints draggable vertically only, interior points constrained between neighbors.
   - [x] Monotonic cubic Hermite spline (Fritsch-Carlson) for smooth curves.
   - [x] 4 × QVariantList Q_PROPERTYs: `toneCurveLuma/Red/Green/Blue`.
-  - [x] C++ spline→256-entry LUT computation in `RawEngine::rebuildToneLut()`.
-  - [x] 256×4 `QImage` LUT texture (one row per channel) via `ToneLutProvider` image provider.
+  - [x] C++ spline→256-entry LUT computation in `RawEngine::rebuildToneLut()` (later superseded by Phase 34 full 65536 precision).
+  - [x] 256×4 `QImage` LUT texture (one row per channel) via `ToneLutProvider` image provider (later superseded by Phase 34 packed 16-bit LUT texture).
   - [x] `sampler2D toneLUT` in fragment shader, applied after tonemapping.
   - [x] Luma curve applied as ratio to preserve color relationships.
   - [x] Per-channel (R/G/B) curves applied independently.
@@ -427,6 +428,30 @@
 - [x] **Diagnostics & Verification**
   - [x] Added temporary crop debug traces in QML/C++ for preview vs bake reconciliation.
   - [x] Build + tests pass; user-validated that crop overlay domain movement and preview/bake match.
+
+## Phase 33: Post-Crop Quality & Stability [DONE]
+
+- [x] **Denoise + Zoom Aspect Fix**
+  - [x] Fixed X-axis stretch when enabling denoise while zoomed in.
+  - [x] `RawViewport::updatePaintNode()` keeps logical image dimensions stable when using partial denoise ROI textures.
+- [x] **Tone/HSL Engine-Only Quality Pass (No UI Changes)**
+  - [x] Added smoother tonal masks and safer luma-target remap for Whites/Blacks/Highlights/Shadows.
+  - [x] Broadened/normalized HSL hue influence and added low-chroma protection to reduce harsh transitions/artifacts.
+  - [x] Applied parity updates across shader (`RawViewport.frag`), CPU export (`ImageDeveloper.cpp`), and histogram simulation (`RawEngine.cpp`).
+  - [x] Fixed positive-slider whiteout regression by applying brightening shoulder compression only when target luma exceeds 1.0.
+- [x] **Research & Documentation**
+  - [x] Added comparative analysis against darktable in `tones_report.md` (tone transitions, HSL behavior, tone-curve banding, denoise softness).
+  - [x] Captured implementation touchpoints for follow-up engine changes.
+
+## Phase 34: 65536 Tone Curve LUT Precision [DONE]
+
+- [x] Upgraded tone-curve LUT precision from 256 to 65536 entries per channel.
+- [x] Reworked LUT texture contract to 256×1024 with 4 stacked 256×256 planes (Luma/R/G/B), packing 16-bit values in RG bytes.
+- [x] Updated shader tone-curve sampling to decode packed 16-bit LUT values from centered texture samples.
+- [x] Updated CPU export path (`ImageDeveloper`) to use matching 65536-entry LUT indexing and 16-bit identity detection.
+- [x] Updated QML tone LUT source texture sizing to `Qt.size(256, 1024)`.
+- [x] Reduced black-point aggressiveness by attenuating positive low-luma tone-curve lift (shader + CPU parity).
+- [x] Updated SPECIFICATION.md and TASKS.md to reflect the new precision contract and completed work.
 
 ## Backlog / Future
 

@@ -128,6 +128,7 @@ Photon provides advanced control over performance and aesthetics:
   - **Before/After Comparison:** Press `\` (backslash) or `B` to toggle between the edited and unprocessed original image. An eye icon button in the toolbar also toggles this mode (turns accent color when active). A floating toast ("Before"/"After") fades in at the top center of the viewport for 800ms to indicate the current state. Implemented via a `showOriginal` uniform in the fragment shader that bypasses all processing steps.
   - **Note:** The floating top navigation bar is **disabled** in this view to maximize vertical space.
   - **High-Performance Panning:** To ensure 60fps responsiveness during high-resolution RAW navigation, Photon uses a texture-caching strategy. Panning only updates the viewport geometry (quad coordinates) without re-uploading texture data to the GPU or performing CPU-side pixel conversions.
+  - **Denoise ROI Stability:** Partial denoise ROI textures no longer overwrite logical image dimensions, preserving correct pan/zoom aspect mapping while zoomed.
 
 ### B. The Tool Stack & Switcher (Right)
 
@@ -148,17 +149,20 @@ The right panel is divided into two parts: a **Tool Stack** (320px) and a **Sect
    - A `StackLayout` that displays the selected mode's controls.
    - **Histogram:** (Pinned at the top of the stack). Professional real-time visualization of RGB and Luma distribution. Uses P99 percentile normalization (skipping bins 0 and 255) to prevent dominant bins from compressing the display. Each channel rendered as a filled `PathPolyline` shape; polyline prepends `(0, height)` as first point to prevent auto-close diagonal artifacts.
    - **Light Section:** Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Adaptation, AgX Tonemapping.
+     - Tone-targeting math uses smoother tonal masks and a bounded highlight shoulder to reduce harsh transitions and clipping artifacts at strong positive adjustments.
    - **Tone Curve Section:** Interactive spline editor with 4 channels (Luminance, Red, Green, Blue):
      - Canvas-based curve display with diagonal identity reference and grid. Channel tabs with colored round buttons (white=Luma, red=R, green=G, blue=B).
      - Click to add control points, drag to move, double-click interior points to remove.
      - Endpoints draggable vertically only; interior points constrained between neighbors.
      - Monotonic cubic Hermite spline (Fritsch-Carlson) ensures smooth, non-oscillating curves.
-     - **LUT Texture:** 256×4 RGBA image (one row per channel: Luma/R/G/B), served via `ToneLutProvider` QQuickImageProvider with static singleton pattern. QML `Image` loads from `"image://tonelut/" + version`, wrapped in `ShaderEffectSource` with `textureSize: Qt.size(256, 4)` to prevent HiDPI scaling artifacts.
-     - **Shader Application:** Luma curve uses a **hybrid additive/multiplicative blend** to avoid noise amplification in shadows when raising the black point: `mix(additive, multiplicative, smoothstep(0.0, 0.36, lumaIn))`. Per-channel R/G/B curves applied directly via LUT lookup. A `toneCurveActive` uniform (float) guards the entire block — identity curves skip LUT sampling entirely.
+      - **LUT Texture:** 65536-entry precision per channel. Curves are baked into a **256×1024 RGBA8** texture via `ToneLutProvider`: four stacked 256×256 planes (Luma/R/G/B), each plane storing 16-bit LUT values packed across `R` (high byte) and `G` (low byte). QML `Image` loads from `"image://tonelut/" + version`, wrapped in `ShaderEffectSource` with `textureSize: Qt.size(256, 1024)`.
+      - **Shader Application:** Tone-curve lookup decodes packed 16-bit LUT values from centered texture samples (R=high byte, G=low byte). Luma curve uses a **hybrid additive/multiplicative blend** to avoid noise amplification in shadows when raising the black point: `mix(additive, multiplicative, smoothstep(0.0, 0.36, lumaIn))`. A `toneCurveActive` uniform (float) guards the entire block — identity curves skip LUT sampling entirely.
+      - **Black-Point Sensitivity Tuning:** Positive low-luma lift from the luma curve is attenuated near absolute black to make first-point adjustments less aggressive while preserving mid/high-tone behavior.
      - **Debounce:** QML drag uses a 30ms debounce timer (`setPointsThrottled`) to prevent CPU spike from cascading `rebuildToneLut` + histogram + signal chains. Canvas repaints immediately using pending points for smooth visual feedback; timer flushes on mouse release.
-     - **CPU Export Pipeline:** Identical spline evaluation and shadow-blend logic duplicated as file-local function in `ImageDeveloper.cpp` (avoids link dependency since test binaries don't link RawEngine).
+      - **CPU Export Pipeline:** Identical spline evaluation and shadow-blend logic duplicated as file-local function in `ImageDeveloper.cpp` (avoids link dependency since test binaries don't link RawEngine), using the same 65536-entry lookup precision.
    - **Presence Section:** Vibrance, Saturation.
    - **Color Section:** HSL panel (8 hue ranges × Hue/Saturation/Luminance).
+     - HSL targeting uses widened/normalized hue influence with low-chroma protection to keep transitions smoother and reduce luminance blister artifacts at extremes.
    - **Color Grading Section:** Shadows/Midtones/Highlights color wheels, Balance, Blending.
    - **Effects Section:** Grain (Amount/Size/Roughness), Vignette (Amount/Midpoint/Roundness/Feather).
    - **Creative Section:** Clarity, Dehaze, Structure, Centre.

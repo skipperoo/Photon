@@ -310,7 +310,7 @@ Window {
                             id: toneLutImage
                             source: "image://tonelut/" + rawViewport.toneLutVersion
                             visible: false
-                            width: 256; height: 4
+                            width: 256; height: 1024
                             cache: false
                             smooth: false
                         }
@@ -347,7 +347,7 @@ Window {
                             }
                             property variant toneLUT: ShaderEffectSource {
                                 sourceItem: toneLutImage
-                                textureSize: Qt.size(256, 4)
+                                textureSize: Qt.size(256, 1024)
                                 live: true
                                 hideSource: true
                             }

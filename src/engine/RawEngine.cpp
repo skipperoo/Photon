@@ -279,7 +279,9 @@ void RawEngine::releaseGpuResources() {
 void RawEngine::updateProcessingParams() {
   m_processor->imgdata.params.use_camera_wb = 1;
   m_processor->imgdata.params.output_bps = 16;
-  m_processor->imgdata.params.no_auto_bright = 1;
+  // NOTE: The user should be able to change/adjust this
+  m_processor->imgdata.params.no_auto_bright = 0;
+  m_processor->imgdata.params.auto_bright_thr = 0.01;
   m_processor->imgdata.params.half_size = m_halfSize ? 1 : 0;
 }
 

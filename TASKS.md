@@ -507,7 +507,7 @@
 - [x] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
 - [x] Auto log cleanup
 
-## Phase 38
+## Phase 38: Panorama
 
 - [ ] JPEG and TIFF support.
 - [ ] Panorama Stitching
@@ -521,3 +521,4 @@
   - [ ] Keystone/perspective transform controls.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
+- [ ] Let the use decide whether to use auto brightness or not (and threshold)

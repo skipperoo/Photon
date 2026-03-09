@@ -201,7 +201,8 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
   LibRaw processor;
   processor.imgdata.params.output_bps = 16;
   processor.imgdata.params.use_camera_wb = 1;
-  processor.imgdata.params.no_auto_bright = 1;
+  processor.imgdata.params.no_auto_bright = 0;
+  processor.imgdata.params.auto_bright_thr = 0.01;
   processor.imgdata.params.half_size = 1;  // 1080p is enough, half_size is fast
 
   if (processor.open_file(rawPath.toLocal8Bit().data()) == LIBRAW_SUCCESS) {

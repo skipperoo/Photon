@@ -59,7 +59,7 @@ jobs:
             libxcb-cursor0 libxcb-xinerama0 libxcb-xinput0 libxcb-icccm4 \
             libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 \
             libwayland-client0 libwayland-cursor0 libwayland-egl1 libxkbcommon-x11-0 \
-            libwayland-dev wayland-protocols libwayland-server0 \
+            libwayland-dev wayland-protocols libwayland-server0 libopencv-dev \
             imagemagick
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
@@ -68,7 +68,7 @@ jobs:
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          vcpkg install libraw:x64-windows vulkan:x64-windows
+          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows
 
       - name: Configure CMake
         shell: bash

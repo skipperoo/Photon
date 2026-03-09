@@ -84,7 +84,8 @@ void ExportManager::processExport(const QStringList& paths,
     LibRaw processor;
     processor.imgdata.params.output_bps = 16;
     processor.imgdata.params.use_camera_wb = 1;
-    processor.imgdata.params.no_auto_bright = 1;
+    processor.imgdata.params.no_auto_bright = 0;
+    processor.imgdata.params.auto_bright_thr = 0.01;
 
     if (processor.open_file(path.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
       if (processor.unpack() == LIBRAW_SUCCESS) {

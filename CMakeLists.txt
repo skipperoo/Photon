@@ -145,6 +145,8 @@ qt_add_qml_module(Photon
         content/components/PhotonInput.qml
         content/components/PhotonSlider.qml
         content/components/PhotonScrollBar.qml
+        content/components/PhotonToast.qml
+        content/components/PhotonToastManager.qml
         content/components/Card.qml
         content/components/Collapsible.qml
         content/components/ControlGroup.qml

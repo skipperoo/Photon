@@ -83,7 +83,9 @@ Item {
                         Layout.fillWidth: true
                         text: "Continue Session"
                         visible: root.hasLastSession
-                        onClicked: root.continueSessionRequested()
+                        onClicked: {
+                          root.continueSessionRequested()
+                        }
                     }
 
                     // Open Folder Button

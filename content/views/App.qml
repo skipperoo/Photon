@@ -26,7 +26,7 @@ Window {
     readonly property var ratingOperatorLabels: ["=", ">", "≥", "<", "≤"]
     property var copiedSettings: ({})
     property string contextMenuSourcePath: ""
-
+    PhotonToastManager { id: toaster }
     // File scanner for finding RAW files in the current folder
     FileScanner {
         id: fileScanner
@@ -340,7 +340,12 @@ Window {
             // 0: Welcome View
             WelcomeView {
                 onContinueSessionRequested: {
-                    AppState.continueSession()
+                  let result = AppState.continueSession()
+                  if (result.isSet && !result.exists)
+                    toaster.show("Cannot find last session folder!", "error")
+                  else if (result.isSet && result.exists)
+                    toaster.show("Restored last session!", "info", 1500)
+                      
                 }
                 onSettingsRequested: {
                     AppState.setCurrentView(AppState.ViewState.Settings)

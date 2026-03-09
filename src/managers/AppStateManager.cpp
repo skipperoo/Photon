@@ -147,11 +147,21 @@ void AppStateManager::clearLastSession() {
   emit hasLastSessionChanged();
 }
 
-void AppStateManager::continueSession() {
+QVariantMap AppStateManager::continueSession() {
+  QVariantMap result;
+  result["isSet"] = false;
+  result["exists"] = false;
   if (hasLastSession()) {
+    result["isSet"] = true;
+    if (!QFile::exists(m_lastOpenedFolder)){
+      clearLastSession();
+      return result;
+    }
     setCurrentFolder(m_lastOpenedFolder);
     setCurrentView(ViewState::Library);
+    result["exists"] = true;
   }
+  return result;
 }
 
 void AppStateManager::clearThumbnailCache() {

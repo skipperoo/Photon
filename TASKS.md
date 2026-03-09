@@ -498,10 +498,22 @@
   - [x] Kept filter criteria cycling in active context-menu flow for faster iteration.
 - [x] Build + tests + offscreen runtime smoke validated after integration.
 
-## Phase 36: Old session Not Found and log rotation
+---
+
+# Taking back control of the codebase
+
+## Phase 37: Old session Not Found and log rotation
 
 - [x] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
 - [x] Auto log cleanup
+
+## Phase 38
+
+- [ ] JPEG and TIFF support.
+- [ ] Panorama Stitching
+  - [ ] OpenCV integration
+  - [ ] Stitching
+  - [ ] TIFF output
 
 ## Backlog / Future
 
@@ -509,4 +521,3 @@
   - [ ] Keystone/perspective transform controls.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
-- [ ] **Panorama Stitching**

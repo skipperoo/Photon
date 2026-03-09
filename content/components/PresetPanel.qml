@@ -115,7 +115,7 @@ Rectangle {
                             Layout.fillWidth: true
                         }
                         
-                        T.Button {
+                        PhotonButton {
                             visible: parent.parent.hovered
                             implicitWidth: 32
                             implicitHeight: 32
@@ -125,16 +125,11 @@ Rectangle {
                             }
                             
                             icon.source: "qrc:/Main/assets/icons/trash.svg"
-                            icon.width: 32
-                            icon.height: 32
+                            icon.width: 16
+                            icon.height: 16
+                            icon.color: Theme.foreground
+                            variantDestructive: true
                             
-                            background: Rectangle {
-                                color: Theme.destructive
-                                radius: 4
-                            }
-                            
-                            T.ToolTip.visible: hovered
-                            T.ToolTip.text: "Delete Preset"
                         }
                     }
 

@@ -337,10 +337,19 @@ Window {
                 }
             }
 
+            MessageDialog {
+                id: oldSessionNotFound
+                title: "Error"
+                text: "Cannot find old session"
+                buttons: MessageDialog.Ok
+            }
+
             // 0: Welcome View
             WelcomeView {
                 onContinueSessionRequested: {
-                    AppState.continueSession()
+                  let result = AppState.continueSession()
+                  if (result.isSet && !result.exists)
+                    oldSessionNotFound.open()
                 }
                 onSettingsRequested: {
                     AppState.setCurrentView(AppState.ViewState.Settings)

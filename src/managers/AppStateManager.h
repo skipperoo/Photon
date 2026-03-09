@@ -88,7 +88,7 @@ class AppStateManager : public QObject {
   Q_INVOKABLE void loadSettings();
   Q_INVOKABLE void saveSettings();
   Q_INVOKABLE void clearLastSession();
-  Q_INVOKABLE void continueSession();
+  Q_INVOKABLE QVariantMap continueSession();
   Q_INVOKABLE void clearThumbnailCache();
 
   // Selection operations

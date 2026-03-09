@@ -498,12 +498,14 @@
   - [x] Kept filter criteria cycling in active context-menu flow for faster iteration.
 - [x] Build + tests + offscreen runtime smoke validated after integration.
 
+## Phase 36: Old session Not Found and log rotation
+
+- [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
+- [ ] Log rotation
+
 ## Backlog / Future
 
 - [ ] **Perspective Correction**
   - [ ] Keystone/perspective transform controls.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
-- [ ] Multi-image batch processing.
-- [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
-- [ ] Log rotation

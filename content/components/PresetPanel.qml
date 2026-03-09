@@ -17,6 +17,7 @@ Rectangle {
     property var viewport: null
     property real viewTopPadding: 0
     property string presetToDelete: ""
+    property var pendingPresetSettings: ({})
 
     MessageDialog {
         id: deleteConfirmDialog
@@ -69,7 +70,12 @@ Rectangle {
                     text: "+"
                     implicitWidth: 24
                     implicitHeight: 24
-                    onClicked: presetNameDialog.open()
+                    onClicked: {
+                        if (!root.viewport)
+                            return
+                        root.pendingPresetSettings = ({})
+                        settingsSelectionDialog.openForSettings(root.viewport.currentSettings())
+                    }
                     T.ToolTip.visible: hovered
                     T.ToolTip.text: "Save Current as Preset"
                     
@@ -156,6 +162,17 @@ Rectangle {
         } // End Inner Tool Content
     }
 
+    SettingsSelectionDialog {
+        id: settingsSelectionDialog
+        dialogTitle: "Select Settings to Save"
+        dialogDescription: "Choose which adjustments to include in this preset."
+        confirmButtonText: "Continue"
+        onSelectionAccepted: (filteredSettings, selectedKeys) => {
+            root.pendingPresetSettings = filteredSettings
+            presetNameDialog.open()
+        }
+    }
+
     T.Dialog {
         id: presetNameDialog
         title: "Save Preset"
@@ -181,10 +198,17 @@ Rectangle {
         }
 
         onAccepted: {
-            if (root.viewport) {
-                PresetManager.savePreset(presetNameInput.text, root.viewport.currentSettings())
+            var presetName = presetNameInput.text.trim()
+            if (presetName.length > 0 && Object.keys(root.pendingPresetSettings).length > 0) {
+                PresetManager.savePreset(presetName, root.pendingPresetSettings)
             }
             presetNameInput.text = ""
+            root.pendingPresetSettings = ({})
+        }
+
+        onRejected: {
+            presetNameInput.text = ""
+            root.pendingPresetSettings = ({})
         }
     }
 }

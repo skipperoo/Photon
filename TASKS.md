@@ -453,6 +453,51 @@
 - [x] Reduced black-point aggressiveness by attenuating positive low-luma tone-curve lift (shader + CPU parity).
 - [x] Updated SPECIFICATION.md and TASKS.md to reflect the new precision contract and completed work.
 
+## Phase 35: Selective Preset Save Workflow [DONE]
+
+- [x] Added reusable `SettingsSelectionDialog.qml` component for settings-key selection (designed for preset save now, copy/paste reuse later).
+- [x] Implemented hierarchical checkbox groups with cascading parent behavior (parent check/uncheck applies to all children).
+- [x] Added sectioned key coverage for Light, Presence, Color, HSL, Color Grading, Effects, Creative, Detail, Denoise, Tone Curve, and Geometry.
+- [x] Simplified preset selection granularity to match workflow expectations:
+  - [x] HSL grouped into single **Color Correction** checkbox.
+  - [x] Tone curve channels grouped into single **Tone Curve** checkbox.
+- [x] Improved selection dialog usability:
+  - [x] Increased dialog width and switched to plain section layout with column wrapping by visible height.
+  - [x] Kept rounded dialog corners consistent (including top corners).
+- [x] Updated preset save flow in `PresetPanel.qml`:
+  - [x] Save button opens selection dialog first.
+  - [x] After selection, user names preset.
+  - [x] Only selected keys are saved to preset JSON.
+- [x] Preset apply behavior remains partial-safe (`RawEngine::applyJsonToState` only applies keys present in the preset map).
+- [x] Registered the new component in QML module files (`qmldir`, `CMakeLists.txt`).
+- [x] Updated SPECIFICATION.md and TASKS.md.
+
+## Phase 36: Reusable Right-Click Edit Context Menu [DONE]
+
+- [x] Added reusable `PhotoContextMenu.qml` component for thumbnail/viewport contextual actions.
+- [x] Wired right-click activation in:
+  - [x] Library grid thumbnails (`LibraryView.qml`)
+  - [x] Filmstrip thumbnails (`App.qml`)
+  - [x] Develop viewport (`App.qml`)
+- [x] Implemented contextual actions:
+  - [x] Copy settings (opens reusable `SettingsSelectionDialog`, stores filtered keys only).
+  - [x] Paste settings (dynamic text: "Paste settings to N photos" when multi-selection is active).
+  - [x] Rating actions (No rating + 1★..5★) for selected photos.
+  - [x] Filter actions (criteria cycle + star threshold) synchronized with library filter state.
+  - [x] Rotate right/left and flip horizontal/vertical actions.
+- [x] Extended `AppStateManager` with batch sidecar edit operations for selected photos:
+  - [x] `loadSettingsForImage(...)`
+  - [x] `applySettingsForSelected(...)`
+  - [x] `rotateSelectedRight/Left(...)`
+  - [x] `flipSelectedHorizontal/Vertical(...)`
+  - [x] `editsUpdated()` signal for UI refresh.
+- [x] Added missing Lucide-style icon assets (`copy`, `clipboard-paste`, `star`, `filter`) and registered resources.
+- [x] Polished context-menu UX:
+  - [x] Fixed menu icon contrast via dedicated high-contrast menu icon assets.
+  - [x] Restored rating/filter submenu structure.
+  - [x] Kept filter criteria cycling in active context-menu flow for faster iteration.
+- [x] Build + tests + offscreen runtime smoke validated after integration.
+
 ## Backlog / Future
 
 - [ ] **Perspective Correction**

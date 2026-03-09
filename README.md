@@ -15,7 +15,7 @@ If you are looking for a modern quick photo editor, this might be for you. On th
 
 Not having much experience with both Qt6 and how images are processed, I used both Gemini and Copilot to kickstart the project, especially to implement what could have taken months and months of full time work, which I cannot afford right now.
 
-The project is in an advanced state and most of functionalities listed below as completed work good enough for me, so I decided to step back from automatic programming and start to implement and refine what's missing manually, to both asses the code quality produced up until now (I would be a liar if I say that I diligently reviewed all the AI output...) and to actually keep my skills sharp in these funny times.
+The project is in an advanced state and most of the functionalities listed below as completed work good enough for me, so I decided to step back from automatic programming/vibe coding/whatever and start to implement and refine what's missing manually, to both asses the code quality produced up until now (I would be a liar if I say that I diligently reviewed all the AI output...) and to actually keep my skills sharp in these funny times.
 
 Here's what works and what is still in the backlog:
 

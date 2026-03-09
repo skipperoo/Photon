@@ -36,6 +36,7 @@ QVariantList FileScanner::scanForRawFiles(const QString& folderPath) const {
       fileMap["name"] = fileInfo.fileName();
       fileMap["size"] = fileInfo.size();
       fileMap["modified"] = fileInfo.lastModified();
+      fileMap["extension"] = fileInfo.suffix().toLower();
 
       // Read rating from sidecar if it exists
       int rating = 0;

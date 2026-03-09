@@ -6,6 +6,7 @@ T.Menu {
     id: root
 
     property int selectionCount: 0
+    property bool canCopy: true
     property bool canPaste: false
     property bool showFilterSection: true
     property int filterOperator: 2
@@ -56,6 +57,7 @@ T.Menu {
     T.MenuItem {
         text: "Copy settings"
         icon.source: "qrc:/Main/assets/icons/copy-menu.svg"
+        enabled: root.canCopy
         onTriggered: {
             root.copyRequested()
             root.close()
@@ -63,9 +65,9 @@ T.Menu {
     }
 
     T.MenuItem {
-        text: root.selectionCount > 1
+        text: canPaste ? root.selectionCount > 1
               ? "Paste settings to " + root.selectionCount + " photos"
-              : "Paste settings"
+              : "Paste settings" : "Settings buffer empty"
         icon.source: "qrc:/Main/assets/icons/clipboard-paste-menu.svg"
         enabled: root.canPaste
         onTriggered: {
@@ -90,10 +92,6 @@ T.Menu {
                 onTriggered: root.ratingRequested(index + 1)
             }
         }
-    }
-
-    T.MenuSeparator {
-        visible: root.showFilterSection
     }
 
     T.Menu {

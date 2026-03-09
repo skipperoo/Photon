@@ -30,6 +30,7 @@ Control {
     PhotoContextMenu {
         id: thumbnailContextMenu
         selectionCount: AppState.selectionCount
+        canCopy: AppState.selectionCount == 1
         canPaste: Object.keys(window.copiedSettings).length > 0
         showFilterSection: true
         filterOperator: window.ratingOperator

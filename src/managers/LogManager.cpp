@@ -1,5 +1,6 @@
 #include "LogManager.h"
 
+#include <filesystem>
 #include <QDebug>
 #include <QDir>
 #include <QMutexLocker>
@@ -14,6 +15,11 @@ LogManager::LogManager(QObject* parent) : QObject(parent) {
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
   QDir().mkpath(defaultDir);
   m_logLocation = QDir::toNativeSeparators(defaultDir + "/photon.log");
+  // If we get to 100MB log file we truncate it before the session starts
+  // so that we do not lose the current session logs.
+  // Would be better to rotate the logs, but this is quick and good for now
+  if (std::filesystem::file_size(m_logLocation.toStdString()) / (1024 * 1024) > 100)
+    clearLog();
   openLogFile();
 }
 
@@ -80,6 +86,10 @@ void LogManager::log(const QString& message, const QString& level) {
 }
 
 void LogManager::clearLog() {
+  // Otherwise the automatic cleanup does not work
+  if (m_logFile.fileName().isEmpty() && !m_logLocation.isEmpty())
+    m_logFile.setFileName(m_logLocation);
+
   if (m_logFile.isOpen()) {
     m_logFile.close();
   }

@@ -501,7 +501,7 @@
 ## Phase 36: Old session Not Found and log rotation
 
 - [x] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
-- [ ] Log rotation
+- [x] Auto log cleanup
 
 ## Backlog / Future
 
@@ -509,3 +509,4 @@
   - [ ] Keystone/perspective transform controls.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
+- [ ] **Panorama Stitching**

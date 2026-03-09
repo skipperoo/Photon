@@ -64,7 +64,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 
 ### C++ Style (Backend)
 
-- **Standard:** C++17.
+- **Standard:** C++20.
 - **Naming:**
   - Classes: `PascalCase`.
   - Methods/Variables: `camelCase`.

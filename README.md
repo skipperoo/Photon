@@ -35,10 +35,12 @@ Here's what works and what does not
 | Interactive Viewport (Pan & Zoom)           |   ✅   |
 | Image Export (JPEG/TIFF)                    |   ✅   |
 | Theme Customization (Light/Dark/Accents)    |   ✅   |
-| Crop & Transform Tools                      |   🔁   |
+| Crop & Transform Tools                      |   ✅   |
+| Tone Curve (Spline UI)                      |   ✅   |
+| Batch Copy & Paste                          |   ✅   |
 | Lens Correction (Lensfun)                   |   🔁   |
-| Tone Curve (Spline UI)                      |   🔁   |
-| Batch Processing                            |   🔁   |
+| Panorama Stitching                          |   🔁   |
+| HDR merge                                   |   🔁   |
 
 ## Getting Started
 
@@ -49,13 +51,13 @@ Here's what works and what does not
 - LibRaw
 - A Vulkan-capable GPU
 
-### Build (High Performance)
+### Build
 
-To build Photon with native optimizations and Link Time Optimization (LTO):
+To build Photon:
 
 ```bash
 mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-march=native -flto=auto -O3" ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
 ```
 
@@ -64,6 +66,11 @@ make -j$(nproc)
 ```bash
 ./build/Photon
 ```
+
+## Credits
+
+- [RapidRaw](https://github.com/CyberTimon/RapidRAW) - Inspired the UI and the workflow of the application
+- [Darktable](https://github.com/darktable-org/darktable) - Helped building and polishing some of the logic.
 
 ## Why another editing tool?
 

@@ -500,7 +500,7 @@
 
 ## Phase 36: Old session Not Found and log rotation
 
-- [ ] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
+- [x] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
 - [ ] Log rotation
 
 ## Backlog / Future

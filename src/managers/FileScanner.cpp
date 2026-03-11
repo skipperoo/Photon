@@ -1,12 +1,14 @@
 #include "FileScanner.h"
 
 #include <QDateTime>
-#include <QDebug>
+#include <QString>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+
+#include "LogManager.h"
 
 FileScanner::FileScanner(QObject* parent) : QObject(parent) {
   // Initialize supported RAW file extensions
@@ -20,7 +22,9 @@ QVariantList FileScanner::scanForRawFiles(const QString& folderPath) const {
 
   QDir dir(folderPath);
   if (!dir.exists()) {
-    qWarning() << "Folder does not exist:" << folderPath;
+    photon::LogManager::instance()->log(
+      QString("Folder %1 does not exists").arg(folderPath)
+    );
     return rawFiles;
   }
 

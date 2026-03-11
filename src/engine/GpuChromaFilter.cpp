@@ -432,12 +432,12 @@ bool GpuChromaFilter::run(const float* guide, const float* input,
       QString("[ GpuChromaFilter ] - Starting GPU guided filter %1x%2")
           .arg(width)
           .arg(height),
-      "INFO");
+      INFO);
 
   GpuResources res{};
   if (!createResources(res, width, height)) {
     LogManager::instance()->log(
-        "[ GpuChromaFilter ] - Failed to create GPU resources", "ERROR");
+        "[ GpuChromaFilter ] - Failed to create GPU resources", ERROR);
     destroyResources(res);
     return false;
   }
@@ -447,7 +447,7 @@ bool GpuChromaFilter::run(const float* guide, const float* input,
   if (!uploadBuffer(res, BUF_GUIDE, guide, bufSize) ||
       !uploadBuffer(res, BUF_INPUT, input, bufSize)) {
     LogManager::instance()->log(
-        "[ GpuChromaFilter ] - Failed to upload data to GPU", "ERROR");
+        "[ GpuChromaFilter ] - Failed to upload data to GPU", ERROR);
     destroyResources(res);
     return false;
   }
@@ -485,7 +485,7 @@ bool GpuChromaFilter::run(const float* guide, const float* input,
   // After 3 passes + swaps, result is in the buffer pointed to by inputBuf
   if (!readbackBuffer(res, inputBuf, output, bufSize)) {
     LogManager::instance()->log(
-        "[ GpuChromaFilter ] - Failed to read back GPU results", "ERROR");
+        "[ GpuChromaFilter ] - Failed to read back GPU results", ERROR);
     destroyResources(res);
     return false;
   }
@@ -493,7 +493,7 @@ bool GpuChromaFilter::run(const float* guide, const float* input,
   destroyResources(res);
 
   LogManager::instance()->log(
-      "[ GpuChromaFilter ] - GPU guided filter complete", "INFO");
+      "[ GpuChromaFilter ] - GPU guided filter complete", INFO);
   return true;
 }
 

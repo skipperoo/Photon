@@ -11,12 +11,19 @@
 
 namespace photon {
 
+enum LogLevel {
+  DEBUG,
+  INFO,
+  WARNING,
+  ERROR
+};
+
 class LogManager : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString logLocation READ logLocation WRITE setLogLocation NOTIFY
                  logLocationChanged)
-  Q_PROPERTY(QString minLogLevel READ minLogLevel WRITE setMinLogLevel NOTIFY
-                 minLogLevelChanged)
+  Q_PROPERTY(QString logLevel READ logLevel WRITE setLogLevel NOTIFY
+                 logLevelChanged)
 
  public:
   explicit LogManager(QObject* parent = nullptr);
@@ -27,24 +34,24 @@ class LogManager : public QObject {
   QString logLocation() const { return m_logLocation; }
   void setLogLocation(const QString& location);
 
-  QString minLogLevel() const { return m_minLogLevel; }
-  void setMinLogLevel(const QString& level);
+  int logLevel() const { return m_logLevel; }
+  void setLogLevel(int level);
+  void setLogLevel(const QString& level);
 
-  Q_INVOKABLE void log(const QString& message, const QString& level = "INFO");
+  Q_INVOKABLE void log(const QString& message, int level = INFO);
   Q_INVOKABLE void clearLog();
 
  signals:
   void logLocationChanged();
-  void minLogLevelChanged();
+  void logLevelChanged();
 
  private:
   static LogManager* s_instance;
   QString m_logLocation;
-  QString m_minLogLevel = "INFO";
+  int m_logLevel = INFO;
   QFile m_logFile;
   QMutex m_logMutex;
 
-  int levelToInt(const QString& level) const;
 
   void openLogFile();
 };

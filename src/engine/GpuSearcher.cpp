@@ -29,7 +29,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     const auto& f = ctx->functions();
     VkDevice device = ctx->device();
 
-    LogManager::instance()->log(QString("[ GpuSearcher ] - Starting raw Vulkan search %1x%2").arg(width).arg(height), "INFO");
+    LogManager::instance()->log(QString("[ GpuSearcher ] - Starting raw Vulkan search %1x%2").arg(width).arg(height), INFO);
 
     // 1. Create Resources
     VkBuffer lumaBuffer = VK_NULL_HANDLE, resultBuffer = VK_NULL_HANDLE;
@@ -46,14 +46,14 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
                       resultBuffer, resultMemory);
 
     if (lumaBuffer == VK_NULL_HANDLE || resultBuffer == VK_NULL_HANDLE) {
-        LogManager::instance()->log("Failed to create Vulkan buffers for search", "ERROR");
+        LogManager::instance()->log("Failed to create Vulkan buffers for search", ERROR);
         return {};
     }
 
     // Upload Luma
     void* dataPtr = nullptr;
     if (f.MapMemory(device, lumaMemory, 0, lumaSize, 0, &dataPtr) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to map luma memory", "ERROR");
+        LogManager::instance()->log("Failed to map luma memory", ERROR);
         return {};
     }
     memcpy(dataPtr, luma, lumaSize);
@@ -78,7 +78,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     if (f.CreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create descriptor set layout", "ERROR");
+        LogManager::instance()->log("Failed to create descriptor set layout", ERROR);
         return {};
     }
 
@@ -94,7 +94,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     if (f.CreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create descriptor pool", "ERROR");
+        LogManager::instance()->log("Failed to create descriptor pool", ERROR);
         return {};
     }
 
@@ -106,7 +106,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
     if (f.AllocateDescriptorSets(device, &allocInfo, &descriptorSet) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to allocate descriptor set", "ERROR");
+        LogManager::instance()->log("Failed to allocate descriptor set", ERROR);
         return {};
     }
 
@@ -145,13 +145,13 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     if (f.CreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create pipeline layout", "ERROR");
+        LogManager::instance()->log("Failed to create pipeline layout", ERROR);
         return {};
     }
 
     QFile shaderFile(":/Main/shaders/patch_search.comp.qsb");
     if (!shaderFile.open(QIODevice::ReadOnly)) {
-        LogManager::instance()->log("Failed to open shader resource", "ERROR");
+        LogManager::instance()->log("Failed to open shader resource", ERROR);
         return {};
     }
     
@@ -166,7 +166,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     }
 
     if (spirvCode.isEmpty()) {
-        LogManager::instance()->log("Failed to extract SPIR-V from shader", "ERROR");
+        LogManager::instance()->log("Failed to extract SPIR-V from shader", ERROR);
         return {};
     }
 
@@ -181,7 +181,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkShaderModule computeShaderModule = VK_NULL_HANDLE;
     if (f.CreateShaderModule(device, &shaderModuleCreateInfo, nullptr, &computeShaderModule) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create shader module", "ERROR");
+        LogManager::instance()->log("Failed to create shader module", ERROR);
         return {};
     }
 
@@ -195,7 +195,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     if (f.CreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create compute pipeline", "ERROR");
+        LogManager::instance()->log("Failed to create compute pipeline", ERROR);
         return {};
     }
 
@@ -221,7 +221,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
         }
         f.UnmapMemory(device, resultMemory);
     } else {
-        LogManager::instance()->log("Failed to map result memory for readback", "ERROR");
+        LogManager::instance()->log("Failed to map result memory for readback", ERROR);
     }
 
     // 6. Cleanup

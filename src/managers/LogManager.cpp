@@ -45,19 +45,23 @@ void LogManager::setLogLocation(const QString& location) {
   }
 }
 
-void LogManager::setMinLogLevel(const QString& level) {
-  if (m_minLogLevel != level) {
-    m_minLogLevel = level;
-    emit minLogLevelChanged();
-  }
+
+void LogManager::setLogLevel(const QString& level) {
+  if (level == "DEBUG")
+    setLogLevel(DEBUG);
+  else if (level == "INFO")
+    setLogLevel(INFO);
+  else if (level == "WARNING")
+    setLogLevel(WARNING);
+  else if (level == "ERROR")
+    setLogLevel(ERROR);
 }
 
-int LogManager::levelToInt(const QString& level) const {
-  if (level == "DEBUG") return 0;
-  if (level == "INFO") return 1;
-  if (level == "WARNING") return 2;
-  if (level == "ERROR") return 3;
-  return 1;
+void LogManager::setLogLevel(int level) {
+  if (m_logLevel != level) {
+    m_logLevel = level;
+    emit logLevelChanged();
+  }
 }
 
 void LogManager::openLogFile() {
@@ -69,19 +73,19 @@ void LogManager::openLogFile() {
                       QIODevice::Text)) {
     qWarning() << "Failed to open log file at" << m_logLocation;
   } else {
-    log("Logging started at " + m_logLocation, "INFO");
+    log("Logging started at " + m_logLocation, INFO);
   }
 }
 
-void LogManager::log(const QString& message, const QString& level) {
+void LogManager::log(const QString& message, int level) {
   QMutexLocker locker(&m_logMutex);
-  if (levelToInt(level) < levelToInt(m_minLogLevel)) return;
+  if (level < m_logLevel) return;
   if (!m_logFile.isOpen()) return;
 
   QTextStream out(&m_logFile);
   QString timestamp =
       QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
-  out << QString("[%1] [%2] %3\n").arg(timestamp, level, message);
+  out << QString("[%1] [%2] %3\n").arg(timestamp, QString::number(level), message);
   out.flush();
 }
 

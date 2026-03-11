@@ -34,7 +34,41 @@ class LogManager : public QObject {
   QString logLocation() const { return m_logLocation; }
   void setLogLocation(const QString& location);
 
-  int logLevel() const { return m_logLevel; }
+
+  LogLevel strLevelToEnum(QString level) const {
+    if (level == "DEBUG")
+      return DEBUG;
+    else if (level == "INFO")
+      return INFO;
+    else if (level == "WARNING")
+      return WARNING;
+    else if (level == "ERROR")
+      return ERROR;
+
+    return DEBUG;
+  }
+
+  QString enumLevelToStr(int level) const {
+    switch(level) {
+      case DEBUG:
+        return "DEBUG";
+
+      case INFO:
+        return "INFO";
+
+      case WARNING:
+        return "WARNING";
+
+      case ERROR:
+        return "ERROR";
+    }
+    return "";
+  }
+
+  QString logLevel() const { 
+    return LogManager::enumLevelToStr(m_logLevel);
+  }
+
   void setLogLevel(int level);
   void setLogLevel(const QString& level);
 

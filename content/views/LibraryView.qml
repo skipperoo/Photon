@@ -48,6 +48,7 @@ Control {
         onRotateLeftRequested: AppState.rotateSelectedLeft("")
         onFlipHorizontalRequested: AppState.flipSelectedHorizontal("")
         onFlipVerticalRequested: AppState.flipSelectedVertical("")
+        onCreatePanoramaRequested: Panorama.stitchAsync(AppState.selectedImages)
     }
 
     // Function to refresh the file list

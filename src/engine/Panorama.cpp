@@ -4,11 +4,20 @@ using namespace photon;
 
 void Panorama::stitchAsync(const QStringList& inputFiles) {
   QThread* thread = QThread::create([this, inputFiles]() {
+    QString message;
+    QVariantMap result = stitchPhotos(inputFiles);
 
+    QMetaObject::invokeMethod(this, [this, result]() {
+        emit stitchCompleted(result);
+    });
   });
+  connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+  thread->start();
+  LogManager::instance()->log(QString("Started panorama stitching thread"), INFO);
 }
 
-void Panorama::stitchPhotos(const std::vector<QString> inputFiles) {
+QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles) {
+  QVariantMap result;
   if (inputFiles.size() < 2) {
     LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Cannot stitch a single image"),
@@ -39,8 +48,10 @@ void Panorama::stitchPhotos(const std::vector<QString> inputFiles) {
   if (status != cv::Stitcher::OK) {
     LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Stitcher failed!"),
-      DEBUG);
-    // emit result
+      ERROR);
+    result["message"] = QString("Stitching failed!");
+    result["success"] = false;
+    return result;
   }
 
   cv::Mat panoramaRGB;
@@ -87,7 +98,7 @@ void Panorama::stitchPhotos(const std::vector<QString> inputFiles) {
 
   LogManager::instance()->log(
     QString("[ Panorama.cpp ] - Saving panorama to %1").arg(filename),
-    ERROR);
+    INFO);
   
   std::string errMsg;
   if (
@@ -100,7 +111,13 @@ void Panorama::stitchPhotos(const std::vector<QString> inputFiles) {
   LogManager::instance()->log(
     QString("[ Panorama.cpp ] - Couldn't write dng file %1: %2").arg(filename, errMsg),
     ERROR);
-    // emit failure
+    result["message"] = QString("Couldn't write dng file %1: %2").arg(filename, errMsg);
+    result["success"] = false;
+    return result;
   }
+
+    result["message"] = QString("Panorama create successfully and saved to %1!").arg(filename, errMsg);
+    result["success"] = true;
+    return result;
 
 }

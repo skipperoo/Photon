@@ -23,6 +23,7 @@ T.Menu {
     signal rotateLeftRequested()
     signal flipHorizontalRequested()
     signal flipVerticalRequested()
+    signal createPanoramaRequested()
 
     function openAt(x, y) {
         root.x = x
@@ -120,8 +121,32 @@ T.Menu {
     }
 
     T.MenuSeparator {
-        visible: root.showFilterSection
+      visible: root.showFilterSection
     }
+
+    T.Menu {
+        id: mergeMenu
+        title: "Merge Photos"
+        enabled: root.selectionCount > 1
+        T.MenuItem {
+            text: "Panorama"
+            icon.source: "qrc:/Main/assets/icons/panorama.svg"
+            onTriggered: {
+                root.createPanoramaRequested()
+                root.close()
+            }
+        }
+        T.MenuItem {
+            text: "HDR"
+            icon.source: "qrc:/Main/assets/icons/hdr.svg"
+            enabled: false
+            onTriggered: {
+            }
+        }
+    }
+
+
+    T.MenuSeparator {}
 
     T.MenuItem {
         text: "Rotate right"

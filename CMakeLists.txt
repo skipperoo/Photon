@@ -34,6 +34,8 @@ qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(Photon
     src/main.cpp
+    src/libraries/tiny_dng_writer_impl.cpp
+    src/libraries/tiny_dng_writer.h
     src/engine/RawEngine.cpp
     src/engine/RawEngine.h
     src/engine/Denoiser.cpp
@@ -47,7 +49,10 @@ qt_add_executable(Photon
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
     src/engine/patch_search.comp
+    src/engine/Panorama.cpp
+    src/engine/Panorama.h
     src/libraries/tiny_dng_writer.h
+    src/libraries/tiny_dng_writer_impl.cpp
     src/components/RawViewport.cpp
     src/components/RawViewport.h
     src/components/ToneLutProvider.h
@@ -188,6 +193,8 @@ qt_add_qml_module(Photon
         assets/icons/tube.svg
         assets/icons/trash.svg
         assets/icons/download.svg
+        assets/icons/panorama.svg
+        assets/icons/hdr.svg
         assets/icons/folder.svg
         assets/icons/home.svg
         assets/icons/eye.svg

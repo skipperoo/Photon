@@ -47,14 +47,7 @@ void LogManager::setLogLocation(const QString& location) {
 
 
 void LogManager::setLogLevel(const QString& level) {
-  if (level == "DEBUG")
-    setLogLevel(DEBUG);
-  else if (level == "INFO")
-    setLogLevel(INFO);
-  else if (level == "WARNING")
-    setLogLevel(WARNING);
-  else if (level == "ERROR")
-    setLogLevel(ERROR);
+  setLogLevel(strLevelToEnum(level));
 }
 
 void LogManager::setLogLevel(int level) {
@@ -85,7 +78,7 @@ void LogManager::log(const QString& message, int level) {
   QTextStream out(&m_logFile);
   QString timestamp =
       QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
-  out << QString("[%1] [%2] %3\n").arg(timestamp, QString::number(level), message);
+  out << QString("[ %1 ] [ %2 ] %3\n").arg(timestamp, enumLevelToStr(level), message);
   out.flush();
 }
 

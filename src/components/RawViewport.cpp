@@ -398,10 +398,10 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
 }
 
 void RawViewport::setSource(const QString& source) {
-  LogManager::instance()->log(QString("[ RawViewport ] - setSource START: %1").arg(source), "DEBUG");
+  LogManager::instance()->log(QString("[ RawViewport ] - setSource START: %1").arg(source), DEBUG);
 
   if (m_engine.source() == source) {
-    LogManager::instance()->log("[ RawViewport ] - setSource: same source, skipping", "DEBUG");
+    LogManager::instance()->log("[ RawViewport ] - setSource: same source, skipping", DEBUG);
     return;
   }
 
@@ -417,14 +417,14 @@ void RawViewport::setSource(const QString& source) {
   // This ensures the old image is removed before the new one loads
   update();
 
-  LogManager::instance()->log("[ RawViewport ] - setSource: calling m_engine.setSource", "DEBUG");
+  LogManager::instance()->log("[ RawViewport ] - setSource: calling m_engine.setSource", DEBUG);
   m_engine.setSource(source);
 
-  LogManager::instance()->log("[ RawViewport ] - setSource: emitting sourceChanged", "DEBUG");
+  LogManager::instance()->log("[ RawViewport ] - setSource: emitting sourceChanged", DEBUG);
   emit sourceChanged();
   update();
 
-  LogManager::instance()->log("[ RawViewport ] - setSource END", "DEBUG");
+  LogManager::instance()->log("[ RawViewport ] - setSource END", DEBUG);
 }
 
 void RawViewport::setExposure(float ev) {
@@ -1139,7 +1139,7 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
             .arg(m_zoom, 0, 'f', 3)
             .arg(m_panOffset.x(), 0, 'f', 2)
             .arg(m_panOffset.y(), 0, 'f', 2),
-        "DEBUG");
+        DEBUG);
   }
 
   // --- THREAD-SAFE SIGNAL EMISSION ---

@@ -9,8 +9,8 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/stitching.hpp>
 #include "../managers/LogManager.h"
-#define TINY_DNG_WRITER_IMPLEMENTATION
 #include "../libraries/tiny_dng_writer.h"
+
 namespace photon {
 
 class Panorama : public QObject {
@@ -65,14 +65,12 @@ private:
     return matBGR;
   }
 
-  void stitchPhotos(const std::vector<QString> inputFiles);
+  QVariantMap stitchPhotos(const QStringList& inputFiles);
 public:
+  explicit Panorama(QObject* parent = nullptr) : QObject(parent) {}
   Q_INVOKABLE void stitchAsync(const QStringList& inputFiles);
-  explicit Panorama(QObject* parent = nullptr);
-  ~Panorama() override;
-
 signals:
-  void stitchCompleted(bool success, const QString& message);
+  void stitchCompleted(QVariantMap result);
 };
 
 }

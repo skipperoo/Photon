@@ -40,6 +40,12 @@ Window {
                 rawViewport.showSharpenMask = false;
         }
     }
+    Connections {
+      target: Panorama
+      function onStitchCompleted(result) {
+        toaster.show(result.message, result.success ? "info" : "error")
+      }
+    }
 
     // List model to hold the RAW files
     ListModel {
@@ -61,7 +67,6 @@ Window {
         selectionCount: AppState.selectionCount
         canCopy: AppState.selectionCount == 1
         canPaste: Object.keys(window.copiedSettings).length > 0
-        showFilterSection: true
         filterOperator: window.ratingOperator
         filterRating: window.ratingFilter
         operatorLabels: window.ratingOperatorLabels
@@ -78,6 +83,7 @@ Window {
         onRotateLeftRequested: window.rotateSelectionLeft()
         onFlipHorizontalRequested: window.flipSelectionHorizontal()
         onFlipVerticalRequested: window.flipSelectionVertical()
+        onCreatePanoramaRequested: Panorama.stitchAsync(AppState.selectedImages)
     }
 
     // Function to refresh the file list

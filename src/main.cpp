@@ -26,6 +26,7 @@
 #include "managers/PreviewManager.h"
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
+#include "engine/Panorama.h"
 #include "components/ToneLutProvider.h"
 
 using namespace photon;
@@ -170,10 +171,12 @@ int main(int argc, char* argv[]) {
 
   qmlRegisterSingletonInstance("Main", 1, 0, "Logger", logManager);
   auto *keyTracker = new KeyTracker(&app);
+  auto *panorama = new photon::Panorama(&app);
   qmlRegisterSingletonInstance("Main", 1, 0, "KeyTracker", keyTracker);
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "PreviewManager", previewManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "ExportManager", exportManager);
+  qmlRegisterSingletonInstance("Main", 1, 0, "Panorama", panorama);
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");
   engine.rootContext()->setContextProperty("thumbnailProvider", thumbProvider);
   qmlRegisterType<FileScanner>("Main", 1, 0, "FileScanner");

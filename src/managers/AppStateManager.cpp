@@ -585,17 +585,7 @@ void AppStateManager::setLogLocation(const QString& location) {
 }
 
 QString AppStateManager::logLevel() const {
-  switch (LogManager::instance()->logLevel()) {
-    case DEBUG:
-    return "DEBUG";
-    case INFO:
-    return "INFO";
-    case WARNING:
-    return "WARNING";
-    case ERROR:
-    return "ERROR";
-  }
-  return "";
+  return LogManager::instance()->logLevel();
 }
 
 void AppStateManager::setLogLevel(const QString& level) {

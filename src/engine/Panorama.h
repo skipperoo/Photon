@@ -8,6 +8,8 @@
 #include <libraw/libraw.h>
 #include <opencv2/opencv.hpp>
 #include <opencv2/stitching.hpp>
+#include <opencv2/stitching/detail/exposure_compensate.hpp>
+#include <opencv2/stitching/detail/blenders.hpp>
 #include "../managers/LogManager.h"
 #include "../libraries/tiny_dng_writer.h"
 
@@ -65,7 +67,9 @@ private:
     return matBGR;
   }
 
+  void estimateTransform(cv::Stitcher& stitcher);
   QVariantMap stitchPhotos(const QStringList& inputFiles);
+
 public:
   explicit Panorama(QObject* parent = nullptr) : QObject(parent) {}
   Q_INVOKABLE void stitchAsync(const QStringList& inputFiles);

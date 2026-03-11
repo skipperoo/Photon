@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #endif
 
+#include <clocale>
 #include <vulkan/vulkan.h>
 
 #include <QCoreApplication>
@@ -43,6 +44,7 @@ typedef void (VKAPI_PTR *PFN_vkDestroyInstance_t)(VkInstance,
                                         const VkAllocationCallbacks*);
 
 int main(int argc, char* argv[]) {
+
   // Enable RHI info and Vulkan logging
   // qputenv("QSG_INFO", "1");
   // qputenv("QSG_RHI_DEBUG", "1");
@@ -140,6 +142,9 @@ int main(int argc, char* argv[]) {
   }
 
   QGuiApplication app(argc, argv);
+
+  // Needed by OpenCL during panorama stitching!!
+  std::setlocale(LC_NUMERIC, "C");
 
   QVulkanInstance vulkanInstance;
   vulkanInstance.setLayers({});

@@ -16,15 +16,21 @@ void Panorama::stitchAsync(const QStringList& inputFiles) {
   LogManager::instance()->log(QString("Started panorama stitching thread"), INFO);
 }
 
+
+
 QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles) {
   QVariantMap result;
   if (inputFiles.size() < 2) {
     LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Cannot stitch a single image"),
       ERROR);
+
+    result["message"] = QString("Select more photos!");
+    result["success"] = false;
+    return result;
   }
 
-  std::vector<cv::Mat> images;
+  std::vector<cv::Mat> images, estImgs;
   for (const auto& filename : inputFiles) {
     cv::Mat img = raw_to_linear(filename);
     if (img.empty()) {
@@ -34,29 +40,63 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles) {
       continue;
     }
     images.push_back(img);
+    cv::Mat img32F, img8;
+    img.convertTo(img32F, CV_32F, 1.0 / 65535.0);
+    // Apply a 2.2 gamma curve to brighten shadows/midtones so OpenCV can "see" the features
+    cv::pow(img32F, 1.0 / 2.2, img32F);
+    img32F.convertTo(img8, CV_8U, 255.0);
+    estImgs.push_back(img8);
   }
 
   LogManager::instance()->log(
     QString("[ Panorama.cpp ] - Merging %1 images").arg(images.size()),
     DEBUG);
 
-  cv::Mat panoramaBGR;
   cv::Ptr<cv::Stitcher> stitcher = cv::Stitcher::create(cv::Stitcher::PANORAMA);
-
-  cv::Stitcher::Status status = stitcher->stitch(images, panoramaBGR);
-
+  stitcher->setExposureCompensator(cv::makePtr<cv::detail::NoExposureCompensator>());
+  cv::Ptr<cv::detail::Blender> blender = cv::detail::Blender::createDefault(cv::detail::Blender::MULTI_BAND);
+  stitcher->setBlender(blender);
+  cv::Stitcher::Status status = stitcher->estimateTransform(estImgs);
   if (status != cv::Stitcher::OK) {
+    std::string errorReason;
+    switch (status) {
+        case cv::Stitcher::ERR_NEED_MORE_IMGS:
+            errorReason = "not enough matching features found. The images may lack contrast, or there is too little overlap between them.";
+            break;
+        case cv::Stitcher::ERR_HOMOGRAPHY_EST_FAIL:
+            errorReason = "failed to align the images. The overlap might be too small or contain moving subjects.";
+            break;
+        case cv::Stitcher::ERR_CAMERA_PARAMS_ADJUST_FAIL:
+            errorReason = "failed to optimize camera parameters. The images might have extreme lens distortion or inconsistent exposure.";
+            break;
+        default:
+            errorReason = "Unknown error occurred (Code: " + std::to_string(int(status)) + ").";
+            break;
+    }
     LogManager::instance()->log(
-      QString("[ Panorama.cpp ] - Stitcher failed!"),
+      QString("[ Panorama.cpp ] - Stitching failed: %1").arg(errorReason),
       ERROR);
-    result["message"] = QString("Stitching failed!");
+    result["message"] = QString("Stitching failed: %1").arg(errorReason);
     result["success"] = false;
     return result;
   }
 
+  cv::Mat panoramaBGR;
+  status = stitcher->composePanorama(images, panoramaBGR);
+
+  if (status != cv::Stitcher::OK) {
+    LogManager::instance()->log(
+      QString("[ Panorama.cpp ] - Stitching failed during composition!"),
+      ERROR);
+    result["message"] = QString("Stitching failed!");
+    result["success"] = false;
+    return result;
+
+  }
   cv::Mat panoramaRGB;
 
   cv::cvtColor(panoramaBGR, panoramaRGB, cv::COLOR_BGR2RGB);
+  panoramaRGB.convertTo(panoramaRGB, cv::COLOR_16U);
 
   tinydngwriter::DNGWriter dngwriter(false);
   tinydngwriter::DNGImage dngimage;
@@ -116,7 +156,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles) {
     return result;
   }
 
-    result["message"] = QString("Panorama create successfully and saved to %1!").arg(filename, errMsg);
+    result["message"] = QString("Panorama create successfully and saved to %1!").arg(filename);
     result["success"] = true;
     return result;
 

@@ -469,13 +469,16 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   TIFFSetField(out, TIFFTAG_BITSPERSAMPLE, 16);
   TIFFSetField(out, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
   TIFFSetField(out, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
-  TIFFSetField(out, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  TIFFSetField(out, TIFFTAG_PHOTOMETRIC, 34892);
   TIFFSetField(out, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
 
   static const uint8_t dng_ver[] = {1, 4, 0, 0};
   TIFFSetField(out, TIFFTAG_DNGVERSION, dng_ver);
+  TIFFSetField(out, TIFFTAG_DNGBACKWARDVERSION, dng_ver);
   TIFFSetField(out, TIFFTAG_SUBFILETYPE, 0);
-  TIFFSetField(out, TIFFTAG_UNIQUECAMERAMODEL, "Photon Panorama");
+  TIFFSetField(out, TIFFTAG_MAKE, "Photon");
+  TIFFSetField(out, TIFFTAG_MODEL, "Panorama Engine");
+  TIFFSetField(out, TIFFTAG_UNIQUECAMERAMODEL, "Photon Panorama Engine");
   TIFFSetField(out, TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(out, 0));
 
   uint32_t whiteLevel[3] = {65535, 65535, 65535};

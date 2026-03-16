@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QMutexLocker>
+#include <QGuiApplication>
 
 namespace photon {
 
@@ -80,6 +81,8 @@ void LogManager::log(const QString& message, int level) {
       QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
   out << QString("[ %1 ] [ %2 ] %3\n").arg(timestamp, enumLevelToStr(level), message);
   out.flush();
+  if (level == FATAL)
+    QGuiApplication::quit();
 }
 
 void LogManager::clearLog() {

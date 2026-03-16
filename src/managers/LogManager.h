@@ -15,7 +15,8 @@ enum LogLevel {
   DEBUG,
   INFO,
   WARNING,
-  ERROR
+  ERROR,
+  FATAL
 };
 
 class LogManager : public QObject {
@@ -44,6 +45,8 @@ class LogManager : public QObject {
       return WARNING;
     else if (level == "ERROR")
       return ERROR;
+    else if (level == "FATAL")
+      return FATAL;
 
     return DEBUG;
   }
@@ -61,6 +64,9 @@ class LogManager : public QObject {
 
       case ERROR:
         return "ERROR";
+
+      case FATAL:
+        return "FATAL";
     }
     return "";
   }

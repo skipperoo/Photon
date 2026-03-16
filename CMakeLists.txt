@@ -22,20 +22,20 @@ if(WIN32)
     # Use find_package for vcpkg compatibility on Windows
     find_package(LibRaw REQUIRED)
     find_package(OpenCV REQUIRED)
+    find_package(TIFF REQUIRED)
     add_compile_definitions(WIN32_LEAN_AND_MEAN)
     add_compile_definitions(NOMINMAX)
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBRAW REQUIRED libraw)
     pkg_check_modules(OPENCV REQUIRED opencv4)
+    pkg_check_modules(TIFF REQUIRED libtiff-4)
 endif()
 
-qt_standard_project_setup(REQUIRES 6.8)
+qt_standard_project_setup(REQUIRES 6.10)
 
 qt_add_executable(Photon
     src/main.cpp
-    src/libraries/tiny_dng_writer_impl.cpp
-    src/libraries/tiny_dng_writer.h
     src/engine/RawEngine.cpp
     src/engine/RawEngine.h
     src/engine/Denoiser.cpp
@@ -51,8 +51,6 @@ qt_add_executable(Photon
     src/engine/patch_search.comp
     src/engine/Panorama.cpp
     src/engine/Panorama.h
-    src/libraries/tiny_dng_writer.h
-    src/libraries/tiny_dng_writer_impl.cpp
     src/components/RawViewport.cpp
     src/components/RawViewport.h
     src/components/ToneLutProvider.h
@@ -221,6 +219,7 @@ if(WIN32)
         PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
         PRIVATE ${LibRaw_LIBRARIES}
         PRIVATE ${OpenCV_LIBRARIES}
+        PRIVATE ${TIFF_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 else()
@@ -228,6 +227,7 @@ else()
         PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
         PRIVATE ${LIBRAW_LIBRARIES}
         PRIVATE ${OPENCV_LIBRARIES}
+        PRIVATE ${TIFF_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 endif()

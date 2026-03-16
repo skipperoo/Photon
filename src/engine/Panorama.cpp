@@ -354,13 +354,13 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   blender->prepare(corners, sizes_warped);
 
 
-  float scale_factor = 8.0;
+  float scale_factor = 2.0;
 // 1. Feed images to blender using Scaled 16-bit Signed
   for (size_t i = 0; i < images_warped16.size(); i++) {
       cv::Mat img16S;
       // We multiply by 1/scale_factor to allow the blend to sum up the highlights without clipping
       images_warped16[i].convertTo(img16S, CV_16SC3, 1/scale_factor);
-      blender->feed(img16S, masks_warped[i], corners[i]);
+      blender->feed(img16S, masks_binary[i], corners[i]);
   }
 
   // 2. Blend
@@ -373,19 +373,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   // The more you scale the more you lose data.
   result_16s.convertTo(result16, CV_16UC3, scale_factor);
 
-  // Blend
-  /*
-  cv::Mat result_mask;
-  cv::Mat result8;
-  blender->blend(result8, result_mask);
-  */
-  // Convert 8-bit gamma result back to 16-bit linear
-  /*
-  cv::Mat result32F, result16;
-  result8.convertTo(result32F, CV_32FC3, 1.0 / 255.0);
-  cv::pow(result32F, 2.2, result32F);
-  result32F.convertTo(result16, CV_16UC3, 65535.0);
-  */
   cv::Mat resultRGB;
   cv::cvtColor(result16, resultRGB, cv::COLOR_BGR2RGB);
 
@@ -498,6 +485,60 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
       return result;
     }
   }
+  // ==========================================
+  // 1. FINISH WRITING MAIN RAW DIRECTORY
+  // ==========================================
+  
+  // This tells LibTIFF to save the current tags and image data, 
+  // and open a fresh page for the thumbnail.
+  TIFFWriteDirectory(out);
+
+  // ==========================================
+  // 2. GENERATE THE THUMBNAIL (OpenCV)
+  // ==========================================
+  
+  // Calculate thumbnail size (e.g., 256 pixels on the longest edge)
+  int max_dim = 256;
+  double scale = (double)max_dim / std::max(result16.cols, result16.rows);
+  
+  cv::Mat thumbnail16;
+  cv::resize(result16, thumbnail16, cv::Size(), scale, scale, cv::INTER_AREA);
+
+  // Convert to float (0.0 to 1.0 range) for gamma math
+  cv::Mat thumbFloat;
+  thumbnail16.convertTo(thumbFloat, CV_32FC3, 1.0 / 65535.0);
+
+  // Apply an approximate sRGB Gamma curve (1.0 / 2.2) so it isn't completely dark
+  cv::pow(thumbFloat, 1.0 / 2.2, thumbFloat);
+
+  // Scale back up to 8-bit (0-255)
+  cv::Mat thumbnail8;
+  thumbFloat.convertTo(thumbnail8, CV_8UC3, 255.0);
+
+  // ==========================================
+  // 3. WRITE THE THUMBNAIL DIRECTORY (IFD 1)
+  // ==========================================
+  
+  // The magic flag (1) that tells viewers "This is a thumbnail, not a real image"
+  TIFFSetField(out, TIFFTAG_SUBFILETYPE, FILETYPE_REDUCEDIMAGE); 
+  
+  TIFFSetField(out, TIFFTAG_IMAGEWIDTH, thumbnail8.cols);
+  TIFFSetField(out, TIFFTAG_IMAGELENGTH, thumbnail8.rows);
+  TIFFSetField(out, TIFFTAG_BITSPERSAMPLE, 8);
+  TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
+  
+  // Standard RGB for thumbnails (not LinearRaw like the main payload!)
+  TIFFSetField(out, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  TIFFSetField(out, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
+  TIFFSetField(out, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField(out, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+
+  // Write the 8-bit thumbnail scanlines
+  for (int row = 0; row < thumbnail8.rows; row++) {
+      uint8_t* rowPtr = thumbnail8.ptr<uint8_t>(row);
+      TIFFWriteScanline(out, rowPtr, row, 0);
+  }
+
 
   TIFFClose(out);
   

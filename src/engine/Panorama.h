@@ -12,10 +12,6 @@
 #include <opencv2/stitching/detail/blenders.hpp>
 #include <opencv2/core/ocl.hpp>
 #include <tiffio.h>
-/*
-extern "C" {
-  #include "libdng/libdng.h"
-}*/
 
 namespace photon {
 

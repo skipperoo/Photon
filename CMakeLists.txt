@@ -248,6 +248,7 @@ target_include_directories(Photon PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1>
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1/QtGui>
+    $<$<NOT:$<BOOL:${WIN32}>>:${OPENCV_INCLUDE_DIRS}>
 )
 
 # Ensure QML types are registered before main

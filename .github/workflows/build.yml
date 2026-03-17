@@ -40,9 +40,13 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
-          path: C:\vcpkg\installed
-          key: vcpkg-${{ runner.os }}-libraw-vulkan
-          restore-keys: vcpkg-${{ runner.os }}-
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\downloads
+          # Hashes the workflow file itself. If you change the install step below, the cache resets automatically.
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
 
       - name: Cache CMake build
         uses: actions/cache@v4

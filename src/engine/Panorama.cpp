@@ -342,7 +342,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   int blend_width = std::min(dst_roi.width, dst_roi.height) / 8;
   int num_bands = static_cast<int>(
       std::ceil(std::log(static_cast<double>(blend_width)) / std::log(2.0)));
-  num_bands = std::min(num_bands, 8);  // Cap at 8 for performance
+  // num_bands = std::min(num_bands, 8);  // Cap at 8 for performance
 
   LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Using %1 bands for blending").arg(num_bands),
@@ -392,8 +392,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
           .arg(result16.rows),
       DEBUG);
 
-  // Ensure continuous memory layout for TIFF writing
-  // if (!result16.isContinuous()) result16 = result16.clone();
 
   // PHASE 7: Save to DNG
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 7: Saving to DNG",

@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
 import QtQuick.Controls.Basic as T
 import QtQuick.Dialogs
 import Main 1.0
@@ -819,8 +818,8 @@ Window {
                                     flat: true
                                     enabled: rawViewport.canUndo
                                     opacity: enabled ? 1.0 : 0.3
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: "Undo"
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Undo"
                                     display: AbstractButton.IconOnly
                                     padding: 0
                                     background: null
@@ -838,8 +837,8 @@ Window {
                                     flat: true
                                     enabled: rawViewport.canRedo
                                     opacity: enabled ? 1.0 : 0.3
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: "Redo"
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Redo"
                                     display: AbstractButton.IconOnly
                                     padding: 0
                                     background: null
@@ -857,8 +856,8 @@ Window {
                                     flat: true
                                     enabled: !rawViewport.isDefault
                                     opacity: enabled ? 1.0 : 0.3
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: "Restore to Original"
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Restore to Original"
                                     display: AbstractButton.IconOnly
                                     padding: 0
                                     background: null
@@ -874,8 +873,8 @@ Window {
                                     implicitHeight: 24
                                     onClicked: window.showOriginal = !window.showOriginal
                                     flat: true
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: "Before/After (B or \\)"
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Before/After (B or \\)"
                                     display: AbstractButton.IconOnly
                                     padding: 0
                                     background: null
@@ -1069,7 +1068,7 @@ Window {
                         orientation: ListView.Horizontal
                         spacing: 10
                         model: rawFilesModel
-                        ScrollBar.horizontal: PhotonScrollBar { orientation: Qt.Horizontal }
+                        T.ScrollBar.horizontal: PhotonScrollBar { orientation: Qt.Horizontal }
                         
                         // Handle mouse wheel for horizontal scrolling
                         MouseArea {
@@ -1171,7 +1170,7 @@ Window {
                                         }
                                         window.contextMenuSourcePath = model.path
                                         var p = mapToItem(null, mouse.x, mouse.y)
-                                        developContextMenu.openAt(p.x, p.y)
+                                        developContextMenu.popup()
                                     }
                                 }
                             }

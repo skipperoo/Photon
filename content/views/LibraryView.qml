@@ -323,22 +323,6 @@ Control {
                     }
                 }
             }
-
-            Item { width: 8 }
-
-            // Home button
-            Button {
-                icon.source: "qrc:/Main/assets/icons/home.svg"
-                icon.color: Theme.foreground
-                icon.width: 20; icon.height: 20
-                flat: true
-                onClicked: AppState.setCurrentView(AppState.ViewState.Welcome)
-                background: Rectangle {
-                    color: parent.hovered ? Theme.highlight : "transparent"
-                    radius: Theme.radius
-                }
-                implicitWidth: 36; implicitHeight: 36
-            }
         }
 
         // --- Central Grid ---

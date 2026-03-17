@@ -15,7 +15,7 @@ configure_file(
     "${CMAKE_CURRENT_BINARY_DIR}/Version.h"
 )
 
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent GuiPrivate)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent GuiPrivate Svg)
 find_package(Vulkan REQUIRED)
 
 if(WIN32)
@@ -216,7 +216,7 @@ set_target_properties(Photon PROPERTIES
 
 if(WIN32)
     target_link_libraries(Photon
-        PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
+      PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate Qt6::Svg
         PRIVATE ${LibRaw_LIBRARIES}
         PRIVATE ${OpenCV_LIBRARIES}
         PRIVATE ${TIFF_LIBRARIES}
@@ -224,7 +224,7 @@ if(WIN32)
     )
 else()
     target_link_libraries(Photon
-        PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
+        PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate Qt6::Svg
         PRIVATE ${LIBRAW_LIBRARIES}
         PRIVATE ${OPENCV_LIBRARIES}
         PRIVATE ${TIFF_LIBRARIES}

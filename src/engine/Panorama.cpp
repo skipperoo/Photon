@@ -406,141 +406,93 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Saving panorama to %1").arg(filename), INFO);
-  /*
-  libdng_init();
-  libdng_info dng = {0};
-  libdng_new(&dng);
-  if (!libdng_set_mode_from_name(&dng, "SRGGB16")) {
-    fprintf(stderr, "Invalid pixel format supplied\n");
-  }
-
-  for (size_t i = 0; i < 9; i++)
-    dng.color_matrix_1[i] = colorInfo.get()->matrix[i];
-
-
-  for (size_t i = 0; i < 3; i++)
-    dng.analogbalance[i] = colorInfo->asShotNeutral[i];
-
-  libdng_set_make_model(&dng, "Photon", "Panorama");
   
 
-  if (
-    !libdng_write(
-      &dng,
-      filename.toStdString().c_str(),
-      result16.cols, result16.rows,
-      reinterpret_cast<uint8_t*>(result16.data),
-      result16.total() * result16.elemSize()
-    )
-  ) {
-    result["success"] = false;
-    result["message"] = "Error creating DNG file.";
+  // ==========================================
+// 1. GENERATE THUMBNAIL FIRST (before opening TIFF)
+// ==========================================
+int max_dim = 256;
+double scale = (double)max_dim / std::max(result16.cols, result16.rows);
+cv::Mat thumbnail16;
+cv::resize(result16, thumbnail16, cv::Size(), scale, scale, cv::INTER_AREA);
 
-    libdng_free(&dng);
-    return result;
-  }
+cv::Mat thumbFloat;
+thumbnail16.convertTo(thumbFloat, CV_32FC3, 1.0 / 65535.0);
+cv::pow(thumbFloat, 1.0 / 2.2, thumbFloat);
 
-  libdng_free(&dng);
-  */
+cv::Mat thumbnail8;
+thumbFloat.convertTo(thumbnail8, CV_8UC3, 255.0);
 
-  TIFF* out = TIFFOpen(filename.toStdString().c_str(), "w");
-  if (!out) {
+// ==========================================
+// 2. OPEN FILE AND WRITE IFD 0 = THUMBNAIL
+// ==========================================
+TIFF* out = TIFFOpen(filename.toStdString().c_str(), "w");
+if (!out) {
     result["success"] = false;
     result["message"] = "Could not open file for writing.";
     return result;
-  }
+}
 
-  TIFFSetField(out, TIFFTAG_IMAGEWIDTH, resultRGB.cols);
-  TIFFSetField(out, TIFFTAG_IMAGELENGTH, resultRGB.rows);
-  TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
-  TIFFSetField(out, TIFFTAG_BITSPERSAMPLE, 16);
-  TIFFSetField(out, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
-  TIFFSetField(out, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
-  TIFFSetField(out, TIFFTAG_PHOTOMETRIC, 34892);
-  TIFFSetField(out, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
+// --- Shared DNG metadata on IFD 0 ---
+TIFFSetField(out, TIFFTAG_MAKE,              "Photon");
+TIFFSetField(out, TIFFTAG_MODEL,             "Panorama Engine");
+TIFFSetField(out, TIFFTAG_UNIQUECAMERAMODEL, "Photon Panorama Engine");
 
-  static const uint8_t dng_ver[] = {1, 4, 0, 0};
-  TIFFSetField(out, TIFFTAG_DNGVERSION, dng_ver);
-  TIFFSetField(out, TIFFTAG_DNGBACKWARDVERSION, dng_ver);
-  TIFFSetField(out, TIFFTAG_SUBFILETYPE, 0);
-  TIFFSetField(out, TIFFTAG_MAKE, "Photon");
-  TIFFSetField(out, TIFFTAG_MODEL, "Panorama Engine");
-  TIFFSetField(out, TIFFTAG_UNIQUECAMERAMODEL, "Photon Panorama Engine");
-  TIFFSetField(out, TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(out, 0));
+static const uint8_t dng_ver[] = {1, 4, 0, 0};
+TIFFSetField(out, TIFFTAG_DNGVERSION,         dng_ver);
+TIFFSetField(out, TIFFTAG_DNGBACKWARDVERSION, dng_ver);
 
-  uint32_t whiteLevel[3] = {65535, 65535, 65535};
-  TIFFSetField(out, TIFFTAG_WHITELEVEL, 3, whiteLevel);
+// --- Thumbnail image fields ---
+TIFFSetField(out, TIFFTAG_SUBFILETYPE,    FILETYPE_REDUCEDIMAGE); // 0x1
+TIFFSetField(out, TIFFTAG_IMAGEWIDTH,     thumbnail8.cols);
+TIFFSetField(out, TIFFTAG_IMAGELENGTH,    thumbnail8.rows);
+TIFFSetField(out, TIFFTAG_BITSPERSAMPLE,  8);
+TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
+TIFFSetField(out, TIFFTAG_PHOTOMETRIC,    PHOTOMETRIC_RGB);
+TIFFSetField(out, TIFFTAG_COMPRESSION,    COMPRESSION_JPEG); // JPEG is preferred by most viewers
+TIFFSetField(out, TIFFTAG_JPEGQUALITY,    90);
+TIFFSetField(out, TIFFTAG_PLANARCONFIG,   PLANARCONFIG_CONTIG);
+TIFFSetField(out, TIFFTAG_ORIENTATION,    ORIENTATION_TOPLEFT);
+TIFFSetField(out, TIFFTAG_ROWSPERSTRIP,   thumbnail8.rows); // single strip for thumbnail
 
-  TIFFSetField(out, TIFFTAG_COLORMATRIX1, 9, colorInfo.get()->matrix);
-  TIFFSetField(out, TIFFTAG_ASSHOTNEUTRAL, 3, colorInfo.get()->asShotNeutral);
-  TIFFSetField(out, TIFFTAG_CALIBRATIONILLUMINANT1, 23);
+for (int row = 0; row < thumbnail8.rows; row++) {
+    uint8_t* rowPtr = thumbnail8.ptr<uint8_t>(row);
+    TIFFWriteScanline(out, rowPtr, row, 0);
+}
 
-  // Write the 16-bit data
-  for (int row = 0; row < resultRGB.rows; row++) {
+// ==========================================
+// 3. WRITE IFD 1 = MAIN RAW IMAGE
+// ==========================================
+TIFFWriteDirectory(out); // seals IFD 0, advances to IFD 1
+
+TIFFSetField(out, TIFFTAG_SUBFILETYPE,     0); // full-resolution image
+TIFFSetField(out, TIFFTAG_IMAGEWIDTH,      resultRGB.cols);
+TIFFSetField(out, TIFFTAG_IMAGELENGTH,     resultRGB.rows);
+TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
+TIFFSetField(out, TIFFTAG_BITSPERSAMPLE,   16);
+TIFFSetField(out, TIFFTAG_ORIENTATION,     ORIENTATION_TOPLEFT);
+TIFFSetField(out, TIFFTAG_PLANARCONFIG,    PLANARCONFIG_CONTIG);
+TIFFSetField(out, TIFFTAG_PHOTOMETRIC,     34892); // LINEARRAW
+TIFFSetField(out, TIFFTAG_SAMPLEFORMAT,    SAMPLEFORMAT_UINT);
+TIFFSetField(out, TIFFTAG_ROWSPERSTRIP,    TIFFDefaultStripSize(out, 0));
+
+uint32_t whiteLevel[3] = {65535, 65535, 65535};
+TIFFSetField(out, TIFFTAG_WHITELEVEL,             3, whiteLevel);
+TIFFSetField(out, TIFFTAG_COLORMATRIX1,           9, colorInfo.get()->matrix);
+TIFFSetField(out, TIFFTAG_ASSHOTNEUTRAL,          3, colorInfo.get()->asShotNeutral);
+TIFFSetField(out, TIFFTAG_CALIBRATIONILLUMINANT1, 23);
+
+for (int row = 0; row < resultRGB.rows; row++) {
     uint16_t* rowPtr = resultRGB.ptr<uint16_t>(row);
     if (TIFFWriteScanline(out, rowPtr, row, 0) < 0) {
-      TIFFClose(out);
-      result["success"] = false;
-      result["message"] = "Error writing scanline to DNG.";
-      return result;
+        TIFFClose(out);
+        result["success"] = false;
+        result["message"] = "Error writing scanline to DNG.";
+        return result;
     }
-  }
-  // ==========================================
-  // 1. FINISH WRITING MAIN RAW DIRECTORY
-  // ==========================================
-  
-  // This tells LibTIFF to save the current tags and image data, 
-  // and open a fresh page for the thumbnail.
-  TIFFWriteDirectory(out);
+}
 
-  // ==========================================
-  // 2. GENERATE THE THUMBNAIL (OpenCV)
-  // ==========================================
-  
-  // Calculate thumbnail size (e.g., 256 pixels on the longest edge)
-  int max_dim = 256;
-  double scale = (double)max_dim / std::max(result16.cols, result16.rows);
-  
-  cv::Mat thumbnail16;
-  cv::resize(result16, thumbnail16, cv::Size(), scale, scale, cv::INTER_AREA);
-
-  // Convert to float (0.0 to 1.0 range) for gamma math
-  cv::Mat thumbFloat;
-  thumbnail16.convertTo(thumbFloat, CV_32FC3, 1.0 / 65535.0);
-
-  // Apply an approximate sRGB Gamma curve (1.0 / 2.2) so it isn't completely dark
-  cv::pow(thumbFloat, 1.0 / 2.2, thumbFloat);
-
-  // Scale back up to 8-bit (0-255)
-  cv::Mat thumbnail8;
-  thumbFloat.convertTo(thumbnail8, CV_8UC3, 255.0);
-
-  // ==========================================
-  // 3. WRITE THE THUMBNAIL DIRECTORY (IFD 1)
-  // ==========================================
-  
-  // The magic flag (1) that tells viewers "This is a thumbnail, not a real image"
-  TIFFSetField(out, TIFFTAG_SUBFILETYPE, FILETYPE_REDUCEDIMAGE); 
-  
-  TIFFSetField(out, TIFFTAG_IMAGEWIDTH, thumbnail8.cols);
-  TIFFSetField(out, TIFFTAG_IMAGELENGTH, thumbnail8.rows);
-  TIFFSetField(out, TIFFTAG_BITSPERSAMPLE, 8);
-  TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
-  
-  // Standard RGB for thumbnails (not LinearRaw like the main payload!)
-  TIFFSetField(out, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
-  TIFFSetField(out, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
-  TIFFSetField(out, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
-  TIFFSetField(out, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
-
-  // Write the 8-bit thumbnail scanlines
-  for (int row = 0; row < thumbnail8.rows; row++) {
-      uint8_t* rowPtr = thumbnail8.ptr<uint8_t>(row);
-      TIFFWriteScanline(out, rowPtr, row, 0);
-  }
-
-
-  TIFFClose(out);
+TIFFClose(out);
   
 
   LogManager::instance()->log(

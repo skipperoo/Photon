@@ -1,0 +1,76 @@
+# Dockerfile for Linux AppImage build (Ubuntu 22.04)
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build tools and dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    curl \
+    python3 \
+    python3-pip \
+    libraw-dev \
+    libvulkan-dev \
+    libfuse2 \
+    libgl1-mesa-dev \
+    libxcb-cursor0 \
+    libxcb-xinerama0 \
+    libxcb-xinput0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
+    libwayland-client0 \
+    libwayland-cursor0 \
+    libwayland-egl1 \
+    libxkbcommon-x11-0 \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libxcb-xkb-dev \
+    libfontconfig1-dev \
+    libfreetype6-dev \
+    libx11-xcb-dev \
+    libwayland-dev \
+    wayland-protocols \
+    libwayland-server0 \
+    libopencv-dev \
+    imagemagick \
+    libtiff-dev \
+    file \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install aqtinstall for Qt installation
+RUN pip3 install aqtinstall
+
+# Install Qt 6.10.1 (matches build.yml)
+RUN aqt install-qt linux desktop 6.10.1 linux_gcc_64 -m qtshadertools --outputdir /opt/qt
+
+# Set Qt environment variables
+ENV PATH="/opt/qt/6.10.1/gcc_64/bin:${PATH}"
+ENV QT_DIR="/opt/qt/6.10.1/gcc_64"
+
+# Download and extract linuxdeploy tools
+WORKDIR /tools
+RUN wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage && \
+    wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage && \
+    chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage && \
+    ./linuxdeploy-x86_64.AppImage --appimage-extract && \
+    mv squashfs-root linuxdeploy-extracted && \
+    ./linuxdeploy-plugin-qt-x86_64.AppImage --appimage-extract && \
+    mv squashfs-root linuxdeploy-plugin-qt-extracted && \
+    rm linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
+
+# Symlink binaries to /usr/local/bin for easy access
+RUN ln -s /tools/linuxdeploy-extracted/usr/bin/linuxdeploy /usr/local/bin/linuxdeploy && \
+    ln -s /tools/linuxdeploy-plugin-qt-extracted/usr/bin/linuxdeploy-plugin-qt /usr/local/bin/linuxdeploy-plugin-qt
+
+# Copy source code and build script
+WORKDIR /app
+COPY . .
+RUN chmod +x build_internal.sh
+
+CMD ["/app/build_internal.sh"]

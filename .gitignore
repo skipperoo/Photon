@@ -81,6 +81,7 @@ CMakeLists.txt.user*
 .uic/
 /build*/
 /dist/
+/research/
 testphoton
 tmp
 Testing

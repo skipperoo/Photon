@@ -107,13 +107,23 @@ static void apply_region_tint_cpp(float& r, float& g, float& b, float hue,
 }
 
 static float compute_target_luma_hist(float luma, float stops) {
+  if (stops == 0.0f) return luma;
+  float target = luma * std::pow(2.0f, stops);
+  if (target > 1.0f) {
+    float over = target - 1.0f;
+    target = 1.0f + over / (1.0f + over * 1.25f);
+  }
+  return std::max(target, 0.0f);
+}
+
+static float compute_toe_target_hist(float luma, float stops) {
+  if (stops == 0.0f) return luma;
   float target = luma * std::pow(2.0f, stops);
   if (stops > 0.0f) {
-    float over = std::max(target - 1.0f, 0.0f);
-    if (over > 0.0f) {
-      float shoulder = 1.2f + 3.0f * std::clamp(stops, 0.0f, 1.0f);
-      target = 1.0f + over / (1.0f + over * shoulder);
-    }
+    float liftGamma = 1.0f / (1.0f + stops * 0.5f);
+    float liftTarget = std::pow(std::max(luma, 1e-6f), liftGamma);
+    float toeMask = 1.0f - smoothstep(0.0f, 0.15f, luma);
+    target = lerp(target, liftTarget, toeMask * 0.4f);
   }
   return std::max(target, 0.0f);
 }
@@ -122,15 +132,12 @@ static void apply_luma_target_hist(float& r, float& g, float& b, float lumaIn,
                                    float targetLuma) {
   targetLuma = std::max(targetLuma, 0.0f);
   float safeLuma = std::max(lumaIn, 1e-4f);
-  float lumaDelta = targetLuma - lumaIn;
   float lumaRatio = targetLuma / safeLuma;
-  float blend = smoothstep(0.02f, 0.34f, lumaIn);
-  float addR = r + lumaDelta;
-  float addG = g + lumaDelta;
-  float addB = b + lumaDelta;
-  r = lerp(addR, r * lumaRatio, blend);
-  g = lerp(addG, g * lumaRatio, blend);
-  b = lerp(addB, b * lumaRatio, blend);
+  float maxRatio = 1.0f + 9.0f * smoothstep(0.0f, 0.08f, lumaIn);
+  float safeRatio = std::clamp(lumaRatio, 0.0f, maxRatio);
+  r *= safeRatio;
+  g *= safeRatio;
+  b *= safeRatio;
 }
 
 RawEngine::RawEngine(QObject* parent)
@@ -431,6 +438,12 @@ void RawEngine::setWhites(float val) {
   m_whites = val;
   emit whitesChanged();
   emit isDefaultChanged();
+}
+
+void RawEngine::setSceneWhite(float val) {
+  if (qFuzzyCompare(m_sceneWhite, val)) return;
+  m_sceneWhite = val;
+  emit sceneWhiteChanged();
 }
 
 void RawEngine::setBlacks(float val) {
@@ -1463,41 +1476,37 @@ void RawEngine::requestHistogramUpdate() {
       g = std::pow(std::max(0.0f, g), con);
       b = std::pow(std::max(0.0f, b), con);
 
-      // 3. Whites & Blacks (smoother masks, bounded response)
+      // 3. Whites & Blacks (specialized targeting)
       float l_tone = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
                      0.0722f * std::max(0.0f, b);
       if (whites != 0.0f) {
-        float w = std::clamp(whites / 100.0f, -1.0f, 1.0f);
-        float whiteMask = smoothstep(0.42f, 1.20f, l_tone);
-        float target = compute_target_luma_hist(l_tone, w * 0.85f * whiteMask);
+        float whiteMask = smoothstep(0.7f, 1.25f, l_tone);
+        float target = compute_target_luma_hist(l_tone, (whites / 100.0f) * whiteMask);
         apply_luma_target_hist(r, g, b, l_tone, target);
         l_tone = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
                  0.0722f * std::max(0.0f, b);
       }
       if (blacks != 0.0f) {
-        float bAdj = std::clamp(blacks / 100.0f, -1.0f, 1.0f);
-        float blackMask = 1.0f - smoothstep(0.0f, 0.48f, l_tone);
+        float blackMask = 1.0f - smoothstep(0.0f, 0.15f, l_tone);
         float target =
-            compute_target_luma_hist(l_tone, bAdj * 0.90f * blackMask);
+            compute_toe_target_hist(l_tone, (blacks / 100.0f) * blackMask);
         apply_luma_target_hist(r, g, b, l_tone, target);
         l_tone = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
                  0.0722f * std::max(0.0f, b);
       }
 
-      // 4. Highlights & Shadows (broader crossover, gentler extremes)
+      // 4. Highlights & Shadows (specialized targeting)
       if (shad != 0.0f) {
-        float s = std::clamp(shad / 100.0f, -1.0f, 1.0f);
-        float shadowMask = 1.0f - smoothstep(0.05f, 0.62f, l_tone);
-        float target = compute_target_luma_hist(l_tone, s * 0.95f * shadowMask);
+        float shadowMask = 1.0f - smoothstep(0.05f, 0.65f, l_tone);
+        float target = compute_toe_target_hist(l_tone, (shad / 100.0f) * shadowMask);
         apply_luma_target_hist(r, g, b, l_tone, target);
         l_tone = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
                  0.0722f * std::max(0.0f, b);
       }
       if (high != 0.0f) {
-        float h = std::clamp(high / 100.0f, -1.0f, 1.0f);
-        float highlightMask = smoothstep(0.22f, 1.25f, l_tone);
+        float highlightMask = smoothstep(0.35f, 1.1f, l_tone);
         float target =
-            compute_target_luma_hist(l_tone, h * 0.90f * highlightMask);
+            compute_target_luma_hist(l_tone, (high / 100.0f) * highlightMask);
         apply_luma_target_hist(r, g, b, l_tone, target);
       }
 
@@ -1630,6 +1639,67 @@ void RawEngine::clearProcessedImage() {
   }
 }
 
+static constexpr float LUMA_R = 0.2126f;
+static constexpr float LUMA_G = 0.7152f;
+static constexpr float LUMA_B = 0.0722f;
+static float srgb_to_linear(float c) {
+  return (c <= 0.04045f) ? (c / 12.92f) : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
+float RawEngine::computeSceneWhite(const libraw_processed_image_t* img, float percentile) {
+  constexpr int   BINS      = 2048;
+  constexpr float BIN_SCALE = BINS - 1;
+
+  uint32_t hist[BINS] = {};
+
+  size_t pixelCount = img->width * img->height;
+  size_t step       = 4; // subsample every 4th pixel
+  int    channels   = img->colors; // 3 for RGB
+
+  for (size_t i = 0; i < pixelCount; i += step) {
+      float r, g, b;
+
+      if (img->bits == 16) {
+          const uint16_t* px = reinterpret_cast<const uint16_t*>(img->data)
+                                + i * channels;
+          r = px[0] / 65535.0f;
+          g = px[1] / 65535.0f;
+          b = px[2] / 65535.0f;
+      } else {
+          const uint8_t* px = img->data + i * channels;
+          r = px[0] / 255.0f;
+          g = px[1] / 255.0f;
+          b = px[2] / 255.0f;
+      }
+
+      // sRGB -> linear, matches your shader's srgb_to_linear()
+      auto decode = [](float x) -> float {
+          return (x <= 0.04045f)
+              ? x / 12.92f
+              : std::pow((x + 0.055f) / 1.055f, 2.4f);
+      };
+
+      float luma = 0.2126f * decode(r)
+                  + 0.7152f * decode(g)
+                  + 0.0722f * decode(b);
+
+      int bin = static_cast<int>(std::clamp(luma, 0.0f, 1.0f) * BIN_SCALE);
+      hist[bin]++;
+  }
+
+  size_t sampledPixels = (pixelCount + step - 1) / step;
+  size_t threshold     = static_cast<size_t>(sampledPixels * percentile);
+  size_t cumulative    = 0;
+
+  for (int bin = 0; bin < BINS; ++bin) {
+      cumulative += hist[bin];
+      if (cumulative >= threshold)
+          return (bin + 0.5f) / BIN_SCALE;
+  }
+
+  return 1.0f;
+}
+
 void RawEngine::loadRawFileAsync(const QString& path) {
   m_isLoading = true;
   emit isLoadingChanged();
@@ -1639,6 +1709,11 @@ void RawEngine::loadRawFileAsync(const QString& path) {
     QMutexLocker locker(&m_processorMutex);
     if (loadId != m_currentLoadId) return LoadResult{false, loadId};
     bool ok = loadRawFileSync(path, loadId);
+    m_processor->dcraw_process();
+    libraw_processed_image_t* img = m_processor->dcraw_make_mem_image();
+    setSceneWhite(computeSceneWhite(img));
+    LibRaw::dcraw_clear_mem(img);
+    img = nullptr;
     return LoadResult{ok, loadId};
   });
   m_loadWatcher.setFuture(future);

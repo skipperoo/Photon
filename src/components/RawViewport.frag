@@ -14,6 +14,7 @@ layout(std140, binding = 0) uniform buf {
     float highlights;
     float shadows;
     float whites;
+    float sceneWhite;
     float blacks;
     float adaptation;
     float vibrance;
@@ -351,28 +352,53 @@ float get_hsl_influence(float hue, float center, float width) {
 }
 
 float compute_target_luma(float luma, float stops) {
+    if (stops == 0.0) return luma;
     float target = luma * pow(2.0, stops);
-    if (stops > 0.0) {
-        // Compress brightening to avoid harsh clipping artifacts.
-        float over = max(target - 1.0, 0.0);
-        if (over > 0.0) {
-            float shoulder = 1.2 + 3.0 * clamp(stops, 0.0, 1.0);
-            target = 1.0 + over / (1.0 + over * shoulder);
-        }
+    
+    // Symmetrical soft-clipping for HSL to prevent "blowing out"
+    // while maintaining a more linear response than the specialized shoulder function.
+    if (target > 1.0) {
+        float over = target - 1.0;
+        target = 1.0 + over / (1.0 + over * 1.25);
     }
     return max(target, 0.0);
 }
 
+float compute_toe_target(float luma, float stops) {
+    if (stops == 0.0) return luma;
+
+    // Multiplicative base
+    float target = luma * pow(2.0, stops);
+
+    if (stops > 0.0) {
+        // Soft Gamma Lift (Prevents Posterization)
+        // A power curve is much smoother than a linear lift for deep darks.
+        float liftGamma = 1.0 / (1.0 + stops * 0.5);
+        float liftTarget = pow(max(luma, 1e-6), liftGamma);
+        
+        // Only apply the gamma lift to the bottom 15% of the range
+        float toeMask = 1.0 - smoothstep(0.0, 0.15, luma);
+        target = mix(target, liftTarget, toeMask * 0.4);
+    }
+    
+    return max(target, 0.0);
+}
+
+
 vec3 apply_luma_target(vec3 color, float lumaIn, float targetLuma) {
-    targetLuma = max(targetLuma, 0.0);
-    float safeLuma = max(lumaIn, 1e-4);
-    float lumaDelta = targetLuma - lumaIn;
+    targetLuma      = max(targetLuma, 0.0);
+    float safeLuma  = max(lumaIn, 1e-4);
     float lumaRatio = targetLuma / safeLuma;
-    // Additive in deep shadows, multiplicative in mids/highlights.
-    float blend = smoothstep(0.02, 0.34, lumaIn);
-    vec3 additive = color + vec3(lumaDelta);
-    vec3 multiplicative = color * lumaRatio;
-    return mix(additive, multiplicative, blend);
+
+    // --- Noise Floor Protection ---
+    // Cap the lift ratio in deep blacks to prevent noise/posterization.
+    // 1.0x cap at pure black, scaling up to 10.0x at 0.08 luma.
+    float maxRatio = 1.0 + 9.0 * smoothstep(0.0, 0.08, lumaIn);
+    float safeRatio = clamp(lumaRatio, 0.0, maxRatio);
+
+    // --- Pure Multiplicative Adjustment ---
+    // Scaling R, G, and B equally preserves Hue and Saturation
+    return color * safeRatio;
 }
 
 float sample_tone_lut_channel(float value, int channel) {
@@ -630,44 +656,51 @@ void main()
     color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0);
 
     // 2. Exposure
-    color *= pow(2.0, ubuf.exposure);
-    
-    color = davinci_tonemap(color, ubuf.adaptation);
+    float exposure = pow(2.0, ubuf.exposure);
+
+    color *= exposure;
+    float luma = get_luma(max(color, 0.0));
+    if (luma > ubuf.sceneWhite && ubuf.exposure > 0.0) {
+        float over     = luma - ubuf.sceneWhite;
+        // The higher the shoulder, the less the highlights get compressed
+        float knee     = ubuf.sceneWhite * 0.7;          // shoulder width
+        float compress = over / (1.0 + over / knee);     // Reinhard-style on the excess
+        float targetL  = ubuf.sceneWhite + compress;
+        color = apply_luma_target(color, luma, targetL);
+    }
+    float sceneWhiteNorm = max(ubuf.sceneWhite * exposure, 1e-4);
+    float lumaNorm = clamp(luma/sceneWhiteNorm, 0.0, 2.0);
+    //color = davinci_tonemap(color, ubuf.adaptation);
     
     // 3. Contrast
     color = max(vec3(0.0), color);
     color = pow(color, vec3(ubuf.contrast));
     
-    // 4. Whites & Blacks (smoother masks, bounded response)
-    float luma = get_luma(max(color, 0.0));
+    // 4. Whites & Blacks (specialized targeting)
     if (ubuf.whites != 0.0) {
-        float w = clamp(ubuf.whites / 100.0, -1.0, 1.0);
-        float whiteMask = smoothstep(0.42, 1.20, luma);
-        float targetLuma = compute_target_luma(luma, w * 0.85 * whiteMask);
+        float whiteMask = smoothstep(0.7, 1.25, lumaNorm);
+        float targetLuma = compute_target_luma(luma, (ubuf.whites / 100.0) * whiteMask);
         color = apply_luma_target(color, luma, targetLuma);
         luma = get_luma(max(color, 0.0));
     }
     if (ubuf.blacks != 0.0) {
-        float bAdj = clamp(ubuf.blacks / 100.0, -1.0, 1.0);
-        float blackMask = 1.0 - smoothstep(0.0, 0.48, luma);
-        float targetLuma = compute_target_luma(luma, bAdj * 0.90 * blackMask);
+        float blackMask = 1.0 - smoothstep(0.0, 0.15, lumaNorm);
+        float targetLuma = compute_toe_target(luma, (ubuf.blacks / 100.0) * blackMask);
         color = apply_luma_target(color, luma, targetLuma);
         luma = get_luma(max(color, 0.0));
     }
 
-    // 5. Highlights & Shadows (broader crossover, gentler extremes)
+    // 5. Highlights & Shadows (specialized targeting)
     if (ubuf.shadows != 0.0) {
-        float s = clamp(ubuf.shadows / 100.0, -1.0, 1.0);
-        float shadowMask = 1.0 - smoothstep(0.05, 0.62, luma);
-        float targetLuma = compute_target_luma(luma, s * 0.95 * shadowMask);
+        float shadowMask = 1.0 - smoothstep(0.05, 0.65, lumaNorm);
+        float targetLuma = compute_toe_target(luma, (ubuf.shadows / 100.0) * shadowMask);
         color = apply_luma_target(color, luma, targetLuma);
         luma = get_luma(max(color, 0.0));
     }
 
     if (ubuf.highlights != 0.0) {
-        float h = clamp(ubuf.highlights / 100.0, -1.0, 1.0);
-        float highlightMask = smoothstep(0.22, 1.25, luma);
-        float targetLuma = compute_target_luma(luma, h * 0.90 * highlightMask);
+        float highlightMask = smoothstep(0.35, 1.1, lumaNorm);
+        float targetLuma = compute_target_luma(luma, (ubuf.highlights / 100.0) * highlightMask);
         color = apply_luma_target(color, luma, targetLuma);
     }
 

@@ -509,11 +509,12 @@
 
 ## Phase 38: Panorama
 
-- [ ] JPEG and TIFF support.
-- [ ] Panorama Stitching
-  - [ ] OpenCV integration
-  - [ ] Stitching
-  - [ ] TIFF output
+- [x] Panorama Stitching
+  - [x] OpenCV integration
+  - [x] Stitching
+- [ ] Dng export
+  - [x] Implement a DNG-like export
+  - [ ] Move the implementation to ExportManager
 
 ## Backlog / Future
 

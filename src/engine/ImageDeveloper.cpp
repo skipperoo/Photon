@@ -143,14 +143,23 @@ static float smoothstep_local(float edge0, float edge1, float x) {
 static float mix_local(float a, float b, float t) { return a + t * (b - a); }
 
 static float compute_target_luma_cpp(float luma, float stops) {
+  if (stops == 0.0f) return luma;
+  float target = luma * std::pow(2.0f, stops);
+  if (target > 1.0f) {
+    float over = target - 1.0f;
+    target = 1.0f + over / (1.0f + over * 1.25f);
+  }
+  return std::max(target, 0.0f);
+}
+
+static float compute_toe_target_cpp(float luma, float stops) {
+  if (stops == 0.0f) return luma;
   float target = luma * std::pow(2.0f, stops);
   if (stops > 0.0f) {
-    // Compress brightening to avoid harsh clipping artifacts.
-    float over = std::max(target - 1.0f, 0.0f);
-    if (over > 0.0f) {
-      float shoulder = 1.2f + 3.0f * std::clamp(stops, 0.0f, 1.0f);
-      target = 1.0f + over / (1.0f + over * shoulder);
-    }
+    float liftGamma = 1.0f / (1.0f + stops * 0.5f);
+    float liftTarget = std::pow(std::max(luma, 1e-6f), liftGamma);
+    float toeMask = 1.0f - smoothstep_local(0.0f, 0.15f, luma);
+    target = mix_local(target, liftTarget, toeMask * 0.4f);
   }
   return std::max(target, 0.0f);
 }
@@ -159,16 +168,12 @@ static void apply_luma_target_cpp(float& r, float& g, float& b, float lumaIn,
                                   float targetLuma) {
   targetLuma = std::max(targetLuma, 0.0f);
   float safeLuma = std::max(lumaIn, 1e-4f);
-  float lumaDelta = targetLuma - lumaIn;
   float lumaRatio = targetLuma / safeLuma;
-  // Additive in deep shadows, multiplicative in mids/highlights.
-  float blend = smoothstep_local(0.02f, 0.34f, lumaIn);
-  float addR = r + lumaDelta;
-  float addG = g + lumaDelta;
-  float addB = b + lumaDelta;
-  r = mix_local(addR, r * lumaRatio, blend);
-  g = mix_local(addG, g * lumaRatio, blend);
-  b = mix_local(addB, b * lumaRatio, blend);
+  float maxRatio = 1.0f + 9.0f * smoothstep_local(0.0f, 0.08f, lumaIn);
+  float safeRatio = std::clamp(lumaRatio, 0.0f, maxRatio);
+  r *= safeRatio;
+  g *= safeRatio;
+  b *= safeRatio;
 }
 
 static std::vector<float> evalMonotonicSplineLut(const QVariantList& pts,
@@ -428,42 +433,38 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       g = std::pow(g, con);
       b = std::pow(b, con);
 
-      // 3. Whites & Blacks (smoother masks, bounded response)
+      // 3. Whites & Blacks (specialized targeting)
       float luma =
           get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
       if (whites != 0.0f) {
-        float w = std::clamp(whites / 100.0f, -1.0f, 1.0f);
-        float whiteMask = smoothstep(0.42f, 1.20f, luma);
-        float targetLuma = compute_target_luma_cpp(luma, w * 0.85f * whiteMask);
+        float whiteMask = smoothstep(0.7f, 1.25f, luma);
+        float targetLuma = compute_target_luma_cpp(luma, (whites / 100.0f) * whiteMask);
         apply_luma_target_cpp(r, g, b, luma, targetLuma);
         luma = get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g),
                             std::max(0.0f, b));
       }
       if (blacks != 0.0f) {
-        float bAdj = std::clamp(blacks / 100.0f, -1.0f, 1.0f);
-        float blackMask = 1.0f - smoothstep(0.0f, 0.48f, luma);
+        float blackMask = 1.0f - smoothstep(0.0f, 0.15f, luma);
         float targetLuma =
-            compute_target_luma_cpp(luma, bAdj * 0.90f * blackMask);
+            compute_toe_target_cpp(luma, (blacks / 100.0f) * blackMask);
         apply_luma_target_cpp(r, g, b, luma, targetLuma);
         luma = get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g),
                             std::max(0.0f, b));
       }
 
-      // 4. Highlights & Shadows (broader crossover, gentler extremes)
+      // 4. Highlights & Shadows (specialized targeting)
       if (shad != 0.0f) {
-        float s = std::clamp(shad / 100.0f, -1.0f, 1.0f);
-        float shadowMask = 1.0f - smoothstep(0.05f, 0.62f, luma);
+        float shadowMask = 1.0f - smoothstep(0.05f, 0.65f, luma);
         float targetLuma =
-            compute_target_luma_cpp(luma, s * 0.95f * shadowMask);
+            compute_toe_target_cpp(luma, (shad / 100.0f) * shadowMask);
         apply_luma_target_cpp(r, g, b, luma, targetLuma);
         luma = get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g),
                             std::max(0.0f, b));
       }
       if (high != 0.0f) {
-        float h = std::clamp(high / 100.0f, -1.0f, 1.0f);
-        float highlightMask = smoothstep(0.22f, 1.25f, luma);
+        float highlightMask = smoothstep(0.35f, 1.1f, luma);
         float targetLuma =
-            compute_target_luma_cpp(luma, h * 0.90f * highlightMask);
+            compute_target_luma_cpp(luma, (high / 100.0f) * highlightMask);
         apply_luma_target_cpp(r, g, b, luma, targetLuma);
       }
 

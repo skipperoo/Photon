@@ -61,6 +61,10 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit whitesChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::sceneWhiteChanged, this, [this]() {
+    emit sceneWhiteChanged();
+    update();
+  });
   connect(&m_engine, &RawEngine::blacksChanged, this, [this]() {
     emit blacksChanged();
     update();

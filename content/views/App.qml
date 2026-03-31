@@ -489,6 +489,7 @@ Window {
                             property real highlights: rawViewport.highlights
                             property real shadows: rawViewport.shadows
                             property real whites: rawViewport.whites
+                            property real sceneWhite: rawViewport.sceneWhite
                             property real blacks: rawViewport.blacks
                             property real adaptation: rawViewport.adaptation
                             property real vibrance: rawViewport.vibrance

@@ -42,7 +42,7 @@ void Panorama::stitchAsync(const QStringList& inputFiles,
   connect(thread, &QThread::finished, thread, &QObject::deleteLater);
   thread->start();
   LogManager::instance()->log(
-      QString("[ Panorama.cpp ] - Started panorama stitching thread"), INFO);
+      QString("[ Panorama.cpp ] - Started panorama stitching thread"), PHOTON_INFO);
 }
 
 cv::Mat Panorama::raw_to_linear(const QString& file, std::unique_ptr<ColorInfo>& colorInfo) {
@@ -54,26 +54,26 @@ cv::Mat Panorama::raw_to_linear(const QString& file, std::unique_ptr<ColorInfo>&
   processor.imgdata.params.use_camera_matrix = 1;
   if (processor.open_file(file.toStdString().c_str()) != LIBRAW_SUCCESS) {
     LogManager::instance()->log(
-        QString("[ Panorama.cpp ] - Cannot open file %1").arg(file), ERROR);
+        QString("[ Panorama.cpp ] - Cannot open file %1").arg(file), PHOTON_ERROR);
     return cv::Mat();
   }
 
   if (processor.unpack() != LIBRAW_SUCCESS) {
     LogManager::instance()->log(
         QString("[ Panorama.cpp ] - Cannot unpack data of file %1").arg(file),
-        ERROR);
+        PHOTON_ERROR);
     return cv::Mat();
   }
   if (!colorInfo.get()) {
      colorInfo = std::make_unique<ColorInfo> (ColorInfo (extractColorInfo(&processor)));
     LogManager::instance()->log(
         QString("[ Panorama.cpp ] - Initialized ColorInfo on %1").arg(file),
-        DEBUG);
+        PHOTON_DEBUG);
   }
 
   if (processor.dcraw_process() != LIBRAW_SUCCESS) {
     LogManager::instance()->log(
-        QString("[ Panorama.cpp ] - Cannot dcraw file %1").arg(file), ERROR);
+        QString("[ Panorama.cpp ] - Cannot dcraw file %1").arg(file), PHOTON_ERROR);
     return cv::Mat();
   }
 
@@ -83,7 +83,7 @@ cv::Mat Panorama::raw_to_linear(const QString& file, std::unique_ptr<ColorInfo>&
     LogManager::instance()->log(
         QString("[ Panorama.cpp ] - Cannot create processed image from %1")
             .arg(file),
-        ERROR);
+        PHOTON_ERROR);
     return cv::Mat();
   }
 
@@ -102,7 +102,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   if (inputFiles.size() < 2) {
     LogManager::instance()->log(
-        "[ Panorama.cpp ] - Cannot stitch a single image", ERROR);
+        "[ Panorama.cpp ] - Cannot stitch a single image", PHOTON_ERROR);
     result["message"] = QString("Select more photos!");
     result["success"] = false;
     return result;
@@ -110,7 +110,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Loading %1 images").arg(inputFiles.size()),
-      INFO);
+      PHOTON_INFO);
 
   std::unique_ptr<ColorInfo> colorInfo;
 
@@ -122,7 +122,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
       LogManager::instance()->log(
           QString("[ Panorama.cpp ] - Failed to process image %1")
               .arg(filename),
-          ERROR);
+          PHOTON_ERROR);
       continue;
     }
     images16.push_back(img.clone());
@@ -130,7 +130,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   if (images16.size() < 2) {
     LogManager::instance()->log(
-        "[ Panorama.cpp ] - Not enough valid images to stitch", ERROR);
+        "[ Panorama.cpp ] - Not enough valid images to stitch", PHOTON_ERROR);
     result["message"] = QString("Not enough valid images to stitch");
     result["success"] = false;
     return result;
@@ -138,7 +138,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Processing %1 images").arg(images16.size()),
-      DEBUG);
+      PHOTON_DEBUG);
 
   // Create 8-bit gamma-corrected images for feature detection
   // Feature detectors require 8-bit input
@@ -155,7 +155,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   // PHASE 1: Feature Detection and Matching
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 1: Feature detection",
-                              DEBUG);
+                              PHOTON_DEBUG);
 
   cv::Ptr<cv::Feature2D> finder = cv::SIFT::create();
   std::vector<cv::detail::ImageFeatures> features(images8bit.size());
@@ -167,7 +167,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
         QString("[ Panorama.cpp ] - Image %1: %2 features detected")
             .arg(i)
             .arg(static_cast<int>(features[i].keypoints.size())),
-        DEBUG);
+        PHOTON_DEBUG);
   }
 
 
@@ -187,7 +187,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   if (num_matches < static_cast<int>(images8bit.size()) - 1) {
     LogManager::instance()->log(
-        "[ Panorama.cpp ] - Not enough matching features found", ERROR);
+        "[ Panorama.cpp ] - Not enough matching features found", PHOTON_ERROR);
     result["message"] =
         QString("Stitching failed: not enough matching features found.");
     result["success"] = false;
@@ -196,7 +196,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   // PHASE 2: Camera Parameter Estimation
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 2: Camera estimation",
-                              DEBUG);
+                              PHOTON_DEBUG);
 
   cv::Ptr<cv::detail::Estimator> estimator =
       cv::makePtr<cv::detail::HomographyBasedEstimator>();
@@ -204,7 +204,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   if (!(*estimator)(features, pairwise_matches, cameras)) {
     LogManager::instance()->log(
-        "[ Panorama.cpp ] - Homography estimation failed", ERROR);
+        "[ Panorama.cpp ] - Homography estimation failed", PHOTON_ERROR);
     result["message"] =
         QString("Stitching failed: failed to align the images.");
     result["success"] = false;
@@ -223,7 +223,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   adjuster->setConfThresh(1.0);
   if (!(*adjuster)(features, pairwise_matches, cameras)) {
     LogManager::instance()->log("[ Panorama.cpp ] - Bundle adjustment failed",
-                                ERROR);
+                                PHOTON_ERROR);
     result["message"] =
         QString("Stitching failed: failed to optimize camera parameters.");
     result["success"] = false;
@@ -232,7 +232,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   // PHASE 3: Warping Images (16-bit)
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 3: Warping images",
-                              DEBUG);
+                              PHOTON_DEBUG);
 
   // Find median focal length
   std::vector<double> focals;
@@ -249,7 +249,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   cv::Ptr<cv::detail::RotationWarper> warper =
       warper_creator->create(static_cast<float>(warped_image_scale));
 
-  LogManager::instance()->log("[ Panorama.cpp ] - Created warper", DEBUG);
+  LogManager::instance()->log("[ Panorama.cpp ] - Created warper", PHOTON_DEBUG);
   // Warp images and create masks
   std::vector<cv::Mat> images_warped16;
   std::vector<cv::Mat> masks_warped;
@@ -284,7 +284,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   // PHASE 4: Exposure Compensation (optional)
   if (compensateExposure) {
     LogManager::instance()->log(
-        "[ Panorama.cpp ] - Phase 4: Exposure compensation", DEBUG);
+        "[ Panorama.cpp ] - Phase 4: Exposure compensation", PHOTON_DEBUG);
 
     cv::Ptr<cv::detail::ExposureCompensator> compensator =
         cv::makePtr<cv::detail::GainCompensator>();
@@ -295,13 +295,13 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
     }
   } else {
     LogManager::instance()->log(
-        "[ Panorama.cpp ] - Phase 4: Skipping exposure compensation", DEBUG);
+        "[ Panorama.cpp ] - Phase 4: Skipping exposure compensation", PHOTON_DEBUG);
   }
 
   // PHASE 5: Seam Finding (Graph-Cut)
   // GraphCutSeamFinder expects 8-bit UMat images and binary masks
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 5: Seam finding",
-                              DEBUG);
+                              PHOTON_DEBUG);
 
   // Ensure masks are binary (0 or 255)
   std::vector<cv::UMat> masks_binary;
@@ -331,7 +331,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 */
   // PHASE 6: Multi-band Blending (16-bit)
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 6: Multi-band blending",
-                              DEBUG);
+                              PHOTON_DEBUG);
 
   // Calculate final panorama size
   cv::Rect dst_roi = cv::detail::resultRoi(corners, sizes_warped);
@@ -346,7 +346,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Using %1 bands for blending").arg(num_bands),
-      DEBUG);
+      PHOTON_DEBUG);
 
   // Create blender - use default CV_32F weight type
   cv::Ptr<cv::detail::Blender> blender =
@@ -380,7 +380,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   if (!resultRGB.isContinuous()) resultRGB = resultRGB.clone();
 
   if (resultRGB.empty()) {
-    LogManager::instance()->log("[ Panorama.cpp ] - Blending failed", ERROR);
+    LogManager::instance()->log("[ Panorama.cpp ] - Blending failed", PHOTON_ERROR);
     result["message"] = QString("Stitching failed during blending!");
     result["success"] = false;
     return result;
@@ -390,12 +390,12 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
       QString("[ Panorama.cpp ] - Blended result: %1x%2")
           .arg(result16.cols)
           .arg(result16.rows),
-      DEBUG);
+      PHOTON_DEBUG);
 
 
   // PHASE 7: Save to DNG
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 7: Saving to DNG",
-                              DEBUG);
+                              PHOTON_DEBUG);
 
   QString filename =
       QDir::toNativeSeparators(QString("%1/%2.pano.dng")
@@ -403,7 +403,7 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
                                         QFileInfo(inputFiles[0]).baseName()));
 
   LogManager::instance()->log(
-      QString("[ Panorama.cpp ] - Saving panorama to %1").arg(filename), INFO);
+      QString("[ Panorama.cpp ] - Saving panorama to %1").arg(filename), PHOTON_INFO);
   
 
   // ==========================================
@@ -494,7 +494,7 @@ TIFFClose(out);
   
 
   LogManager::instance()->log(
-      "[ Panorama.cpp ] - Panorama stitching completed successfully", INFO);
+      "[ Panorama.cpp ] - Panorama stitching completed successfully", PHOTON_INFO);
 
   result["success"] = true;
   result["message"] = "Success! DNG saved to " + filename;

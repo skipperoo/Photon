@@ -95,7 +95,7 @@ bool VulkanComputeContext::init(QRhi* rhi) {
         return false;
     }
 
-    LogManager::instance()->log("[ VulkanComputeContext ] - Initialized plain Vulkan compute context", INFO);
+    LogManager::instance()->log("[ VulkanComputeContext ] - Initialized plain Vulkan compute context", PHOTON_INFO);
     return true;
 }
 

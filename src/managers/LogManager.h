@@ -12,11 +12,11 @@
 namespace photon {
 
 enum LogLevel {
-  DEBUG,
-  INFO,
-  WARNING,
-  ERROR,
-  FATAL
+  PHOTON_DEBUG,
+  PHOTON_INFO,
+  PHOTON_WARNING,
+  PHOTON_ERROR,
+  PHOTON_FATAL
 };
 
 class LogManager : public QObject {
@@ -38,47 +38,47 @@ class LogManager : public QObject {
 
   LogLevel strLevelToEnum(QString level) const {
     if (level == "DEBUG")
-      return DEBUG;
+      return PHOTON_DEBUG;
     else if (level == "INFO")
-      return INFO;
+      return PHOTON_INFO;
     else if (level == "WARNING")
-      return WARNING;
+      return PHOTON_WARNING;
     else if (level == "ERROR")
-      return ERROR;
+      return PHOTON_ERROR;
     else if (level == "FATAL")
-      return FATAL;
+      return PHOTON_FATAL;
 
-    return DEBUG;
+    return PHOTON_DEBUG;
   }
 
   QString enumLevelToStr(int level) const {
     switch(level) {
-      case DEBUG:
+      case PHOTON_DEBUG:
         return "DEBUG";
 
-      case INFO:
+      case PHOTON_INFO:
         return "INFO";
 
-      case WARNING:
+      case PHOTON_WARNING:
         return "WARNING";
 
-      case ERROR:
+      case PHOTON_ERROR:
         return "ERROR";
 
-      case FATAL:
+      case PHOTON_FATAL:
         return "FATAL";
     }
     return "";
   }
 
-  QString logLevel() const { 
+  QString logLevel() const {
     return LogManager::enumLevelToStr(m_logLevel);
   }
 
   void setLogLevel(int level);
   void setLogLevel(const QString& level);
 
-  Q_INVOKABLE void log(const QString& message, int level = INFO);
+  Q_INVOKABLE void log(const QString& message, int level = PHOTON_INFO);
   Q_INVOKABLE void clearLog();
 
  signals:
@@ -88,7 +88,7 @@ class LogManager : public QObject {
  private:
   static LogManager* s_instance;
   QString m_logLocation;
-  int m_logLevel = INFO;
+  int m_logLevel = PHOTON_INFO;
   QFile m_logFile;
   QMutex m_logMutex;
 

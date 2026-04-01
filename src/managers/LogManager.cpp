@@ -67,7 +67,7 @@ void LogManager::openLogFile() {
                       QIODevice::Text)) {
     qWarning() << "Failed to open log file at" << m_logLocation;
   } else {
-    log("Logging started at " + m_logLocation, INFO);
+    log("Logging started at " + m_logLocation, PHOTON_INFO);
   }
 }
 
@@ -81,7 +81,7 @@ void LogManager::log(const QString& message, int level) {
       QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
   out << QString("[ %1 ] [ %2 ] %3\n").arg(timestamp, enumLevelToStr(level), message);
   out.flush();
-  if (level == FATAL)
+  if (level == PHOTON_FATAL)
     QGuiApplication::quit();
 }
 

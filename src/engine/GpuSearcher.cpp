@@ -19,7 +19,7 @@ GpuSearcher::~GpuSearcher() {
 
 std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     const float* luma, int width, int height, int searchWindow) {
-    
+
     auto* ctx = VulkanComputeContext::instance();
     if (ctx->device() == VK_NULL_HANDLE) return {};
 
@@ -29,7 +29,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     const auto& f = ctx->functions();
     VkDevice device = ctx->device();
 
-    LogManager::instance()->log(QString("[ GpuSearcher ] - Starting raw Vulkan search %1x%2").arg(width).arg(height), INFO);
+    LogManager::instance()->log(QString("[ GpuSearcher ] - Starting raw Vulkan search %1x%2").arg(width).arg(height), PHOTON_INFO);
 
     // 1. Create Resources
     VkBuffer lumaBuffer = VK_NULL_HANDLE, resultBuffer = VK_NULL_HANDLE;
@@ -40,20 +40,20 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     ctx->createBuffer(lumaSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                       lumaBuffer, lumaMemory);
-    
+
     ctx->createBuffer(resultSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                       resultBuffer, resultMemory);
 
     if (lumaBuffer == VK_NULL_HANDLE || resultBuffer == VK_NULL_HANDLE) {
-        LogManager::instance()->log("Failed to create Vulkan buffers for search", ERROR);
+        LogManager::instance()->log("Failed to create Vulkan buffers for search", PHOTON_ERROR);
         return {};
     }
 
     // Upload Luma
     void* dataPtr = nullptr;
     if (f.MapMemory(device, lumaMemory, 0, lumaSize, 0, &dataPtr) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to map luma memory", ERROR);
+        LogManager::instance()->log("Failed to map luma memory", PHOTON_ERROR);
         return {};
     }
     memcpy(dataPtr, luma, lumaSize);
@@ -78,7 +78,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     if (f.CreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create descriptor set layout", ERROR);
+        LogManager::instance()->log("Failed to create descriptor set layout", PHOTON_ERROR);
         return {};
     }
 
@@ -94,7 +94,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     if (f.CreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create descriptor pool", ERROR);
+        LogManager::instance()->log("Failed to create descriptor pool", PHOTON_ERROR);
         return {};
     }
 
@@ -106,7 +106,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
     if (f.AllocateDescriptorSets(device, &allocInfo, &descriptorSet) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to allocate descriptor set", ERROR);
+        LogManager::instance()->log("Failed to allocate descriptor set", PHOTON_ERROR);
         return {};
     }
 
@@ -145,16 +145,16 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     if (f.CreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create pipeline layout", ERROR);
+        LogManager::instance()->log("Failed to create pipeline layout", PHOTON_ERROR);
         return {};
     }
 
     QFile shaderFile(":/Main/shaders/patch_search.comp.qsb");
     if (!shaderFile.open(QIODevice::ReadOnly)) {
-        LogManager::instance()->log("Failed to open shader resource", ERROR);
+        LogManager::instance()->log("Failed to open shader resource", PHOTON_ERROR);
         return {};
     }
-    
+
     QShader shader = QShader::fromSerialized(shaderFile.readAll());
     QByteArray spirvCode;
     auto shaders = shader.availableShaders();
@@ -166,14 +166,14 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     }
 
     if (spirvCode.isEmpty()) {
-        LogManager::instance()->log("Failed to extract SPIR-V from shader", ERROR);
+        LogManager::instance()->log("Failed to extract SPIR-V from shader", PHOTON_ERROR);
         return {};
     }
 
     // Ensure alignment by copying to vector
     std::vector<uint32_t> code(spirvCode.size() / 4);
     memcpy(code.data(), spirvCode.constData(), spirvCode.size());
-    
+
     VkShaderModuleCreateInfo shaderModuleCreateInfo{};
     shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     shaderModuleCreateInfo.codeSize = code.size() * 4;
@@ -181,7 +181,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkShaderModule computeShaderModule = VK_NULL_HANDLE;
     if (f.CreateShaderModule(device, &shaderModuleCreateInfo, nullptr, &computeShaderModule) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create shader module", ERROR);
+        LogManager::instance()->log("Failed to create shader module", PHOTON_ERROR);
         return {};
     }
 
@@ -195,7 +195,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     if (f.CreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
-        LogManager::instance()->log("Failed to create compute pipeline", ERROR);
+        LogManager::instance()->log("Failed to create compute pipeline", PHOTON_ERROR);
         return {};
     }
 
@@ -204,7 +204,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
     if (cb != VK_NULL_HANDLE) {
         f.CmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
         f.CmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-        
+
         int pcs[3] = {width, height, searchWindow};
         f.CmdPushConstants(cb, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 12, pcs);
 
@@ -221,7 +221,7 @@ std::vector<GpuSearcher::SearchResult> GpuSearcher::runSearch(
         }
         f.UnmapMemory(device, resultMemory);
     } else {
-        LogManager::instance()->log("Failed to map result memory for readback", ERROR);
+        LogManager::instance()->log("Failed to map result memory for readback", PHOTON_ERROR);
     }
 
     // 6. Cleanup

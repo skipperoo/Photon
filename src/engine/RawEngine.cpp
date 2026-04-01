@@ -229,10 +229,10 @@ RawEngine::RawEngine(QObject* parent)
     LogManager::instance()->log(
         QString("[ RawEngine ] - previewWatcher callback START (thread: %1)")
             .arg((quintptr)QThread::currentThread()),
-        DEBUG);
+        PHOTON_DEBUG);
     if (m_previewWatcher.isCanceled()) {
       LogManager::instance()->log("[ RawEngine ] - previewWatcher: canceled",
-                                  DEBUG);
+                                  PHOTON_DEBUG);
       return;
     }
     QImage result = m_previewWatcher.result();
@@ -241,11 +241,11 @@ RawEngine::RawEngine(QObject* parent)
             .arg(result.isNull())
             .arg(result.width())
             .arg(result.height()),
-        DEBUG);
+        PHOTON_DEBUG);
     m_previewImage = result;
     emit previewImageChanged();
     LogManager::instance()->log("[ RawEngine ] - previewWatcher callback END",
-                                DEBUG);
+                                PHOTON_DEBUG);
   });
 
   // Listen for background previews
@@ -308,14 +308,14 @@ void RawEngine::setHalfSize(bool half) {
 
 void RawEngine::setSource(const QString& source) {
   LogManager::instance()->log(
-      QString("[ RawEngine ] - setSource START: %1").arg(source), INFO);
+      QString("[ RawEngine ] - setSource START: %1").arg(source), PHOTON_INFO);
 
   // 1. Abort any ongoing denoise tasks
   m_abortDenoise = true;
 
   if (m_source == source) {
     LogManager::instance()->log(
-        "[ RawEngine ] - setSource: same source, skipping", DEBUG);
+        "[ RawEngine ] - setSource: same source, skipping", PHOTON_DEBUG);
     return;
   }
 
@@ -339,7 +339,7 @@ void RawEngine::setSource(const QString& source) {
 
   // Try to get existing preview immediately
   LogManager::instance()->log("[ RawEngine ] - setSource: getting preview path",
-                              DEBUG);
+                              PHOTON_DEBUG);
   if (photon::PreviewManager::instance()) {
     m_previewPath =
         photon::PreviewManager::instance()->getPreviewPath(m_source);
@@ -349,7 +349,7 @@ void RawEngine::setSource(const QString& source) {
       LogManager::instance()->log(
           QString("[ RawEngine ] - setSource: starting preview image load: %1")
               .arg(m_previewPath),
-          DEBUG);
+          PHOTON_DEBUG);
       m_previewWatcher.setFuture(
           QtConcurrent::run([path = m_previewPath]() { return QImage(path); }));
     }
@@ -381,10 +381,10 @@ void RawEngine::setSource(const QString& source) {
 
   // Start async loading
   LogManager::instance()->log("[ RawEngine ] - setSource: starting async load",
-                              DEBUG);
+                              PHOTON_DEBUG);
   loadRawFileAsync(source);
 
-  LogManager::instance()->log("[ RawEngine ] - setSource END", INFO);
+  LogManager::instance()->log("[ RawEngine ] - setSource END", PHOTON_INFO);
 }
 
 void RawEngine::setViewportSize(const QSize& size) {
@@ -2340,7 +2340,7 @@ void RawEngine::loadEdits() {
       QString("[ RawEngine ] - Loading edits: denoiseEnabled=%1, denoiseAmount=%2")
           .arg(lastState["denoiseEnabled"].toBool())
           .arg(lastState["denoiseAmount"].toDouble()),
-      DEBUG);
+      PHOTON_DEBUG);
   applyJsonToState(this, lastState);
 
   emit editStackChanged();
@@ -2672,7 +2672,7 @@ QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
           .arg(cropBottom)
           .arg(output.width())
           .arg(output.height()),
-      DEBUG);
+      PHOTON_DEBUG);
 
   return output;
 }
@@ -2682,7 +2682,7 @@ void RawEngine::reloadWithGeometry() {
 
   LogManager::instance()->log(
       "[ RawEngine.cpp ] - reloadWithGeometry: re-decoding with geometry bake",
-      DEBUG);
+      PHOTON_DEBUG);
 
   m_inCropMode = false;
   m_isLoading = true;
@@ -2771,7 +2771,7 @@ void RawEngine::enterCropMode() {
 
   LogManager::instance()->log(
       "[ RawEngine.cpp ] - enterCropMode: showing original for crop editing",
-      DEBUG);
+      PHOTON_DEBUG);
 
   m_inCropMode = true;
 
@@ -2801,7 +2801,7 @@ void RawEngine::enterCropMode() {
 
 void RawEngine::exitCropMode() {
   LogManager::instance()->log(
-      "[ RawEngine.cpp ] - exitCropMode: re-baking geometry", DEBUG);
+      "[ RawEngine.cpp ] - exitCropMode: re-baking geometry", PHOTON_DEBUG);
 
   m_inCropMode = false;
 

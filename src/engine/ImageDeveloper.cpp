@@ -266,10 +266,10 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
           .arg(width)
           .arg(height)
           .arg((quintptr)QThread::currentThread()),
-      DEBUG);
+      PHOTON_DEBUG);
 
   if (!src || width <= 0 || height <= 0) {
-    LogManager::instance()->log("[ ImageDeveloper ] - develop ABORT: invalid params", ERROR);
+    LogManager::instance()->log("[ ImageDeveloper ] - develop ABORT: invalid params", PHOTON_ERROR);
     return QImage();
   }
 
@@ -307,7 +307,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
           .arg(high, 0, 'f', 2)
           .arg(shad, 0, 'f', 2)
           .arg(denoiseAmount, 0, 'f', 1),
-      DEBUG);
+      PHOTON_DEBUG);
 
   // HSL Params
   float hsl_h[8], hsl_s[8], hsl_l[8];
@@ -617,7 +617,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         QString("[ ImageDeveloper ] - Denoising: amount=%1 (rhi=%2)")
             .arg(denoiseAmount, 0, 'f', 1)
             .arg((quintptr)rhi),
-        INFO);
+        PHOTON_INFO);
     std::vector<GpuSearcher::SearchResult> gpuMatches;
     if (rhi) {
       int w = output.width();
@@ -639,9 +639,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
 
       if (gpuMatches.empty()) {
-        LogManager::instance()->log("[ ImageDeveloper ] - GPU search produced no matches (possibly due to frame conflict or shader error). Falling back to CPU matching.", WARNING);
+        LogManager::instance()->log("[ ImageDeveloper ] - GPU search produced no matches (possibly due to frame conflict or shader error). Falling back to CPU matching.", PHOTON_WARNING);
       } else {
-        LogManager::instance()->log(QString("[ ImageDeveloper ] - GPU search successful: %1 matches").arg(gpuMatches.size()), DEBUG);
+        LogManager::instance()->log(QString("[ ImageDeveloper ] - GPU search successful: %1 matches").arg(gpuMatches.size()), PHOTON_DEBUG);
       }
     }
     photon::DenoiseParams dparams;
@@ -741,11 +741,11 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
           .arg(cropBottom)
           .arg(output.width())
           .arg(output.height()),
-      DEBUG);
+      PHOTON_DEBUG);
 
   LogManager::instance()->log(
       QString("[ ImageDeveloper ] - export END: %1x%2").arg(output.width()).arg(output.height()),
-      DEBUG);
+      PHOTON_DEBUG);
   return output;
 }
 

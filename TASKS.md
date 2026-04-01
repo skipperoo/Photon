@@ -507,7 +507,7 @@
 - [x] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
 - [x] Auto log cleanup
 
-## Phase 38: Panorama
+## Phase 38: Panorama and other improvements
 
 - [x] Panorama Stitching
   - [x] OpenCV integration
@@ -515,6 +515,10 @@
 - [ ] Dng export
   - [x] Implement a DNG-like export
   - [ ] Move the implementation to ExportManager
+- [ ] New tone processing pipeline
+  - [x] Implement new pipeline
+  - [x] Port it to ImageDeveloper
+  - [ ] Tune tone targeting
 
 ## Backlog / Future
 

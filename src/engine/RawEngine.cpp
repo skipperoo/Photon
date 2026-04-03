@@ -16,6 +16,9 @@
 #include <cstdint>
 #include <numeric>
 #include <vector>
+#if defined(__AVX2__) || defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
+#include <immintrin.h>
+#endif
 
 #include "../components/ToneLutProvider.h"
 #include "../managers/AppStateManager.h"
@@ -159,10 +162,32 @@ static Vec3fHist clamp_vec3_hist(const Vec3fHist& c, float lo, float hi) {
           std::clamp(c.b, lo, hi)};
 }
 
-static float bilinear_channel_hist(const ushort* src, int width, int height,
-                                   float u, float v, int ch) {
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
+static inline __m128 load_rgb16_norm_hist_sse(const ushort* p) {
+  constexpr float invU16 = 1.0f / 65535.0f;
+  return _mm_mul_ps(_mm_set_ps(0.0f, float(p[2]), float(p[1]), float(p[0])),
+                    _mm_set1_ps(invU16));
+}
+#endif
+
+#if defined(__AVX2__)
+static inline __m128 load_rgb16_norm_hist_avx2(const ushort* p) {
+  alignas(16) uint16_t lanes[8] = {p[0], p[1], p[2], 0, 0, 0, 0, 0};
+  const __m128i packed16 =
+      _mm_load_si128(reinterpret_cast<const __m128i*>(lanes));
+  const __m256i expanded32 = _mm256_cvtepu16_epi32(packed16);
+  const __m256 asFloat = _mm256_mul_ps(_mm256_cvtepi32_ps(expanded32),
+                                       _mm256_set1_ps(1.0f / 65535.0f));
+  return _mm256_castps256_ps128(asFloat);
+}
+#endif
+
+static Vec3fHist sample_source_linear_bilinear_hist(const ushort* src,
+                                                    int width, int height,
+                                                    float u, float v) {
   u = std::clamp(u, 0.0f, 1.0f);
   v = std::clamp(v, 0.0f, 1.0f);
+
   const float xf = u * float(width) - 0.5f;
   const float yf = v * float(height) - 0.5f;
   const int x0 = int(std::floor(xf));
@@ -171,32 +196,87 @@ static float bilinear_channel_hist(const ushort* src, int width, int height,
   const int y1 = y0 + 1;
   const float tx = xf - float(x0);
   const float ty = yf - float(y0);
-  auto sample = [src, width, height, ch](int x, int y) {
+
+  auto sample_ptr = [src, width, height](int x, int y) {
     x = std::clamp(x, 0, width - 1);
     y = std::clamp(y, 0, height - 1);
-    return src[(y * width + x) * 3 + ch] / 65535.0f;
+    return src + (y * width + x) * 3;
   };
-  const float c00 = sample(x0, y0);
-  const float c10 = sample(x1, y0);
-  const float c01 = sample(x0, y1);
-  const float c11 = sample(x1, y1);
-  return lerp(lerp(c00, c10, tx), lerp(c01, c11, tx), ty);
-}
 
-static Vec3fHist sample_source_linear_bilinear_hist(const ushort* src,
-                                                    int width, int height,
-                                                    float u, float v) {
-  return {bilinear_channel_hist(src, width, height, u, v, 0),
-          bilinear_channel_hist(src, width, height, u, v, 1),
-          bilinear_channel_hist(src, width, height, u, v, 2)};
+  const ushort* p00 = sample_ptr(x0, y0);
+  const ushort* p10 = sample_ptr(x1, y0);
+  const ushort* p01 = sample_ptr(x0, y1);
+  const ushort* p11 = sample_ptr(x1, y1);
+
+#if defined(__AVX2__)
+  const __m128 c00 = load_rgb16_norm_hist_avx2(p00);
+  const __m128 c10 = load_rgb16_norm_hist_avx2(p10);
+  const __m128 c01 = load_rgb16_norm_hist_avx2(p01);
+  const __m128 c11 = load_rgb16_norm_hist_avx2(p11);
+
+  const __m256 cTopBottom0 =
+      _mm256_insertf128_ps(_mm256_castps128_ps256(c00), c01, 1);
+  const __m256 cTopBottom1 =
+      _mm256_insertf128_ps(_mm256_castps128_ps256(c10), c11, 1);
+  const __m256 txV = _mm256_set1_ps(tx);
+  const __m256 oneMinusTxV = _mm256_set1_ps(1.0f - tx);
+  const __m256 horiz =
+      _mm256_add_ps(_mm256_mul_ps(cTopBottom0, oneMinusTxV),
+                    _mm256_mul_ps(cTopBottom1, txV));
+
+  const __m256 top = _mm256_permute2f128_ps(horiz, horiz, 0x00);
+  const __m256 bottom = _mm256_permute2f128_ps(horiz, horiz, 0x11);
+  const __m256 out = _mm256_add_ps(_mm256_mul_ps(top, _mm256_set1_ps(1.0f - ty)),
+                                   _mm256_mul_ps(bottom, _mm256_set1_ps(ty)));
+
+  alignas(16) float packed[4];
+  _mm_store_ps(packed, _mm256_castps256_ps128(out));
+  return {packed[0], packed[1], packed[2]};
+#elif defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
+  const __m128 c00 = load_rgb16_norm_hist_sse(p00);
+  const __m128 c10 = load_rgb16_norm_hist_sse(p10);
+  const __m128 c01 = load_rgb16_norm_hist_sse(p01);
+  const __m128 c11 = load_rgb16_norm_hist_sse(p11);
+
+  const __m128 txV = _mm_set1_ps(tx);
+  const __m128 oneMinusTxV = _mm_set1_ps(1.0f - tx);
+  const __m128 top =
+      _mm_add_ps(_mm_mul_ps(c00, oneMinusTxV), _mm_mul_ps(c10, txV));
+  const __m128 bottom =
+      _mm_add_ps(_mm_mul_ps(c01, oneMinusTxV), _mm_mul_ps(c11, txV));
+  const __m128 out = _mm_add_ps(_mm_mul_ps(top, _mm_set1_ps(1.0f - ty)),
+                                _mm_mul_ps(bottom, _mm_set1_ps(ty)));
+
+  alignas(16) float packed[4];
+  _mm_store_ps(packed, out);
+  return {packed[0], packed[1], packed[2]};
+#else
+  constexpr float invU16 = 1.0f / 65535.0f;
+  const Vec3fHist c00{p00[0] * invU16, p00[1] * invU16, p00[2] * invU16};
+  const Vec3fHist c10{p10[0] * invU16, p10[1] * invU16, p10[2] * invU16};
+  const Vec3fHist c01{p01[0] * invU16, p01[1] * invU16, p01[2] * invU16};
+  const Vec3fHist c11{p11[0] * invU16, p11[1] * invU16, p11[2] * invU16};
+
+  const float topR = lerp(c00.r, c10.r, tx);
+  const float topG = lerp(c00.g, c10.g, tx);
+  const float topB = lerp(c00.b, c10.b, tx);
+  const float bottomR = lerp(c01.r, c11.r, tx);
+  const float bottomG = lerp(c01.g, c11.g, tx);
+  const float bottomB = lerp(c01.b, c11.b, tx);
+  return {lerp(topR, bottomR, ty), lerp(topG, bottomG, ty),
+          lerp(topB, bottomB, ty)};
+#endif
 }
 
 static Vec3fHist compute_fine_blur_hist(const ushort* src, int width,
                                         int height, float u, float v) {
   Vec3fHist blur{0.0f, 0.0f, 0.0f};
+  const float invW = 1.0f / float(width);
+  const float invH = 1.0f / float(height);
   auto tap = [&](float dx, float dy, float w) {
-    Vec3fHist s = sample_source_linear_bilinear_hist(
-        src, width, height, u + dx / float(width), v + dy / float(height));
+    Vec3fHist s = sample_source_linear_bilinear_hist(src, width, height,
+                                                     u + dx * invW,
+                                                     v + dy * invH);
     blur.r += s.r * w;
     blur.g += s.g * w;
     blur.b += s.b * w;
@@ -229,9 +309,12 @@ static Vec3fHist compute_fine_blur_hist(const ushort* src, int width,
 static Vec3fHist compute_coarse_blur_hist(const ushort* src, int width,
                                           int height, float u, float v) {
   Vec3fHist blur{0.0f, 0.0f, 0.0f};
+  const float invW = 1.0f / float(width);
+  const float invH = 1.0f / float(height);
   auto tap = [&](float dx, float dy, float w) {
-    Vec3fHist s = sample_source_linear_bilinear_hist(
-        src, width, height, u + dx / float(width), v + dy / float(height));
+    Vec3fHist s = sample_source_linear_bilinear_hist(src, width, height,
+                                                     u + dx * invW,
+                                                     v + dy * invH);
     blur.r += s.r * w;
     blur.g += s.g * w;
     blur.b += s.b * w;

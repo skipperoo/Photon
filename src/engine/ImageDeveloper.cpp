@@ -1,5 +1,7 @@
 #include "ImageDeveloper.h"
 
+#include <algorithm>
+#include <array>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
@@ -14,6 +16,10 @@
 #include "../managers/LogManager.h"
 #include "Denoiser.h"
 #include "GpuSearcher.h"
+
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
+#include <immintrin.h>
+#endif
 
 namespace photon {
 // ... (rest of colorspace math)
@@ -183,6 +189,17 @@ struct Vec3fCpp {
   float b;
 };
 
+static const std::array<float, 65536>& srgb16_to_linear_lut_cpp() {
+  static const std::array<float, 65536> lut = [] {
+    std::array<float, 65536> v{};
+    for (size_t i = 0; i < v.size(); ++i) {
+      v[i] = srgb_to_linear_f(static_cast<float>(i) / 65535.0f);
+    }
+    return v;
+  }();
+  return lut;
+}
+
 static float step_local(float edge, float x) { return x < edge ? 0.0f : 1.0f; }
 
 static float sign_local(float x) {
@@ -197,8 +214,8 @@ static Vec3fCpp clamp_vec3_cpp(const Vec3fCpp& c, float lo, float hi) {
 }
 
 static Vec3fCpp sample_source_linear_bilinear_cpp(const ushort* src, int width,
-                                                  int height, float u,
-                                                  float v) {
+                                                  int height, float u, float v,
+                                                  const float* srgb16ToLinear) {
   u = std::clamp(u, 0.0f, 1.0f);
   v = std::clamp(v, 0.0f, 1.0f);
 
@@ -211,36 +228,71 @@ static Vec3fCpp sample_source_linear_bilinear_cpp(const ushort* src, int width,
   const float tx = xf - float(x0);
   const float ty = yf - float(y0);
 
-  auto sample_texel = [src, width, height](int x, int y) -> Vec3fCpp {
+  auto sample_texel = [src, width, height,
+                       srgb16ToLinear](int x, int y) -> Vec3fCpp {
     x = std::clamp(x, 0, width - 1);
     y = std::clamp(y, 0, height - 1);
     const int idx = (y * width + x) * 3;
-    return {srgb_to_linear_f(src[idx] / 65535.0f),
-            srgb_to_linear_f(src[idx + 1] / 65535.0f),
-            srgb_to_linear_f(src[idx + 2] / 65535.0f)};
+    return {srgb16ToLinear[src[idx]], srgb16ToLinear[src[idx + 1]],
+            srgb16ToLinear[src[idx + 2]]};
   };
 
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
+  auto sample_texel_sse = [src, width, height,
+                           srgb16ToLinear](int x, int y) -> __m128 {
+    x = std::clamp(x, 0, width - 1);
+    y = std::clamp(y, 0, height - 1);
+    const int idx = (y * width + x) * 3;
+    return _mm_set_ps(0.0f, srgb16ToLinear[src[idx + 2]],
+                      srgb16ToLinear[src[idx + 1]], srgb16ToLinear[src[idx]]);
+  };
+
+  const __m128 c00 = sample_texel_sse(x0, y0);
+  const __m128 c10 = sample_texel_sse(x1, y0);
+  const __m128 c01 = sample_texel_sse(x0, y1);
+  const __m128 c11 = sample_texel_sse(x1, y1);
+
+  const float oneMinusTx = 1.0f - tx;
+  const float oneMinusTy = 1.0f - ty;
+  const float w00 = oneMinusTx * oneMinusTy;
+  const float w10 = tx * oneMinusTy;
+  const float w01 = oneMinusTx * ty;
+  const float w11 = tx * ty;
+
+  __m128 out = _mm_setzero_ps();
+  out = _mm_add_ps(out, _mm_mul_ps(c00, _mm_set1_ps(w00)));
+  out = _mm_add_ps(out, _mm_mul_ps(c10, _mm_set1_ps(w10)));
+  out = _mm_add_ps(out, _mm_mul_ps(c01, _mm_set1_ps(w01)));
+  out = _mm_add_ps(out, _mm_mul_ps(c11, _mm_set1_ps(w11)));
+
+  float packed[4];
+  _mm_storeu_ps(packed, out);
+  return {packed[0], packed[1], packed[2]};
+#else
   const Vec3fCpp c00 = sample_texel(x0, y0);
   const Vec3fCpp c10 = sample_texel(x1, y0);
   const Vec3fCpp c01 = sample_texel(x0, y1);
   const Vec3fCpp c11 = sample_texel(x1, y1);
 
   Vec3fCpp out{};
-  out.r =
-      mix_local(mix_local(c00.r, c10.r, tx), mix_local(c01.r, c11.r, tx), ty);
-  out.g =
-      mix_local(mix_local(c00.g, c10.g, tx), mix_local(c01.g, c11.g, tx), ty);
-  out.b =
-      mix_local(mix_local(c00.b, c10.b, tx), mix_local(c01.b, c11.b, tx), ty);
+  out.r = mix_local(mix_local(c00.r, c10.r, tx), mix_local(c01.r, c11.r, tx),
+                    ty);
+  out.g = mix_local(mix_local(c00.g, c10.g, tx), mix_local(c01.g, c11.g, tx),
+                    ty);
+  out.b = mix_local(mix_local(c00.b, c10.b, tx), mix_local(c01.b, c11.b, tx),
+                    ty);
   return out;
+#endif
 }
 
 static Vec3fCpp compute_fine_blur_cpp(const ushort* src, int width, int height,
-                                      float u, float v) {
+                                      float u, float v,
+                                      const float* srgb16ToLinear) {
   Vec3fCpp blur{0.0f, 0.0f, 0.0f};
   auto tap = [&](float dx, float dy, float w) {
     Vec3fCpp s = sample_source_linear_bilinear_cpp(
-        src, width, height, u + dx / float(width), v + dy / float(height));
+        src, width, height, u + dx / float(width), v + dy / float(height),
+        srgb16ToLinear);
     blur.r += s.r * w;
     blur.g += s.g * w;
     blur.b += s.b * w;
@@ -272,11 +324,13 @@ static Vec3fCpp compute_fine_blur_cpp(const ushort* src, int width, int height,
 }
 
 static Vec3fCpp compute_coarse_blur_cpp(const ushort* src, int width,
-                                        int height, float u, float v) {
+                                        int height, float u, float v,
+                                        const float* srgb16ToLinear) {
   Vec3fCpp blur{0.0f, 0.0f, 0.0f};
   auto tap = [&](float dx, float dy, float w) {
     Vec3fCpp s = sample_source_linear_bilinear_cpp(
-        src, width, height, u + dx / float(width), v + dy / float(height));
+        src, width, height, u + dx / float(width), v + dy / float(height),
+        srgb16ToLinear);
     blur.r += s.r * w;
     blur.g += s.g * w;
     blur.b += s.b * w;
@@ -726,6 +780,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float widths[8] = {35.0f / 360.0f, 45.0f / 360.0f, 40.0f / 360.0f,
                      90.0f / 360.0f, 60.0f / 360.0f, 60.0f / 360.0f,
                      55.0f / 360.0f, 50.0f / 360.0f};
+  const auto& linearLut = srgb16_to_linear_lut_cpp();
 
   QImage output(width, height, QImage::Format_RGB888);
 
@@ -737,20 +792,17 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     uchar* scanline = output.scanLine(y);
     for (int x = 0; x < width; ++x) {
       int i = y * width + x;
-      float r = src[i * 3] / 65535.0f;
-      float g = src[i * 3 + 1] / 65535.0f;
-      float b = src[i * 3 + 2] / 65535.0f;
-
       // 0. Initial sRGB to Linear (Since RawEngine develops with default gamma)
-      r = srgb_to_linear_f(r);
-      g = srgb_to_linear_f(g);
-      b = srgb_to_linear_f(b);
+      float r = linearLut[src[i * 3]];
+      float g = linearLut[src[i * 3 + 1]];
+      float b = linearLut[src[i * 3 + 2]];
 
       const float u = (float(x) + 0.5f) / float(width);
       const float v = (float(y) + 0.5f) / float(height);
-      Vec3fCpp blurredFine = compute_fine_blur_cpp(src, width, height, u, v);
+      Vec3fCpp blurredFine =
+          compute_fine_blur_cpp(src, width, height, u, v, linearLut.data());
       Vec3fCpp blurredCoarse =
-          compute_coarse_blur_cpp(src, width, height, u, v);
+          compute_coarse_blur_cpp(src, width, height, u, v, linearLut.data());
 
       // 1. WB & Exposure
       r *= r_wb * exp_mult;

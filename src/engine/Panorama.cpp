@@ -16,7 +16,8 @@ static ColorInfo extractColorInfo(LibRaw *processor) {
 
 
   cv::Mat C(3, 3, CV_64F, cam2xyz);
-  // Not sure if the inverse is neede here
+  // NOTE: Not sure if the inverse is neede here. The DNG dump seems to work 
+  // without issues, so keeping it here just in case.
   // cv::Mat Cinv = C.inv();   // now XYZ D50 → camera: this is ColorMatrix1
 
   for (int i = 0; i < 3; i++)
@@ -114,7 +115,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   std::unique_ptr<ColorInfo> colorInfo;
 
-  // These are the 16 bit images loaded from the camera
   std::vector<cv::Mat> images16;
   for (const auto& filename : inputFiles) {
     cv::Mat img = Panorama::raw_to_linear(filename, colorInfo);
@@ -153,7 +153,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
     sizes.push_back(img8.size());
   }
 
-  // PHASE 1: Feature Detection and Matching
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 1: Feature detection",
                               PHOTON_DEBUG);
 
@@ -171,7 +170,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   }
 
 
-  // Match features between images
   cv::Ptr<cv::detail::FeaturesMatcher> matcher =
       cv::makePtr<cv::detail::BestOf2NearestMatcher>(false, 0.3f);
   std::vector<cv::detail::MatchesInfo> pairwise_matches;
@@ -179,7 +177,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   (*matcher)(features, pairwise_matches);
   matcher->collectGarbage();
 
-  // Check if we have enough matches
   int num_matches = 0;
   for (const auto& match : pairwise_matches) {
     if (match.confidence > 0.0) num_matches++;
@@ -194,7 +191,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
     return result;
   }
 
-  // PHASE 2: Camera Parameter Estimation
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 2: Camera estimation",
                               PHOTON_DEBUG);
 
@@ -211,12 +207,10 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
     return result;
   }
 
-  // Convert rotation matrices to CV_32F format required by bundle adjuster
-  for (size_t i = 0; i < cameras.size(); ++i) {
+  for (size_t i = 0; i < cameras.size(); ++i)
     cameras[i].R.convertTo(cameras[i].R, CV_32F);
-  }
+  
 
-  // Refine camera parameters with bundle adjustment
   cv::Ptr<cv::detail::BundleAdjusterBase> adjuster =
       cv::makePtr<cv::detail::BundleAdjusterRay>();
 
@@ -230,11 +224,9 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
     return result;
   }
 
-  // PHASE 3: Warping Images (16-bit)
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 3: Warping images",
                               PHOTON_DEBUG);
 
-  // Find median focal length
   std::vector<double> focals;
   for (size_t i = 0; i < cameras.size(); ++i) {
     focals.push_back(cameras[i].focal);
@@ -242,7 +234,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   std::sort(focals.begin(), focals.end());
   float median_focal = static_cast<float>(focals[focals.size() / 2]);
 
-  // Create cylindrical warper with scale based on focal length
   float warped_image_scale = median_focal;
   cv::Ptr<cv::WarperCreator> warper_creator =
       cv::makePtr<cv::CylindricalWarper>();
@@ -250,7 +241,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
       warper_creator->create(static_cast<float>(warped_image_scale));
 
   LogManager::instance()->log("[ Panorama.cpp ] - Created warper", PHOTON_DEBUG);
-  // Warp images and create masks
   std::vector<cv::Mat> images_warped16;
   std::vector<cv::Mat> masks_warped;
   std::vector<cv::UMat> images_warped16_umat;
@@ -265,14 +255,12 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
     corners.push_back(roi.tl());
     sizes_warped.push_back(roi.size());
 
-    // Warp the 16-bit image
     cv::Mat warped;
     warper->warp(images16[i], K, cameras[i].R, cv::INTER_LINEAR,
                  cv::BORDER_REFLECT, warped);
     images_warped16.push_back(warped);
     images_warped16_umat.push_back(warped.getUMat(cv::ACCESS_READ));
 
-    // Create and warp mask
     cv::Mat mask = cv::Mat::ones(sizes[i], CV_8U) * 255;
     cv::Mat warped_mask;
     warper->warp(mask, K, cameras[i].R, cv::INTER_NEAREST, cv::BORDER_CONSTANT,
@@ -281,7 +269,8 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
     masks_warped_umat.push_back(warped_mask.getUMat(cv::ACCESS_READ));
   }
 
-  // PHASE 4: Exposure Compensation (optional)
+  // As of now the user cannot choose to compensate for exposure.
+  // Will add that if I need it in my workflow.
   if (compensateExposure) {
     LogManager::instance()->log(
         "[ Panorama.cpp ] - Phase 4: Exposure compensation", PHOTON_DEBUG);
@@ -298,12 +287,9 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
         "[ Panorama.cpp ] - Phase 4: Skipping exposure compensation", PHOTON_DEBUG);
   }
 
-  // PHASE 5: Seam Finding (Graph-Cut)
-  // GraphCutSeamFinder expects 8-bit UMat images and binary masks
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 5: Seam finding",
                               PHOTON_DEBUG);
 
-  // Ensure masks are binary (0 or 255)
   std::vector<cv::UMat> masks_binary;
   for (auto& mask : masks_warped) {
     cv::Mat mask_bin;
@@ -318,22 +304,14 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
     images_warped8_umat.push_back(img8.getUMat(cv::ACCESS_READ));
   }
 
-  // Use a simpler seam finder that's more robust
 
   cv::Ptr<cv::detail::SeamFinder> seam_finder =
       cv::makePtr<cv::detail::VoronoiSeamFinder>();
   seam_finder->find(images_warped8_umat, corners, masks_binary);
-  /*
-  cv::Ptr<cv::detail::SeamFinder> seam_finder =
-    cv::makePtr<cv::detail::GraphCutSeamFinder>(
-        cv::detail::GraphCutSeamFinder::COST_COLOR);
-  seam_finder->find(images_warped8_umat, corners, masks_binary);
-*/
-  // PHASE 6: Multi-band Blending (16-bit)
+
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 6: Multi-band blending",
                               PHOTON_DEBUG);
 
-  // Calculate final panorama size
   cv::Rect dst_roi = cv::detail::resultRoi(corners, sizes_warped);
 
   // Create multi-band blender with high number of bands for quality
@@ -342,41 +320,36 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   int blend_width = std::min(dst_roi.width, dst_roi.height) / 8;
   int num_bands = static_cast<int>(
       std::ceil(std::log(static_cast<double>(blend_width)) / std::log(2.0)));
+  
+  // NOTE:
+  // It makes little difference, so I'm not going to cap it.
   // num_bands = std::min(num_bands, 8);  // Cap at 8 for performance
 
   LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Using %1 bands for blending").arg(num_bands),
       PHOTON_DEBUG);
 
-  // Create blender - use default CV_32F weight type
   cv::Ptr<cv::detail::Blender> blender =
       cv::makePtr<cv::detail::MultiBandBlender>(false, num_bands);
   blender->prepare(corners, sizes_warped);
 
 
   float scale_factor = 2.0;
-// 1. Feed images to blender using Scaled 16-bit Signed
   for (size_t i = 0; i < images_warped16.size(); i++) {
       cv::Mat img16S;
-      // We multiply by 1/scale_factor to allow the blend to sum up the highlights without clipping
       images_warped16[i].convertTo(img16S, CV_16SC3, 1/scale_factor);
       blender->feed(img16S, masks_binary[i], corners[i]);
   }
 
-  // 2. Blend
   cv::Mat result_16s, result_mask;
   blender->blend(result_16s, result_mask);
 
-  // 3. Convert back to 16-bit Unsigned
   cv::Mat result16;
-  // Now we multiply again bythe scale_factor to restore the original data. 
-  // The more you scale the more you lose data.
   result_16s.convertTo(result16, CV_16UC3, scale_factor);
 
   cv::Mat resultRGB;
   cv::cvtColor(result16, resultRGB, cv::COLOR_BGR2RGB);
 
-  // Ensure continuous memory layout for TIFF writing
   if (!resultRGB.isContinuous()) resultRGB = resultRGB.clone();
 
   if (resultRGB.empty()) {
@@ -393,7 +366,6 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
       PHOTON_DEBUG);
 
 
-  // PHASE 7: Save to DNG
   LogManager::instance()->log("[ Panorama.cpp ] - Phase 7: Saving to DNG",
                               PHOTON_DEBUG);
 
@@ -404,94 +376,83 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
 
   LogManager::instance()->log(
       QString("[ Panorama.cpp ] - Saving panorama to %1").arg(filename), PHOTON_INFO);
-  
 
-  // ==========================================
-// 1. GENERATE THUMBNAIL FIRST (before opening TIFF)
-// ==========================================
-int max_dim = 256;
-double scale = (double)max_dim / std::max(result16.cols, result16.rows);
-cv::Mat thumbnail16;
-cv::resize(result16, thumbnail16, cv::Size(), scale, scale, cv::INTER_AREA);
+  int max_dim = 256;
+  double scale = (double)max_dim / std::max(result16.cols, result16.rows);
+  cv::Mat thumbnail16;
+  cv::resize(result16, thumbnail16, cv::Size(), scale, scale, cv::INTER_AREA);
 
-cv::Mat thumbFloat;
-thumbnail16.convertTo(thumbFloat, CV_32FC3, 1.0 / 65535.0);
-cv::pow(thumbFloat, 1.0 / 2.2, thumbFloat);
+  cv::Mat thumbFloat;
+  thumbnail16.convertTo(thumbFloat, CV_32FC3, 1.0 / 65535.0);
+  cv::pow(thumbFloat, 1.0 / 2.2, thumbFloat);
 
-cv::Mat thumbnail8;
-thumbFloat.convertTo(thumbnail8, CV_8UC3, 255.0);
+  cv::Mat thumbnail8;
+  thumbFloat.convertTo(thumbnail8, CV_8UC3, 255.0);
 
-// ==========================================
-// 2. OPEN FILE AND WRITE IFD 0 = THUMBNAIL
-// ==========================================
-TIFF* out = TIFFOpen(filename.toStdString().c_str(), "w");
-if (!out) {
-    result["success"] = false;
-    result["message"] = "Could not open file for writing.";
-    return result;
-}
+  TIFF* out = TIFFOpen(filename.toStdString().c_str(), "w");
+  if (!out) {
+      result["success"] = false;
+      result["message"] = "Could not open file for writing.";
+      return result;
+  }
 
-// --- Shared DNG metadata on IFD 0 ---
-TIFFSetField(out, TIFFTAG_MAKE,              "Photon");
-TIFFSetField(out, TIFFTAG_MODEL,             "Panorama Engine");
-TIFFSetField(out, TIFFTAG_UNIQUECAMERAMODEL, "Photon Panorama Engine");
+  // --- Shared DNG metadata on IFD 0 ---
+  TIFFSetField(out, TIFFTAG_MAKE,              "Photon");
+  TIFFSetField(out, TIFFTAG_MODEL,             "Panorama Engine");
+  TIFFSetField(out, TIFFTAG_UNIQUECAMERAMODEL, "Photon Panorama Engine");
 
-static const uint8_t dng_ver[] = {1, 4, 0, 0};
-TIFFSetField(out, TIFFTAG_DNGVERSION,         dng_ver);
-TIFFSetField(out, TIFFTAG_DNGBACKWARDVERSION, dng_ver);
+  static const uint8_t dng_ver[] = {1, 4, 0, 0};
+  TIFFSetField(out, TIFFTAG_DNGVERSION,         dng_ver);
+  TIFFSetField(out, TIFFTAG_DNGBACKWARDVERSION, dng_ver);
 
-// --- Thumbnail image fields ---
-TIFFSetField(out, TIFFTAG_SUBFILETYPE,    FILETYPE_REDUCEDIMAGE); // 0x1
-TIFFSetField(out, TIFFTAG_IMAGEWIDTH,     thumbnail8.cols);
-TIFFSetField(out, TIFFTAG_IMAGELENGTH,    thumbnail8.rows);
-TIFFSetField(out, TIFFTAG_BITSPERSAMPLE,  8);
-TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
-TIFFSetField(out, TIFFTAG_PHOTOMETRIC,    PHOTOMETRIC_RGB);
-TIFFSetField(out, TIFFTAG_COMPRESSION,    COMPRESSION_JPEG); // JPEG is preferred by most viewers
-TIFFSetField(out, TIFFTAG_JPEGQUALITY,    90);
-TIFFSetField(out, TIFFTAG_PLANARCONFIG,   PLANARCONFIG_CONTIG);
-TIFFSetField(out, TIFFTAG_ORIENTATION,    ORIENTATION_TOPLEFT);
-TIFFSetField(out, TIFFTAG_ROWSPERSTRIP,   thumbnail8.rows); // single strip for thumbnail
+  // --- Thumbnail image fields ---
+  TIFFSetField(out, TIFFTAG_SUBFILETYPE,    FILETYPE_REDUCEDIMAGE); // 0x1
+  TIFFSetField(out, TIFFTAG_IMAGEWIDTH,     thumbnail8.cols);
+  TIFFSetField(out, TIFFTAG_IMAGELENGTH,    thumbnail8.rows);
+  TIFFSetField(out, TIFFTAG_BITSPERSAMPLE,  8);
+  TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(out, TIFFTAG_PHOTOMETRIC,    PHOTOMETRIC_RGB);
+  TIFFSetField(out, TIFFTAG_COMPRESSION,    COMPRESSION_JPEG); // JPEG is preferred by most viewers
+  TIFFSetField(out, TIFFTAG_JPEGQUALITY,    90);
+  TIFFSetField(out, TIFFTAG_PLANARCONFIG,   PLANARCONFIG_CONTIG);
+  TIFFSetField(out, TIFFTAG_ORIENTATION,    ORIENTATION_TOPLEFT);
+  TIFFSetField(out, TIFFTAG_ROWSPERSTRIP,   thumbnail8.rows); // single strip for thumbnail
 
-for (int row = 0; row < thumbnail8.rows; row++) {
-    uint8_t* rowPtr = thumbnail8.ptr<uint8_t>(row);
-    TIFFWriteScanline(out, rowPtr, row, 0);
-}
+  for (int row = 0; row < thumbnail8.rows; row++) {
+      uint8_t* rowPtr = thumbnail8.ptr<uint8_t>(row);
+      TIFFWriteScanline(out, rowPtr, row, 0);
+  }
 
-// ==========================================
-// 3. WRITE IFD 1 = MAIN RAW IMAGE
-// ==========================================
-TIFFWriteDirectory(out); // seals IFD 0, advances to IFD 1
+  TIFFWriteDirectory(out); // seals IFD 0, advances to IFD 1
 
-TIFFSetField(out, TIFFTAG_SUBFILETYPE,     0); // full-resolution image
-TIFFSetField(out, TIFFTAG_IMAGEWIDTH,      resultRGB.cols);
-TIFFSetField(out, TIFFTAG_IMAGELENGTH,     resultRGB.rows);
-TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
-TIFFSetField(out, TIFFTAG_BITSPERSAMPLE,   16);
-TIFFSetField(out, TIFFTAG_ORIENTATION,     ORIENTATION_TOPLEFT);
-TIFFSetField(out, TIFFTAG_PLANARCONFIG,    PLANARCONFIG_CONTIG);
-TIFFSetField(out, TIFFTAG_PHOTOMETRIC,     34892); // LINEARRAW
-TIFFSetField(out, TIFFTAG_SAMPLEFORMAT,    SAMPLEFORMAT_UINT);
-TIFFSetField(out, TIFFTAG_ROWSPERSTRIP,    TIFFDefaultStripSize(out, 0));
+  TIFFSetField(out, TIFFTAG_SUBFILETYPE,     0); // full-resolution image
+  TIFFSetField(out, TIFFTAG_IMAGEWIDTH,      resultRGB.cols);
+  TIFFSetField(out, TIFFTAG_IMAGELENGTH,     resultRGB.rows);
+  TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(out, TIFFTAG_BITSPERSAMPLE,   16);
+  TIFFSetField(out, TIFFTAG_ORIENTATION,     ORIENTATION_TOPLEFT);
+  TIFFSetField(out, TIFFTAG_PLANARCONFIG,    PLANARCONFIG_CONTIG);
+  TIFFSetField(out, TIFFTAG_PHOTOMETRIC,     34892); // LINEARRAW
+  TIFFSetField(out, TIFFTAG_SAMPLEFORMAT,    SAMPLEFORMAT_UINT);
+  TIFFSetField(out, TIFFTAG_ROWSPERSTRIP,    TIFFDefaultStripSize(out, 0));
 
-uint32_t whiteLevel[3] = {65535, 65535, 65535};
-TIFFSetField(out, TIFFTAG_WHITELEVEL,             3, whiteLevel);
-TIFFSetField(out, TIFFTAG_COLORMATRIX1,           9, colorInfo.get()->matrix);
-TIFFSetField(out, TIFFTAG_ASSHOTNEUTRAL,          3, colorInfo.get()->asShotNeutral);
-TIFFSetField(out, TIFFTAG_CALIBRATIONILLUMINANT1, 23);
+  uint32_t whiteLevel[3] = {65535, 65535, 65535};
+  TIFFSetField(out, TIFFTAG_WHITELEVEL,             3, whiteLevel);
+  TIFFSetField(out, TIFFTAG_COLORMATRIX1,           9, colorInfo.get()->matrix);
+  TIFFSetField(out, TIFFTAG_ASSHOTNEUTRAL,          3, colorInfo.get()->asShotNeutral);
+  TIFFSetField(out, TIFFTAG_CALIBRATIONILLUMINANT1, 23);
 
-for (int row = 0; row < resultRGB.rows; row++) {
-    uint16_t* rowPtr = resultRGB.ptr<uint16_t>(row);
-    if (TIFFWriteScanline(out, rowPtr, row, 0) < 0) {
-        TIFFClose(out);
-        result["success"] = false;
-        result["message"] = "Error writing scanline to DNG.";
-        return result;
-    }
-}
+  for (int row = 0; row < resultRGB.rows; row++) {
+      uint16_t* rowPtr = resultRGB.ptr<uint16_t>(row);
+      if (TIFFWriteScanline(out, rowPtr, row, 0) < 0) {
+          TIFFClose(out);
+          result["success"] = false;
+          result["message"] = "Error writing scanline to DNG.";
+          return result;
+      }
+  }
 
-TIFFClose(out);
-  
+  TIFFClose(out);
 
   LogManager::instance()->log(
       "[ Panorama.cpp ] - Panorama stitching completed successfully", PHOTON_INFO);

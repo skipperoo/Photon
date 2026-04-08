@@ -6,44 +6,42 @@
 
 ## What is this and who is this for?
 
-Photon is an open source RAW image editor, born to (_try to_) replace basic Adobe Lightroom® functionalities, focused on ease of use and performance.
-I'm an occasional photographer and lately I've been using the Lightroom mobile version to edit my photos as it is free and has all the features I want, except for panorama stitching, so I thought it was a good idea to attempt to create something to fit my needs and be finally free from Adobe.
+Photon is an open source RAW image editor, focused on ease of use and performance.
+I'm an occasional photographer and lately I've been using the mobile version of Lightroom to edit my photos as it is free and has all the features I need, but unfortunately it does not run on Linux.
 
-If you are looking for a modern quick photo editor, this might be for you. On the other hand, if you want advanced AI features, local adjustment and so on, either pay for Lightroom or try [RapidRaw](https://github.com/CyberTimon/RapidRAW), which looks very promising.
+If you are looking for a modern quick photo editor, this might be for you. On the other hand, if you want advanced AI features, local adjustments and so on, either pay for Lightroom or try [RapidRaw](https://github.com/CyberTimon/RapidRAW), which looks very promising.
 
 ## Current state
 
-Not having much experience with both Qt6 and how images are processed, I used both Gemini and Copilot to kickstart the project, especially to implement what could have taken months and months of full time work, which I cannot afford right now.
+Not having much experience with both Qt6 and how RAW images work, I used both Gemini and Copilot to kickstart the project, shrinking down months of full time research and work.
 
-The project is in an advanced state and most of the functionalities listed below as completed work good enough for me, so I decided to step back from automatic programming/vibe coding/whatever and start to implement and refine what's missing manually, to both asses the code quality produced up until now (I would be a liar if I say that I diligently reviewed all the AI output...) and to actually keep my skills sharp in these funny times.
+> [!NOTE]
+> From the first day of development I wanted to implement things as fast as possible to get a working application and start editing my photos on Linux, for this reason I skipped chores and code hygiene practices, but now I will slow down to clean up the project and fix all the little things and inconsistencies that annoy me.
 
-Here's what works and what is still in the backlog:
+Features:
 
-| Feature                                     | Status |
-| :------------------------------------------ | :----: |
-| RAW Decoding (LibRaw)                       |   ✅   |
-| GPU-Accelerated Rendering (Vulkan/RHI)      |   ✅   |
-| Non-Destructive Editing (JSON Sidecars)     |   ✅   |
-| Exposure & Contrast                         |   ✅   |
-| Vibrance & Saturation                       |   ✅   |
-| 8-Band HSL Adjustments                      |   ✅   |
-| Color Grading (Shadows/Midtones/Highlights) |   ✅   |
-| Film Grain & Vignette                       |   ✅   |
-| Live Histogram (RGB/Luma)                   |   ✅   |
-| Undo/Redo History                           |   ✅   |
-| Preset System                               |   ✅   |
-| EXIF Metadata & Orientation                 |   ✅   |
-| Hybrid Denoising (BM3D + GPU NLM)           |   ✅   |
-| Interactive Viewport (Pan & Zoom)           |   ✅   |
-| Image Export (JPEG/TIFF)                    |   ✅   |
-| Theme Customization (Light/Dark/Accents)    |   ✅   |
-| Crop & Transform Tools                      |   ✅   |
-| Tone Curve (Spline UI)                      |   ✅   |
-| Batch Copy & Paste                          |   ✅   |
-| Lens Correction (Lensfun)                   |   🔁   |
-| Panorama Stitching                          |   🔁   |
-| HDR merge                                   |   🔁   |
-| Import/Export presetes                      |   🔁   |
+- [x] RAW Decoding (LibRaw)
+- [x] GPU-Accelerated Rendering (Vulkan/RHI)
+- [x] Non-Destructive Editing (JSON Sidecars)
+- [x] Exposure & Contrast
+- [x] Vibrance & Saturation
+- [x] 8-Band HSL Adjustments
+- [x] Color Grading (Shadows/Midtones/Highlights)
+- [x] Film Grain & Vignette
+- [x] Live Histogram (RGB/Luma)
+- [x] Undo/Redo History
+- [x] Preset System
+- [x] EXIF Metadata & Orientation
+- [x] Hybrid Denoising (BM3D + GPU NLM)
+- [x] Image Export (JPEG/TIFF)
+- [x] Theme Customization (Light/Dark/Accents)
+- [x] Crop & Transform Tools
+- [x] Tone Curve (Spline UI)
+- [x] Batch Copy & Paste
+- [x] Panorama Stitching
+- [ ] Lens Correction (Lensfun)
+- [ ] HDR merge
+- [ ] Import/Export presetes
 
 ## Getting Started
 
@@ -77,5 +75,5 @@ make -j$(nproc)
 ## Why another editing tool?
 
 I've always used Lightroom to edit my photos and I never found a valid alternative: tools like Rawtherapee and Darktable are for sure very capable and powerful, but I find them unnecessary complex to perform simple edits.
-Searching for alternatives on GitHub I found RapidRaw, a very promising editor with a stunning UI and some very powerful capabilities. I give it a shot and I really liked it, especially the UX that allowed me to quickly edit my last shooting session. However, while the editing workflow is exceptional, I found the performance disappointing, even on a laptop with a dedicated GPU: the preview takes a lot of time to render, the adjustment are applied slowly and the overall experience is laggy.
-For these reasons I decided to start this journey, choosing to use QT6, which I think it's a better tool for implementing an high performance photo editor.
+Searching for alternatives on GitHub I found RapidRaw, a very promising editor with a stunning UI and some very powerful capabilities. I gave it a shot and I really liked it, especially the UX that allowed me to quickly edit my last shooting session. However, while the editing workflow is exceptional, I found the performance disappointing, even on a laptop with a dedicated GPU: the preview takes a lot of time to render, the adjustment are applied slowly and the overall experience is laggy.
+For these reasons I decided to start this journey, choosing to use QT6 and C++, which I think it's a better tool for implementing an high performance photo editor.

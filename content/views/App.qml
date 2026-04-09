@@ -23,6 +23,7 @@ Window {
     property int ratingFilter: 0
     property int ratingOperator: 2
     readonly property var ratingOperatorLabels: ["=", ">", "≥", "<", "≤"]
+    property int filmstripRestoreGeneration: 0
     property var copiedSettings: ({})
     property string contextMenuSourcePath: ""
     PhotonToastManager { id: toaster }
@@ -87,15 +88,38 @@ Window {
 
     // Function to refresh the file list
     function refreshFiles() {
-        rawFilesModel.clear();
-        
+        var previousFilmstripX = filmstripList ? filmstripList.contentX : 0
         // Scan for RAW files in the current folder
         var files = fileScanner.scanForRawFiles(AppState.currentFolder);
-        if (!files) return;
+        if (!files) {
+            rawFilesModel.clear();
+            return;
+        }
+
+        // Filter to mirror Library view behavior
+        var filtered = [];
+        for (var i = 0; i < files.length; i++) {
+            var file = files[i];
+            var r = file.rating || 0;
+            var match = true;
+            if (window.ratingFilter > 0) {
+                switch (window.ratingOperator) {
+                    case 0: match = (r === window.ratingFilter); break;
+                    case 1: match = (r > window.ratingFilter); break;
+                    case 2: match = (r >= window.ratingFilter); break;
+                    case 3: match = (r < window.ratingFilter); break;
+                    case 4: match = (r <= window.ratingFilter); break;
+                }
+            } else if (window.ratingFilter === 0 && window.ratingOperator === 0) {
+                match = (r === 0);
+            }
+
+            if (match) filtered.push(file);
+        }
 
         // Sort to match library view order
         var dir = window.sortAscending ? 1 : -1;
-        files.sort(function(a, b) {
+        filtered.sort(function(a, b) {
             switch (window.sortProperty) {
                 case 0: return dir * a.name.localeCompare(b.name);
                 case 1:
@@ -107,8 +131,34 @@ Window {
             }
         });
 
-        for (var i = 0; i < files.length; i++) {
-            var file = files[i];
+        // Fast path: keep model (and filmstrip scroll) stable when ordering doesn't change.
+        var sameOrder = rawFilesModel.count === filtered.length;
+        if (sameOrder) {
+            for (var k = 0; k < filtered.length; k++) {
+                if (rawFilesModel.get(k).path !== filtered[k].path) {
+                    sameOrder = false;
+                    break;
+                }
+            }
+        }
+        if (sameOrder) {
+            for (var m = 0; m < filtered.length; m++) {
+                var current = rawFilesModel.get(m);
+                var updated = filtered[m];
+                var updatedRating = updated.rating || 0;
+                if (current.name !== updated.name) rawFilesModel.setProperty(m, "name", updated.name);
+                if (current.size !== updated.size) rawFilesModel.setProperty(m, "size", updated.size);
+                if (current.modified !== updated.modified) rawFilesModel.setProperty(m, "modified", updated.modified);
+                if (current.rating !== updatedRating) rawFilesModel.setProperty(m, "rating", updatedRating);
+            }
+            return;
+        }
+
+        var restoreGeneration = ++window.filmstripRestoreGeneration;
+        rawFilesModel.clear();
+
+        for (var j = 0; j < filtered.length; j++) {
+            var file = filtered[j];
             rawFilesModel.append({
                 "path": file.path,
                 "name": file.name,
@@ -119,6 +169,23 @@ Window {
             
             // Pre-generate thumbnails
             thumbnailProvider.generateThumbnailAsync(file.path);
+        }
+
+        if (filmstripList) {
+            Qt.callLater(function() {
+                if (restoreGeneration !== window.filmstripRestoreGeneration)
+                    return;
+                var maxContentX = Math.max(0, filmstripList.contentWidth - filmstripList.width);
+                filmstripList.contentX = Math.max(0, Math.min(previousFilmstripX, maxContentX));
+
+                // Apply once more on the next cycle to override delayed ListView relayouts.
+                Qt.callLater(function() {
+                    if (restoreGeneration !== window.filmstripRestoreGeneration)
+                        return;
+                    var maxContentX2 = Math.max(0, filmstripList.contentWidth - filmstripList.width);
+                    filmstripList.contentX = Math.max(0, Math.min(previousFilmstripX, maxContentX2));
+                });
+            });
         }
     }
 
@@ -257,6 +324,8 @@ Window {
 
     onSortPropertyChanged: refreshFiles()
     onSortAscendingChanged: refreshFiles()
+    onRatingFilterChanged: refreshFiles()
+    onRatingOperatorChanged: refreshFiles()
 
     // Global keyboard shortcuts for rating and navigation
     Item {
@@ -306,8 +375,6 @@ Window {
     Item {
         anchors.fill: parent
 
-        // Hover area to show topbar in Develop view (if we want it there, but currently topbar is hidden in Develop)
-        // For now, we disable the hover functionality as requested for Library/Settings.
         MouseArea {
             id: topbarHoverArea
             anchors.top: parent.top
@@ -315,9 +382,6 @@ Window {
             width: viewportContainer.width
             height: 100
             hoverEnabled: true
-            // Only enabled in Develop view if we want hover-to-show there, 
-            // but the topbar is explicitly hidden in Develop view (visible: ... check).
-            // So we disable this entirely for now to follow the "removing hover functionality" request.
             enabled: false 
             onEntered: window.showTopbar = true
             onExited: {

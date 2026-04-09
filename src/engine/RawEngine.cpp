@@ -736,8 +736,8 @@ void RawEngine::setSource(const QString& source) {
   m_histogramUpdatePending = false;
   m_metadata.clear();
   m_orientation = 1;
-  m_exposure = 0.0f;
-  m_contrast = 1.0f;
+  setExposure(0.0f);
+  setContrast(1.0f);
   m_hasDenoisedResult = false;
 
   // Clear geometry bake state

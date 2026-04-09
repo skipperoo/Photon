@@ -1,4 +1,5 @@
 #include <cmath>
+#include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -11,6 +12,7 @@ class TestRawEngine : public QObject {
   void testLoadInvalidFile();
   void testLoadValidFile();
   void testProperties();
+  void testSwitchingSourceResetsExposureAndContrast();
   void testApplyGeometryTransformsStraightenKeepsFullFrame();
   void testApplyGeometryTransformsCropRectOnRotatedFrame();
   void testApplyGeometryTransformsCropPreservesAspectAndFocus();
@@ -62,6 +64,30 @@ void TestRawEngine::testProperties() {
   engine.setVignetteAmount(-50.0f);
   QCOMPARE(engine.vignetteAmount(), -50.0f);
   QCOMPARE(vignetteSpy.count(), 1);
+}
+
+void TestRawEngine::testSwitchingSourceResetsExposureAndContrast() {
+  QTemporaryDir tempDir;
+  QVERIFY(tempDir.isValid());
+
+  RawEngine engine;
+  QSignalSpy exposureSpy(&engine, &RawEngine::exposureChanged);
+  QSignalSpy contrastSpy(&engine, &RawEngine::contrastChanged);
+
+  engine.setSource(tempDir.filePath("first.arw"));
+  engine.setExposure(1.5f);
+  engine.setContrast(1.3f);
+  QCOMPARE(engine.exposure(), 1.5f);
+  QCOMPARE(engine.contrast(), 1.3f);
+
+  const int exposureSignalsBeforeSwitch = exposureSpy.count();
+  const int contrastSignalsBeforeSwitch = contrastSpy.count();
+
+  engine.setSource(tempDir.filePath("second.arw"));
+  QCOMPARE(engine.exposure(), 0.0f);
+  QCOMPARE(engine.contrast(), 1.0f);
+  QVERIFY(exposureSpy.count() > exposureSignalsBeforeSwitch);
+  QVERIFY(contrastSpy.count() > contrastSignalsBeforeSwitch);
 }
 
 void TestRawEngine::testApplyGeometryTransformsStraightenKeepsFullFrame() {

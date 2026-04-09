@@ -760,7 +760,7 @@ class RawEngine : public QObject {
   int m_denoisedWidth = 0;
   int m_denoisedHeight = 0;
   QRectF m_denoisedRoi{0, 0, 1, 1};
-  mutable QRecursiveMutex m_processorMutex;
+  mutable QMutex m_processorMutex;
   std::atomic<bool> m_abortDenoise{false};
   std::atomic<int> m_currentLoadId{0};
   bool m_hasDenoisedResult = false;

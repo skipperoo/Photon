@@ -37,6 +37,11 @@ static float smoothstep(float edge0, float edge1, float x) {
 
 static float lerp(float a, float b, float t) { return a + t * (b - a); }
 
+static float srgb_to_linear_hist(float c) {
+  return (c <= 0.04045f) ? (c / 12.92f)
+                         : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
 struct HSV {
   float h, s, v;
 };
@@ -231,7 +236,8 @@ static Vec3fHist sample_source_linear_bilinear_hist(const ushort* src,
 
   alignas(16) float packed[4];
   _mm_store_ps(packed, _mm256_castps256_ps128(out));
-  return {packed[0], packed[1], packed[2]};
+  return {srgb_to_linear_hist(packed[0]), srgb_to_linear_hist(packed[1]),
+          srgb_to_linear_hist(packed[2])};
 #elif defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
   const __m128 c00 = load_rgb16_norm_hist_sse(p00);
   const __m128 c10 = load_rgb16_norm_hist_sse(p10);
@@ -249,7 +255,8 @@ static Vec3fHist sample_source_linear_bilinear_hist(const ushort* src,
 
   alignas(16) float packed[4];
   _mm_store_ps(packed, out);
-  return {packed[0], packed[1], packed[2]};
+  return {srgb_to_linear_hist(packed[0]), srgb_to_linear_hist(packed[1]),
+          srgb_to_linear_hist(packed[2])};
 #else
   constexpr float invU16 = 1.0f / 65535.0f;
   const Vec3fHist c00{p00[0] * invU16, p00[1] * invU16, p00[2] * invU16};
@@ -263,100 +270,94 @@ static Vec3fHist sample_source_linear_bilinear_hist(const ushort* src,
   const float bottomR = lerp(c01.r, c11.r, tx);
   const float bottomG = lerp(c01.g, c11.g, tx);
   const float bottomB = lerp(c01.b, c11.b, tx);
-  return {lerp(topR, bottomR, ty), lerp(topG, bottomG, ty),
-          lerp(topB, bottomB, ty)};
+  return {srgb_to_linear_hist(lerp(topR, bottomR, ty)),
+          srgb_to_linear_hist(lerp(topG, bottomG, ty)),
+          srgb_to_linear_hist(lerp(topB, bottomB, ty))};
 #endif
+}
+
+static Vec3fHist photon001_gaussian_sigma1_axis_hist(const ushort* src,
+                                                     int width, int height,
+                                                     float u, float v,
+                                                     float axisX,
+                                                     float axisY) {
+  Vec3fHist blur = sample_source_linear_bilinear_hist(src, width, height, u, v);
+  blur.r *= 0.39894347f;
+  blur.g *= 0.39894347f;
+  blur.b *= 0.39894347f;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float du = axisX * offset / float(width);
+    const float dv = axisY * offset / float(height);
+    Vec3fHist p =
+        sample_source_linear_bilinear_hist(src, width, height, u + du, v + dv);
+    Vec3fHist n =
+        sample_source_linear_bilinear_hist(src, width, height, u - du, v - dv);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
+  };
+
+  tapPair(1.18242552f, 0.29596257f);
+  tapPair(3.02931223f, 0.00456569f);
+  return blur;
+}
+
+static Vec3fHist photon001_gaussian_sigma35_axis_hist(const ushort* src,
+                                                      int width, int height,
+                                                      float u, float v,
+                                                      float axisX,
+                                                      float axisY) {
+  Vec3fHist blur = sample_source_linear_bilinear_hist(src, width, height, u, v);
+  blur.r *= 0.11398719f;
+  blur.g *= 0.11398719f;
+  blur.b *= 0.11398719f;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float du = axisX * offset / float(width);
+    const float dv = axisY * offset / float(height);
+    Vec3fHist p =
+        sample_source_linear_bilinear_hist(src, width, height, u + du, v + dv);
+    Vec3fHist n =
+        sample_source_linear_bilinear_hist(src, width, height, u - du, v - dv);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
+  };
+
+  tapPair(1.46942595f, 0.20624514f);
+  tapPair(3.42905340f, 0.13826867f);
+  tapPair(5.38960340f, 0.06731104f);
+  tapPair(7.35154728f, 0.02378969f);
+  tapPair(9.31528835f, 0.00610264f);
+  tapPair(11.28114775f, 0.00113588f);
+  tapPair(13.24935770f, 0.00015335f);
+  return blur;
 }
 
 static Vec3fHist compute_fine_blur_hist(const ushort* src, int width,
                                         int height, float u, float v) {
-  Vec3fHist blur{0.0f, 0.0f, 0.0f};
-  const float invW = 1.0f / float(width);
-  const float invH = 1.0f / float(height);
-  auto tap = [&](float dx, float dy, float w) {
-    Vec3fHist s = sample_source_linear_bilinear_hist(src, width, height,
-                                                     u + dx * invW,
-                                                     v + dy * invH);
-    blur.r += s.r * w;
-    blur.g += s.g * w;
-    blur.b += s.b * w;
-  };
-
-  constexpr float r1 = 1.5f;
-  constexpr float r2 = 3.0f;
-
-  tap(0.0f, 0.0f, 0.18f);
-  tap(r1, 0.0f, 0.095f);
-  tap(-r1, 0.0f, 0.095f);
-  tap(0.0f, r1, 0.095f);
-  tap(0.0f, -r1, 0.095f);
-  tap(r1, r1, 0.055f);
-  tap(-r1, r1, 0.055f);
-  tap(r1, -r1, 0.055f);
-  tap(-r1, -r1, 0.055f);
-
-  tap(r2, 0.0f, 0.04f);
-  tap(-r2, 0.0f, 0.04f);
-  tap(0.0f, r2, 0.04f);
-  tap(0.0f, -r2, 0.04f);
-  tap(r2, r2, 0.015f);
-  tap(-r2, r2, 0.015f);
-  tap(r2, -r2, 0.015f);
-  tap(-r2, -r2, 0.015f);
-  return blur;
+  Vec3fHist horizontal =
+      photon001_gaussian_sigma1_axis_hist(src, width, height, u, v, 1.0f, 0.0f);
+  Vec3fHist vertical =
+      photon001_gaussian_sigma1_axis_hist(src, width, height, u, v, 0.0f, 1.0f);
+  return {(horizontal.r + vertical.r) * 0.5f, (horizontal.g + vertical.g) * 0.5f,
+          (horizontal.b + vertical.b) * 0.5f};
 }
 
 static Vec3fHist compute_coarse_blur_hist(const ushort* src, int width,
                                           int height, float u, float v) {
-  Vec3fHist blur{0.0f, 0.0f, 0.0f};
-  const float invW = 1.0f / float(width);
-  const float invH = 1.0f / float(height);
-  auto tap = [&](float dx, float dy, float w) {
-    Vec3fHist s = sample_source_linear_bilinear_hist(src, width, height,
-                                                     u + dx * invW,
-                                                     v + dy * invH);
-    blur.r += s.r * w;
-    blur.g += s.g * w;
-    blur.b += s.b * w;
-  };
-
-  constexpr float r1 = 4.5f;
-  constexpr float r2 = 7.0f;
-  constexpr float r3 = 9.5f;
-
-  tap(0.0f, 0.0f, 0.20f);
-  tap(r1, 0.0f, 0.055f);
-  tap(-r1, 0.0f, 0.055f);
-  tap(0.0f, r1, 0.055f);
-  tap(0.0f, -r1, 0.055f);
-  tap(r1, r1, 0.038f);
-  tap(-r1, r1, 0.038f);
-  tap(r1, -r1, 0.038f);
-  tap(-r1, -r1, 0.038f);
-
-  tap(r2, 0.0f, 0.04f);
-  tap(-r2, 0.0f, 0.04f);
-  tap(0.0f, r2, 0.04f);
-  tap(0.0f, -r2, 0.04f);
-  tap(r2, r2, 0.03f);
-  tap(-r2, r2, 0.03f);
-  tap(r2, -r2, 0.03f);
-  tap(-r2, -r2, 0.03f);
-
-  tap(r3, 0.0f, 0.022f);
-  tap(-r3, 0.0f, 0.022f);
-  tap(0.0f, r3, 0.022f);
-  tap(0.0f, -r3, 0.022f);
-  tap(r3, r3, 0.015f);
-  tap(-r3, r3, 0.015f);
-  tap(r3, -r3, 0.015f);
-  tap(-r3, -r3, 0.015f);
-  return blur;
+  Vec3fHist horizontal = photon001_gaussian_sigma35_axis_hist(src, width, height,
+                                                              u, v, 1.0f, 0.0f);
+  Vec3fHist vertical = photon001_gaussian_sigma35_axis_hist(src, width, height,
+                                                            u, v, 0.0f, 1.0f);
+  return {(horizontal.r + vertical.r) * 0.5f, (horizontal.g + vertical.g) * 0.5f,
+          (horizontal.b + vertical.b) * 0.5f};
 }
 
-constexpr float PV_FLARE_LINEAR_HIST = 0.000244140625f;  // 2^-12
-constexpr float PV_FLARE_LOG_HIST = -12.0f;
-constexpr float PV_EPS_HIST = 0.00000190734f;
+constexpr float PHOTON001_FLARE_LINEAR_HIST = 0.000244140625f;  // 2^-12
+constexpr float PHOTON001_FLARE_LOG_HIST = -12.0f;
+constexpr float PHOTON001_EPS_HIST = 0.00000190734f;
 
 static Vec3fHist eval_undo_render_curve_hist(const Vec3fHist& col) {
   constexpr float eps = 0.00001f;
@@ -373,7 +374,7 @@ static Vec3fHist eval_undo_render_curve_hist(const Vec3fHist& col) {
           (col.b - fMin) * scale + nMin};
 }
 
-static float pv_working_luma_linear_hist(const Vec3fHist& c) {
+static float photon001_working_luma_linear_hist(const Vec3fHist& c) {
   Vec3fHist clamped = clamp_vec3_hist(c, 0.0001f, 0.999f);
   Vec3fHist prophoto{
       0.529285f * clamped.r + 0.330046f * clamped.g + 0.140669f * clamped.b,
@@ -382,15 +383,17 @@ static float pv_working_luma_linear_hist(const Vec3fHist& c) {
   Vec3fHist unmapped =
       clamp_vec3_hist(eval_undo_render_curve_hist(prophoto), 0.0f, 1.0f);
   return std::max(unmapped.r * 0.25f + unmapped.g * 0.5f + unmapped.b * 0.25f,
-                  PV_EPS_HIST);
+                  PHOTON001_EPS_HIST);
 }
 
-static float pv_encode_log_luma_hist(float linearLuma) {
-  return std::log2(std::max(linearLuma + PV_FLARE_LINEAR_HIST, PV_EPS_HIST));
+static float photon001_encode_log_luma_hist(float linearLuma) {
+  return std::log2(std::max(linearLuma + PHOTON001_FLARE_LINEAR_HIST,
+                            PHOTON001_EPS_HIST));
 }
 
-static float pv_decode_log_luma_hist(float logLuma) {
-  return std::max(std::exp2(logLuma) - PV_FLARE_LINEAR_HIST, PV_EPS_HIST);
+static float photon001_decode_log_luma_hist(float logLuma) {
+  return std::max(std::exp2(logLuma) - PHOTON001_FLARE_LINEAR_HIST,
+                  PHOTON001_EPS_HIST);
 }
 
 static float endpoint_pin_mask_component_hist(float x) {
@@ -405,36 +408,104 @@ static float endpoint_pin_mask_component_hist(float x) {
   return lerp(base, strong, smoothstep(0.35f, 1.0f, x));
 }
 
-static float pv_log_luma_hist(const Vec3fHist& c) {
-  return pv_encode_log_luma_hist(pv_working_luma_linear_hist(c));
+static float photon001_log_luma_hist(const Vec3fHist& c) {
+  return photon001_encode_log_luma_hist(photon001_working_luma_linear_hist(c));
 }
 
-static float pv_tent_weight_hist(float value, float center, float halfWidth) {
+static float photon001_tent_weight_hist(float value, float center,
+                                        float halfWidth) {
   return std::max(
-      1.0f - std::abs(value - center) / std::max(halfWidth, PV_EPS_HIST), 0.0f);
+      1.0f - std::abs(value - center) / std::max(halfWidth, PHOTON001_EPS_HIST),
+      0.0f);
 }
 
-static Vec3fHist apply_photon0001_tone_ranges_hist(
+struct Photon001ReductionStatsHist {
+  float minVal;
+  float maxVal;
+  float meanVal;
+  float variance;
+  float moment3;
+  float reduction0;
+  float reduction1;
+};
+
+static Photon001ReductionStatsHist photon001_collect_reduction_stats_hist(
+    float srcGrayLog, float blurFineLog, float blurCoarseLog) {
+  const float s0 = srcGrayLog;
+  const float s1 = blurFineLog;
+  const float s2 = blurCoarseLog;
+
+  const float minVal = std::min({s0, s1, s2});
+  const float maxVal = std::max({s0, s1, s2});
+  const float meanVal = (s0 + s1 + s2) / 3.0f;
+
+  const float d0 = s0 - meanVal;
+  const float d1 = s1 - meanVal;
+  const float d2 = s2 - meanVal;
+  const float variance = (d0 * d0 + d1 * d1 + d2 * d2) / 3.0f;
+  const float moment3 = (d0 * d0 * d0 + d1 * d1 * d1 + d2 * d2 * d2) / 3.0f;
+
+  const float reduction0 = 0.5f * (variance + std::abs(moment3));
+  const float reduction1 = 0.5f * moment3;
+  return {minVal, maxVal, meanVal, variance, moment3, reduction0, reduction1};
+}
+
+static float photon001_triangle_weight_hist(float value, float reference,
+                                            float invDs) {
+  const float line0 = invDs * (value - reference) + 1.0f;
+  const float line1 = invDs * (reference - value) + 1.0f;
+  return std::max(std::min(line0, line1), 0.0f);
+}
+
+static float photon001_local_laplacian_mask_hist(float srcLog,
+                                                  float blurFineLog,
+                                                  float blurCoarseLog,
+                                                  float toneMid) {
+  const float maskFine = std::clamp(srcLog - blurFineLog, -2.0f, 2.0f);
+  const float maskCoarse = std::clamp(blurFineLog - blurCoarseLog, -2.0f, 2.0f);
+  const float baseResidual =
+      std::clamp(maskFine * 0.70f + maskCoarse * 0.45f, -2.5f, 2.5f);
+
+  float accum = 0.0f;
+  float weightSum = 0.0f;
+  const float invDs = 0.5f;  // ds = 2 stops between references
+  for (int i = 0; i < 5; ++i) {
+    const float ref = toneMid + (float(i) - 2.0f) * 2.0f;
+    const float alpha = photon001_triangle_weight_hist(srcLog, ref, invDs);
+    const float levelGain = 1.0f + (float(i) - 2.0f) * 0.08f;
+    accum += alpha * baseResidual * levelGain;
+    weightSum += alpha;
+  }
+
+  return std::clamp(accum / std::max(weightSum, PHOTON001_EPS_HIST), -2.5f, 2.5f);
+}
+
+static Vec3fHist apply_photon001_tone_ranges_hist(
     const Vec3fHist& color, const Vec3fHist& blurredFine,
     const Vec3fHist& blurredCoarse, float highlightsAmt, float shadowsAmt,
     float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm) {
-  const float srcGrayLinear = pv_working_luma_linear_hist(color);
-  const float srcGrayLog = pv_encode_log_luma_hist(srcGrayLinear);
-  const float blurFineLog = pv_log_luma_hist(blurredFine);
-  const float blurCoarseLog = pv_log_luma_hist(blurredCoarse);
+  const float srcGrayLinear = photon001_working_luma_linear_hist(color);
+  const float srcGrayLog = photon001_encode_log_luma_hist(srcGrayLinear);
+  const float blurFineLog = photon001_log_luma_hist(blurredFine);
+  const float blurCoarseLog = photon001_log_luma_hist(blurredCoarse);
   const float toneMid =
-      pv_encode_log_luma_hist(std::max(sceneWhiteNorm * 0.18f, PV_EPS_HIST));
+      photon001_encode_log_luma_hist(
+          std::max(sceneWhiteNorm * 0.18f, PHOTON001_EPS_HIST));
 
-  const float wBlacks = pv_tent_weight_hist(srcGrayLog, toneMid - 3.8f, 1.8f);
-  const float wShadows = pv_tent_weight_hist(srcGrayLog, toneMid - 1.9f, 1.9f);
+  const float wBlacks =
+      photon001_tent_weight_hist(srcGrayLog, toneMid - 3.8f, 1.8f);
+  const float wShadows =
+      photon001_tent_weight_hist(srcGrayLog, toneMid - 1.9f, 1.9f);
   const float wHighlights =
-      pv_tent_weight_hist(srcGrayLog, toneMid + 1.0f, 1.9f);
-  const float wWhites = pv_tent_weight_hist(srcGrayLog, toneMid + 3.1f, 2.2f);
+      photon001_tent_weight_hist(srcGrayLog, toneMid + 1.0f, 1.9f);
+  const float wWhites =
+      photon001_tent_weight_hist(srcGrayLog, toneMid + 3.1f, 2.2f);
 
-  const float maskFine = std::clamp(srcGrayLog - blurFineLog, -2.0f, 2.0f);
-  const float maskCoarse = std::clamp(blurFineLog - blurCoarseLog, -2.0f, 2.0f);
-  const float mask =
-      std::clamp(maskFine * 0.70f + maskCoarse * 0.45f, -2.5f, 2.5f);
+  const Photon001ReductionStatsHist stats =
+      photon001_collect_reduction_stats_hist(srcGrayLog, blurFineLog,
+                                             blurCoarseLog);
+  const float mask = photon001_local_laplacian_mask_hist(
+      srcGrayLog, blurFineLog, blurCoarseLog, toneMid);
 
   const float partSwitch = step_hist(srcGrayLog, toneMid);
   const float compressedLow = toneMid + (srcGrayLog - toneMid) * 0.78f;
@@ -445,6 +516,14 @@ static Vec3fHist apply_photon0001_tone_ranges_hist(
   localContrastSignal *= std::max(clarityAmt, 0.0f);
   localContrastSignal *=
       std::clamp(1.0f + 0.35f * (-highlightsAmt + shadowsAmt), 1.0f, 2.0f);
+  const float rangeSpan = std::max(stats.maxVal - stats.minVal, 0.0f);
+  const float varianceGate = std::clamp(stats.reduction0 * 96.0f, 0.0f, 1.0f);
+  const float skewGate = std::clamp(stats.reduction1 * 32.0f, -1.0f, 1.0f);
+  const float localVariance = std::clamp(stats.variance * 128.0f, 0.0f, 1.0f);
+  localContrastSignal *=
+      lerp(0.88f, 1.22f, 0.5f * varianceGate + 0.5f * localVariance);
+  localContrastSignal += 0.08f * skewGate;
+  localContrastSignal *= 1.0f + std::clamp(rangeSpan * 0.08f, 0.0f, 0.25f);
   const float localSignalHigh = std::max(localContrastSignal, 0.0f);
   const float localSignalLow = std::min(localContrastSignal, 0.0f);
 
@@ -471,7 +550,8 @@ static Vec3fHist apply_photon0001_tone_ranges_hist(
   hsPinX = lerp(1.0f, hsPinX, std::clamp(std::abs(highlightsAmt), 0.0f, 1.0f));
 
   const float maxAbsHS = std::max(
-      std::max(std::abs(highlightsAmt), std::abs(shadowsAmt)), PV_EPS_HIST);
+      std::max(std::abs(highlightsAmt), std::abs(shadowsAmt)),
+      PHOTON001_EPS_HIST);
   const float baseOffset = 0.85f * (highlightsAmt + shadowsAmt) / maxAbsHS;
   const float offsetHSHigh = wHighlights * std::abs(highlightsAmt) * baseOffset;
   const float offsetHSLow = wShadows * std::abs(shadowsAmt) * baseOffset;
@@ -492,7 +572,7 @@ static Vec3fHist apply_photon0001_tone_ranges_hist(
   const float deltaSign = sign_hist(deltaStops);
   const float flareSwitch = 1.0f - std::max(deltaSign, 0.0f);
   const float zeroSwitch = 1.0f - std::abs(deltaSign);
-  const float flare = flareSwitch * PV_FLARE_LOG_HIST;
+  const float flare = flareSwitch * PHOTON001_FLARE_LOG_HIST;
   const float startpoint = flare - (deltaStops + deltaStops);
   const float t1 = step_hist(startpoint, srcGrayLog);
   const float t2 = step_hist(srcGrayLog, startpoint);
@@ -502,13 +582,16 @@ static Vec3fHist apply_photon0001_tone_ranges_hist(
   t *= t * (1.0f - lerp(t2, t1, flareSwitch));
   deltaStops = lerp(deltaStops, 0.0f, t);
 
-  deltaStops = std::min(deltaStops, 4.0f);
+  const float dst = srcGrayLog + deltaStops;
+  float diff = dst - srcGrayLog;
+  if (diff > 0.0f) diff = std::min(diff, 4.0f);
+  deltaStops = diff;
   const float targetLog = srcGrayLog + deltaStops;
-  float targetLuma = pv_decode_log_luma_hist(targetLog);
+  float targetLuma = photon001_decode_log_luma_hist(targetLog);
 
   if (targetLuma > sceneWhiteNorm && deltaStops > 0.0f) {
     const float over = targetLuma - sceneWhiteNorm;
-    const float knee = std::max(sceneWhiteNorm * 0.7f, PV_EPS_HIST);
+    const float knee = std::max(sceneWhiteNorm * 0.7f, PHOTON001_EPS_HIST);
     const float compress = over / (1.0f + over / knee);
     targetLuma = sceneWhiteNorm + compress;
   }
@@ -1847,9 +1930,9 @@ void RawEngine::requestHistogramUpdate() {
     int step = std::max(1, totalPixels / 131072);
 
     for (int i = 0; i < totalPixels; i += step) {
-      float r = src[i * 3] / 65535.0f;
-      float g = src[i * 3 + 1] / 65535.0f;
-      float b = src[i * 3 + 2] / 65535.0f;
+      float r = srgb_to_linear_hist(src[i * 3] / 65535.0f);
+      float g = srgb_to_linear_hist(src[i * 3 + 1] / 65535.0f);
+      float b = srgb_to_linear_hist(src[i * 3 + 2] / 65535.0f);
 
       const int x = i % imageWidth;
       const int y = i / imageWidth;
@@ -1885,7 +1968,7 @@ void RawEngine::requestHistogramUpdate() {
                                   blurredCoarse.g * g_wb * exp_mult,
                                   blurredCoarse.b * b_wb * exp_mult};
       const float sceneWhiteNorm = std::max(sceneWhite * exp_mult, 1e-4f);
-      color = apply_photon0001_tone_ranges_hist(
+      color = apply_photon001_tone_ranges_hist(
           color, blurredFineTone, blurredCoarseTone, high / 100.0f,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
           sceneWhiteNorm);

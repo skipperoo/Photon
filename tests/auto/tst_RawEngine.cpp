@@ -1,4 +1,7 @@
 #include <cmath>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QtTest>
@@ -12,6 +15,7 @@ class TestRawEngine : public QObject {
   void testLoadInvalidFile();
   void testLoadValidFile();
   void testProperties();
+  void testPhoton001MultipassUsesFloatTargets();
   void testSwitchingSourceResetsExposureAndContrast();
   void testApplyGeometryTransformsStraightenKeepsFullFrame();
   void testApplyGeometryTransformsCropRectOnRotatedFrame();
@@ -64,6 +68,42 @@ void TestRawEngine::testProperties() {
   engine.setVignetteAmount(-50.0f);
   QCOMPARE(engine.vignetteAmount(), -50.0f);
   QCOMPARE(vignetteSpy.count(), 1);
+}
+
+void TestRawEngine::testPhoton001MultipassUsesFloatTargets() {
+  QString appQmlPath = QFINDTESTDATA("../../content/views/App.qml");
+  if (appQmlPath.isEmpty()) {
+    appQmlPath = QDir::cleanPath(
+        QCoreApplication::applicationDirPath() + "/../../content/views/App.qml");
+  }
+  QVERIFY2(!appQmlPath.isEmpty(), "Could not locate content/views/App.qml");
+
+  QFile qmlFile(appQmlPath);
+  QVERIFY2(qmlFile.open(QIODevice::ReadOnly | QIODevice::Text),
+           "Failed to open content/views/App.qml");
+  const QString qml = QString::fromUtf8(qmlFile.readAll());
+
+  auto verifySourceUsesFloatTarget = [&](const QString& sourceItem) {
+    const QString sourceToken = QStringLiteral("sourceItem: %1").arg(sourceItem);
+    const int sourceIdx = qml.indexOf(sourceToken);
+    QVERIFY2(sourceIdx >= 0, qPrintable(QString("Missing '%1'").arg(sourceToken)));
+
+    const int formatIdx = qml.indexOf("format: ShaderEffectSource.RGBA16F", sourceIdx);
+    QVERIFY2(formatIdx > sourceIdx,
+             qPrintable(QString("Missing float format near '%1'").arg(sourceToken)));
+
+    const int nextSourceIdx = qml.indexOf("sourceItem:", sourceIdx + sourceToken.size());
+    QVERIFY2(nextSourceIdx < 0 || formatIdx < nextSourceIdx,
+             qPrintable(QString("Float format not scoped to '%1' block").arg(sourceToken)));
+  };
+
+  verifySourceUsesFloatTarget("photon001GaussianSmallPass");
+  verifySourceUsesFloatTarget("photon001GaussianBigPass");
+  verifySourceUsesFloatTarget("photon001LogPass");
+  verifySourceUsesFloatTarget("photon001MinMaxMeanPass");
+  verifySourceUsesFloatTarget("photon001MomentsPass");
+  verifySourceUsesFloatTarget("photon001ReductionPass");
+  verifySourceUsesFloatTarget("photon001DeltaPass");
 }
 
 void TestRawEngine::testSwitchingSourceResetsExposureAndContrast() {

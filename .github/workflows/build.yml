@@ -40,9 +40,13 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
-          path: C:\vcpkg\installed
-          key: vcpkg-${{ runner.os }}-libraw-vulkan
-          restore-keys: vcpkg-${{ runner.os }}-
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\downloads
+          # Hashes the workflow file itself. If you change the install step below, the cache resets automatically.
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
 
       - name: Cache CMake build
         uses: actions/cache@v4
@@ -59,8 +63,8 @@ jobs:
             libxcb-cursor0 libxcb-xinerama0 libxcb-xinput0 libxcb-icccm4 \
             libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 \
             libwayland-client0 libwayland-cursor0 libwayland-egl1 libxkbcommon-x11-0 \
-            libwayland-dev wayland-protocols libwayland-server0 \
-            imagemagick
+            libwayland-dev wayland-protocols libwayland-server0 libopencv-dev \
+            imagemagick libtiff-dev
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
@@ -68,7 +72,7 @@ jobs:
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          vcpkg install libraw:x64-windows vulkan:x64-windows
+          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows
 
       - name: Configure CMake
         shell: bash
@@ -110,7 +114,7 @@ jobs:
           # Tell the Qt plugin where to find QML files to scan for dependencies
           export QML_SOURCES_PATHS="${{ github.workspace }}/content"
           # Explicitly request extra platform plugins for better compatibility
-          export EXTRA_QT_PLUGINS="platforms,wayland-graphics-integration-client,wayland-shell-integration,imageformats"
+          export EXTRA_QT_PLUGINS="platforms,wayland-graphics-integration-client,wayland-shell-integration,imageformats,styles,controls,quickcontrols2"
 
           # Run linuxdeploy
           ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Photon VERSION 0.1.1 LANGUAGES CXX)
+project(Photon VERSION 0.2.0 LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -21,14 +21,18 @@ find_package(Vulkan REQUIRED)
 if(WIN32)
     # Use find_package for vcpkg compatibility on Windows
     find_package(LibRaw REQUIRED)
+    find_package(OpenCV REQUIRED)
+    find_package(TIFF REQUIRED)
     add_compile_definitions(WIN32_LEAN_AND_MEAN)
     add_compile_definitions(NOMINMAX)
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBRAW REQUIRED libraw)
+    pkg_check_modules(OPENCV REQUIRED opencv4)
+    pkg_check_modules(TIFF REQUIRED libtiff-4)
 endif()
 
-qt_standard_project_setup(REQUIRES 6.8)
+qt_standard_project_setup(REQUIRES 6.10)
 
 qt_add_executable(Photon
     src/main.cpp
@@ -45,6 +49,8 @@ qt_add_executable(Photon
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
     src/engine/patch_search.comp
+    src/engine/Panorama.cpp
+    src/engine/Panorama.h
     src/components/RawViewport.cpp
     src/components/RawViewport.h
     src/components/ToneLutProvider.h
@@ -114,6 +120,8 @@ qt_add_qml_module(Photon
         src/engine/GpuChromaFilter.h
         src/engine/ImageDeveloper.cpp
         src/engine/ImageDeveloper.h
+        src/engine/Panorama.cpp
+        src/engine/Panorama.h
         src/engine/VulkanComputeContext.cpp
         src/engine/VulkanComputeContext.h
         src/managers/AppStateManager.cpp
@@ -183,6 +191,8 @@ qt_add_qml_module(Photon
         assets/icons/tube.svg
         assets/icons/trash.svg
         assets/icons/download.svg
+        assets/icons/panorama.svg
+        assets/icons/hdr.svg
         assets/icons/folder.svg
         assets/icons/home.svg
         assets/icons/eye.svg
@@ -206,14 +216,18 @@ set_target_properties(Photon PROPERTIES
 
 if(WIN32)
     target_link_libraries(Photon
-        PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
+      PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
         PRIVATE ${LibRaw_LIBRARIES}
+        PRIVATE ${OpenCV_LIBRARIES}
+        PRIVATE ${TIFF_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 else()
     target_link_libraries(Photon
         PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
         PRIVATE ${LIBRAW_LIBRARIES}
+        PRIVATE ${OPENCV_LIBRARIES}
+        PRIVATE ${TIFF_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 endif()
@@ -234,6 +248,7 @@ target_include_directories(Photon PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1>
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1/QtGui>
+    $<$<NOT:$<BOOL:${WIN32}>>:${OPENCV_INCLUDE_DIRS}>
 )
 
 # Ensure QML types are registered before main
@@ -268,23 +283,40 @@ install(DIRECTORY content/ DESTINATION ${CMAKE_INSTALL_BINDIR}/content)
 install(DIRECTORY assets/ DESTINATION ${CMAKE_INSTALL_BINDIR}/assets)
 
 # Install vcpkg DLLs on Windows
-if(WIN32)
+# if(WIN32)
   # Find LibRaw DLL based on build configuration
-  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    file(GLOB LIBRAW_DLL "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin/rawd.dll")
-  else()
-    file(GLOB LIBRAW_DLL "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
-  endif()
-  if(LIBRAW_DLL)
-    install(FILES ${LIBRAW_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
-  endif()
-  
-  # Find and install all vcpkg DLLs (but not raw.dll again)
-  file(GLOB VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/*.dll")
-  if(VCPKG_DLLS)
-    list(REMOVE_ITEM VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
-    install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
-  endif()
+  #  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  #    file(GLOB LIBRAW_DLL "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin/rawd.dll")
+  #  else()
+  #    file(GLOB LIBRAW_DLL "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
+  #  endif()
+  #  if(LIBRAW_DLL)
+  #    install(FILES ${LIBRAW_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
+  #  endif()
+  #  
+  #  # Find and install all vcpkg DLLs (but not raw.dll again)
+  #  file(GLOB VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/*.dll")
+  #  if(VCPKG_DLLS)
+  #    list(REMOVE_ITEM VCPKG_DLLS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/raw.dll")
+  #    install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
+  #  endif()
+  #endif()
+
+if(WIN32)
+    # 1. Determine the correct vcpkg bin folder based on build type
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(VCPKG_BIN_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin")
+    else()
+        set(VCPKG_BIN_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
+    endif()
+
+    # 2. Grab ALL DLLs from that folder (this handles LibRaw, OpenCV, and any others automatically)
+    file(GLOB VCPKG_DLLS "${VCPKG_BIN_DIR}/*.dll")
+    
+    # 3. Install them
+    if(VCPKG_DLLS)
+        install(FILES ${VCPKG_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
 endif()
 
 if(WIN32)

@@ -498,10 +498,27 @@
   - [x] Kept filter criteria cycling in active context-menu flow for faster iteration.
 - [x] Build + tests + offscreen runtime smoke validated after integration.
 
-## Phase 36: Old session Not Found and log rotation
+---
+
+# Taking back control of the codebase
+
+## Phase 37: Old session Not Found and log rotation
 
 - [x] Pop up error when continue session folder is not found, then reset it and return to WelcomeView
 - [x] Auto log cleanup
+
+## Phase 38: Panorama and other improvements
+
+- [x] Panorama Stitching
+  - [x] OpenCV integration
+  - [x] Stitching
+- [ ] Dng export
+  - [x] Implement a DNG-like export
+  - [ ] Move the implementation to ExportManager
+- [ ] New tone processing pipeline
+  - [x] Implement new pipeline
+  - [x] Port it to ImageDeveloper
+  - [ ] Tune tone targeting
 
 ## Backlog / Future
 
@@ -509,4 +526,4 @@
   - [ ] Keystone/perspective transform controls.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
-- [ ] **Panorama Stitching**
+- [ ] Let the use decide whether to use auto brightness or not (and threshold)

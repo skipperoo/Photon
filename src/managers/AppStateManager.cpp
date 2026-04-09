@@ -115,8 +115,8 @@ void AppStateManager::loadSettings() {
   m_accentColor = m_settings.value(KEY_ACCENT_COLOR, "#3b82f6").toString();
   m_previewDenoiseFull =
       m_settings.value(KEY_PREVIEW_DENOISE_FULL, false).toBool();
-  QString level = m_settings.value("diagnostics/logLevel", "INFO").toString();
-  LogManager::instance()->setMinLogLevel(level);
+  QString level = m_settings.value("diagnostics/logLevel", PHOTON_INFO).toString();
+  LogManager::instance()->setLogLevel(level);
 
   emit lastOpenedFolderChanged();
   emit hasLastSessionChanged();
@@ -241,7 +241,7 @@ void AppStateManager::setCurrentFolder(const QString& folder) {
 void AppStateManager::setCurrentImage(const QString& image) {
   LogManager::instance()->log(
       QString("[ AppStateManager ] - setCurrentImage START: %1").arg(image),
-      "DEBUG");
+      PHOTON_DEBUG);
 
   if (m_currentImage != image) {
     m_currentImage = image;
@@ -257,7 +257,7 @@ void AppStateManager::setCurrentImage(const QString& image) {
   }
 
   LogManager::instance()->log("[ AppStateManager ] - setCurrentImage END",
-                              "DEBUG");
+                              PHOTON_DEBUG);
 }
 
 void AppStateManager::toggleSelection(const QString& path) {
@@ -585,11 +585,11 @@ void AppStateManager::setLogLocation(const QString& location) {
 }
 
 QString AppStateManager::logLevel() const {
-  return LogManager::instance()->minLogLevel();
+  return LogManager::instance()->logLevel();
 }
 
 void AppStateManager::setLogLevel(const QString& level) {
-  LogManager::instance()->setMinLogLevel(level);
+  LogManager::instance()->setLogLevel(level);
   emit logLevelChanged();
   m_settings.setValue("diagnostics/logLevel", level);
   m_settings.sync();

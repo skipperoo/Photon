@@ -199,7 +199,7 @@ Control {
                         ControlGroup { title: "Shadows"; value: root.viewport ? root.viewport.shadows : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.shadows = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         ControlGroup { title: "Whites"; value: root.viewport ? root.viewport.whites : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.whites = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         ControlGroup { title: "Blacks"; value: root.viewport ? root.viewport.blacks : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.blacks = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Adaptation"; value: root.viewport ? root.viewport.adaptation : 9.0; from: 0; to: 100; defaultValue: 9.0; onMoved: (v) => { if(root.viewport) root.viewport.adaptation = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        //ControlGroup { title: "Adaptation"; value: root.viewport ? root.viewport.adaptation : 9.0; from: 0; to: 100; defaultValue: 9.0; onMoved: (v) => { if(root.viewport) root.viewport.adaptation = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 

@@ -1,0 +1,58 @@
+# Dockerfile for Windows build using MSVC 2022
+# This MUST be run on a Windows host with Windows Containers enabled
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+# Set shell to powershell for easier setup
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+# Install Visual Studio 2022 Build Tools
+RUN Invoke-WebRequest -Uri https://aka.ms/vs/17/release/vs_buildtools.exe -OutFile vs_buildtools.exe; \
+    Start-Process -FilePath vs_buildtools.exe -ArgumentList '--quiet', '--norestart', '--nocache', \
+    '--add', 'Microsoft.VisualStudio.Workload.VCTools', \
+    '--add', 'Microsoft.VisualStudio.Component.VC.ATLMFC', \
+    '--add', 'Microsoft.VisualStudio.Component.Windows11SDK.22000' -Wait; \
+    Remove-Item -Force vs_buildtools.exe
+
+# Install Chocolatey to manage other tools
+RUN Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; \
+    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+# Install CMake, Git, and Python
+RUN choco install -y cmake git python3
+
+# Install aqtinstall for Qt
+RUN pip install aqtinstall
+
+# Install Qt 6.10.1 (matches build.yml)
+RUN aqt install-qt windows desktop 6.10.1 win64_msvc2022_64 -m qtshadertools --outputdir C:\Qt
+
+# Install and bootstrap vcpkg
+RUN git clone https://github.com/microsoft/vcpkg.git C:\vcpkg; \
+    C:\vcpkg\bootstrap-vcpkg.bat
+
+# Set up work directory
+WORKDIR C:\app
+COPY . .
+
+# Build and Package script
+# This script mirrors the build.yml steps
+RUN @' \
+$env:PATH = \"C:\Qt\6.10.1\msvc2022_64\bin;C:\Program Files\CMake\bin;C:\Program Files\Git\cmd;C:\vcpkg;\" + $env:PATH; \
+# Install dependencies via vcpkg \
+vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows; \
+# Configure and Build \
+mkdir build_win; cd build_win; \
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake; \
+cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS; \
+# Package \
+mkdir install; \
+cmake --install . --config Release --prefix install; \
+cd install\bin; \
+& \"C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe\" --release --qmldir ..\..\..\content --no-compiler-runtime Photon.exe; \
+# Final Copy to dist (will be mapped via volume) \
+mkdir C:\app\dist\windows\Photon; \
+xcopy /E /I /Y C:\app\build_win\install\* C:\app\dist\windows\Photon\; \
+'@ | Out-File -FilePath C:\app\build_internal.ps1 -Encoding ascii
+
+CMD ["powershell", "-File", "C:\\app\\build_internal.ps1"]

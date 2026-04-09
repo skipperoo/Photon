@@ -30,6 +30,7 @@ class RawEngine : public QObject {
                  highlightsChanged)
   Q_PROPERTY(float shadows READ shadows WRITE setShadows NOTIFY shadowsChanged)
   Q_PROPERTY(float whites READ whites WRITE setWhites NOTIFY whitesChanged)
+  Q_PROPERTY(float sceneWhite READ sceneWhite WRITE setSceneWhite NOTIFY sceneWhiteChanged)
   Q_PROPERTY(float blacks READ blacks WRITE setBlacks NOTIFY blacksChanged)
   Q_PROPERTY(float adaptation READ adaptation WRITE setAdaptation NOTIFY adaptationChanged)
   Q_PROPERTY(
@@ -246,6 +247,9 @@ class RawEngine : public QObject {
 
   float whites() const { return m_whites; }
   void setWhites(float val);
+
+  float sceneWhite() const { return m_sceneWhite; }
+  void setSceneWhite(float val);
 
   float blacks() const { return m_blacks; }
   void setBlacks(float val);
@@ -508,6 +512,7 @@ class RawEngine : public QObject {
   void highlightsChanged();
   void shadowsChanged();
   void whitesChanged();
+  void sceneWhiteChanged();
   void blacksChanged();
   void adaptationChanged();
   void vibranceChanged();
@@ -615,6 +620,9 @@ class RawEngine : public QObject {
   };
 
   void clearProcessedImage();
+
+  void recomputeSceneWhite();
+  float computeSceneWhite(const libraw_processed_image_t* img, float percentile = 0.97f);
   void updateProcessingParams();
   void rebuildToneLut();
   static std::vector<float> evalMonotonicSpline(const QVariantList& pts,
@@ -633,6 +641,7 @@ class RawEngine : public QObject {
   float m_highlights = 0.0f;
   float m_shadows = 0.0f;
   float m_whites = 0.0f;
+  float m_sceneWhite = 0.0f;
   float m_blacks = 0.0f;
   float m_adaptation = 0.0f;
   float m_vibrance = 0.0f;

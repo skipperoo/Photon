@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #endif
 
+#include <clocale>
 #include <vulkan/vulkan.h>
 
 #include <QCoreApplication>
@@ -26,6 +27,7 @@
 #include "managers/PreviewManager.h"
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
+#include "engine/Panorama.h"
 #include "components/ToneLutProvider.h"
 
 using namespace photon;
@@ -42,6 +44,7 @@ typedef void (VKAPI_PTR *PFN_vkDestroyInstance_t)(VkInstance,
                                         const VkAllocationCallbacks*);
 
 int main(int argc, char* argv[]) {
+
   // Enable RHI info and Vulkan logging
   // qputenv("QSG_INFO", "1");
   // qputenv("QSG_RHI_DEBUG", "1");
@@ -140,6 +143,9 @@ int main(int argc, char* argv[]) {
 
   QGuiApplication app(argc, argv);
 
+  // Needed by OpenCL during panorama stitching!!
+  std::setlocale(LC_NUMERIC, "C");
+
   QVulkanInstance vulkanInstance;
   vulkanInstance.setLayers({});
   if (!vulkanInstance.create()) {
@@ -170,10 +176,12 @@ int main(int argc, char* argv[]) {
 
   qmlRegisterSingletonInstance("Main", 1, 0, "Logger", logManager);
   auto *keyTracker = new KeyTracker(&app);
+  auto *panorama = new photon::Panorama(&app);
   qmlRegisterSingletonInstance("Main", 1, 0, "KeyTracker", keyTracker);
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "PreviewManager", previewManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "ExportManager", exportManager);
+  qmlRegisterSingletonInstance("Main", 1, 0, "Panorama", panorama);
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");
   engine.rootContext()->setContextProperty("thumbnailProvider", thumbProvider);
   qmlRegisterType<FileScanner>("Main", 1, 0, "FileScanner");

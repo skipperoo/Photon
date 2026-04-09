@@ -167,12 +167,12 @@ void PreviewManager::cancelAll() {
 }
 
 void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
-  LogManager::instance()->log(QString("[ PreviewManager ] - processItem START: %1").arg(rawPath), "DEBUG");
+  LogManager::instance()->log(QString("[ PreviewManager ] - processItem START: %1").arg(rawPath), PHOTON_DEBUG);
 
   {
     QMutexLocker locker(&m_mutex);
     if (m_abort) {
-      LogManager::instance()->log(QString("[ PreviewManager ] - processItem ABORTED: %1").arg(rawPath), "DEBUG");
+      LogManager::instance()->log(QString("[ PreviewManager ] - processItem ABORTED: %1").arg(rawPath), PHOTON_DEBUG);
       return;
     }
   }
@@ -185,7 +185,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
                       fileInfo.fileName() + ".json");
   QJsonObject lastState;
   if (QFile::exists(editsPath)) {
-    LogManager::instance()->log(QString("[ PreviewManager ] - Loading sidecar: %1").arg(editsPath), "DEBUG");
+    LogManager::instance()->log(QString("[ PreviewManager ] - Loading sidecar: %1").arg(editsPath), PHOTON_DEBUG);
     QFile file(editsPath);
     if (file.open(QIODevice::ReadOnly)) {
       QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
@@ -197,11 +197,12 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
   }
 
   // 2. Load RAW via LibRaw (Fast mode)
-  LogManager::instance()->log(QString("[ PreviewManager ] - Opening RAW file: %1").arg(rawPath), "DEBUG");
+  LogManager::instance()->log(QString("[ PreviewManager ] - Opening RAW file: %1").arg(rawPath), PHOTON_DEBUG);
   LibRaw processor;
   processor.imgdata.params.output_bps = 16;
   processor.imgdata.params.use_camera_wb = 1;
-  processor.imgdata.params.no_auto_bright = 1;
+  processor.imgdata.params.no_auto_bright = 0;
+  processor.imgdata.params.auto_bright_thr = 0.01;
   processor.imgdata.params.half_size = 1;  // 1080p is enough, half_size is fast
 
   if (processor.open_file(rawPath.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
@@ -250,7 +251,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
       }
     }
   }
-  LogManager::instance()->log(QString("[ PreviewManager ] - processItem END: %1").arg(rawPath), "DEBUG");
+  LogManager::instance()->log(QString("[ PreviewManager ] - processItem END: %1").arg(rawPath), PHOTON_DEBUG);
 }
 
 }  // namespace photon

@@ -433,7 +433,7 @@ static float pv_tent_weight_cpp(float value, float center, float halfWidth) {
       1.0f - std::abs(value - center) / std::max(halfWidth, PV_EPS_CPP), 0.0f);
 }
 
-static Vec3fCpp apply_pv2012_tone_ranges_cpp(
+static Vec3fCpp apply_photon0001_tone_ranges_cpp(
     const Vec3fCpp& color, const Vec3fCpp& blurredFine,
     const Vec3fCpp& blurredCoarse, float highlightsAmt, float shadowsAmt,
     float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm) {
@@ -828,7 +828,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                  blurredCoarse.g * g_wb * exp_mult,
                                  blurredCoarse.b * b_wb * exp_mult};
       const float sceneWhiteNorm = std::max(sceneWhite * exp_mult, 1e-4f);
-      color = apply_pv2012_tone_ranges_cpp(
+      color = apply_photon0001_tone_ranges_cpp(
           color, blurredFineTone, blurredCoarseTone, high / 100.0f,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
           sceneWhiteNorm);

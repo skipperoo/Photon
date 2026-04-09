@@ -531,7 +531,7 @@ float pv_tent_weight(float value, float center, float halfWidth) {
     return max(1.0 - abs(value - center) / max(halfWidth, PV_EPS), 0.0);
 }
 
-vec3 apply_pv2012_tone_ranges(
+vec3 apply_photon0001_tone_ranges(
     vec3 color,
     vec3 blurredFine,
     vec3 blurredCoarse,
@@ -881,7 +881,7 @@ void main()
     float sceneWhiteNorm = max(ubuf.sceneWhite * exposure, 1e-4);
     vec3 blurredFineTone = apply_white_balance(blurredFine, ubuf.temperature / 100.0, ubuf.tint / 100.0) * exposure;
     vec3 blurredCoarseTone = apply_white_balance(blurredCoarse, ubuf.temperature / 100.0, ubuf.tint / 100.0) * exposure;
-    color = apply_pv2012_tone_ranges(
+    color = apply_photon0001_tone_ranges(
         color,
         blurredFineTone,
         blurredCoarseTone,

@@ -937,23 +937,22 @@ void main()
     // each encoding 65536 entries packed as 16-bit RG bytes.
     if (ubuf.toneCurveActive > 0.5) {
         vec3 c = clamp(color, 0.0, 1.0);
-        float lumaIn = get_luma(c);
-        float lumaOut = sample_tone_lut_channel(lumaIn, 0);
-        c.r = sample_tone_lut_channel(c.r, 1);
-        c.g = sample_tone_lut_channel(c.g, 2);
-        c.b = sample_tone_lut_channel(c.b, 3);
-        // Blend additive (shadows) → multiplicative (mids/highs) to avoid
-        // noise amplification when raising the black point
-        float lumaDelta = lumaOut - lumaIn;
-        if (lumaDelta > 0.0) {
-            // Soften black-point lift sensitivity near absolute black.
-            float blackLiftAtten = mix(0.60, 1.0, smoothstep(0.0, 0.20, lumaIn));
-            lumaDelta *= blackLiftAtten;
-        }
-        float lumaRatio = (lumaIn > 0.001) ? lumaOut / lumaIn : 1.0;
-        float blend = smoothstep(0.0, 0.36, lumaIn);
-        c = mix(c + lumaDelta, c * lumaRatio, blend);
-        // Blend with values above 1.0
+
+        // Reference-style luma curve: remap channel min/max through the same
+        // curve, then linearly reproject channel values between those bounds.
+        float fMin = min(min(c.r, c.g), c.b);
+        float fMax = max(max(c.r, c.g), c.b);
+        float nMin = sample_tone_lut_channel(fMin, 0);
+        float nMax = sample_tone_lut_channel(fMax, 0);
+        float scale = (nMax - nMin) / (fMax - fMin + 0.00001);
+        c = (c - vec3(fMin)) * scale + vec3(nMin);
+
+        // Apply RGB channel curves after luma remap.
+        c.r = sample_tone_lut_channel(clamp(c.r, 0.0, 1.0), 1);
+        c.g = sample_tone_lut_channel(clamp(c.g, 0.0, 1.0), 2);
+        c.b = sample_tone_lut_channel(clamp(c.b, 0.0, 1.0), 3);
+
+        // Keep highlight data above 1.0 from the unclamped working color.
         color = mix(c, color, step(1.001, max(color.r, max(color.g, color.b))));
     }
 

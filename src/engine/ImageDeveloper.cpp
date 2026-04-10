@@ -1005,38 +1005,37 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         float cr = std::clamp(r, 0.0f, 1.0f);
         float cg = std::clamp(g, 0.0f, 1.0f);
         float cb = std::clamp(b, 0.0f, 1.0f);
-        float lumaIn = get_luma_cpp(cr, cg, cb);
-        int idxL = std::clamp(int(lumaIn * kToneLutMaxIndex + 0.5f), 0,
-                              kToneLutEntries - 1);
-        float lumaOut = lutLuma[idxL];
-        float lumaDelta = lumaOut - lumaIn;
-        if (lumaDelta > 0.0f) {
-          // Soften black-point lift sensitivity near absolute black.
-          float blackLiftAtten =
-              mix(0.60f, 1.0f, smoothstep(0.0f, 0.20f, lumaIn));
-          lumaDelta *= blackLiftAtten;
-        }
-        float lumaRatio = (lumaIn > 0.001f) ? lumaOut / lumaIn : 1.0f;
-        // Additive in shadows, multiplicative in mids/highs
-        float t = std::clamp((lumaIn - 0.0f) / (0.36f - 0.0f), 0.0f, 1.0f);
-        float blendShadow = t * t * (3.0f - 2.0f * t);  // smoothstep
-        int idxR = std::clamp(int(cr * kToneLutMaxIndex + 0.5f), 0,
-                              kToneLutEntries - 1);
-        int idxG = std::clamp(int(cg * kToneLutMaxIndex + 0.5f), 0,
-                              kToneLutEntries - 1);
-        int idxB = std::clamp(int(cb * kToneLutMaxIndex + 0.5f), 0,
-                              kToneLutEntries - 1);
+
+        // Reference-style luma curve: remap min/max through the same curve,
+        // then reproject channels between those new bounds.
+        float fMin = std::min({cr, cg, cb});
+        float fMax = std::max({cr, cg, cb});
+        int idxMin = std::clamp(int(fMin * kToneLutMaxIndex + 0.5f), 0,
+                                kToneLutEntries - 1);
+        int idxMax = std::clamp(int(fMax * kToneLutMaxIndex + 0.5f), 0,
+                                kToneLutEntries - 1);
+        float nMin = lutLuma[idxMin];
+        float nMax = lutLuma[idxMax];
+        float scale = (nMax - nMin) / (fMax - fMin + 0.00001f);
+        cr = (cr - fMin) * scale + nMin;
+        cg = (cg - fMin) * scale + nMin;
+        cb = (cb - fMin) * scale + nMin;
+
+        // Apply RGB channel curves after luma remap.
+        int idxR = std::clamp(int(std::clamp(cr, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
+        int idxG = std::clamp(int(std::clamp(cg, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
+        int idxB = std::clamp(int(std::clamp(cb, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
         cr = lutRed[idxR];
         cg = lutGreen[idxG];
         cb = lutBlue[idxB];
-        float arCr = cr + lumaDelta, arCg = cg + lumaDelta,
-              arCb = cb + lumaDelta;
-        float mrCr = cr * lumaRatio, mrCg = cg * lumaRatio,
-              mrCb = cb * lumaRatio;
-        cr = mix(arCr, mrCr, blendShadow);
-        cg = mix(arCg, mrCg, blendShadow);
-        cb = mix(arCb, mrCb, blendShadow);
-        // Blend: bypass for values > 1.0
+
+        // Blend: bypass for values > 1.0 in the unclamped working color.
         float maxC = std::max({r, g, b});
         float blendClip = (maxC > 1.001f) ? 1.0f : 0.0f;
         r = mix(cr, r, blendClip);

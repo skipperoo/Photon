@@ -5,7 +5,9 @@
 #include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QtTest>
+#include <vector>
 
+#include "ImageDeveloper.h"
 #include "RawEngine.h"
 
 class TestRawEngine : public QObject {
@@ -16,11 +18,30 @@ class TestRawEngine : public QObject {
   void testLoadValidFile();
   void testProperties();
   void testPhoton001MultipassUsesFloatTargets();
+  void testToneCurveLumaMatchesReferenceMapping();
   void testSwitchingSourceResetsExposureAndContrast();
   void testApplyGeometryTransformsStraightenKeepsFullFrame();
   void testApplyGeometryTransformsCropRectOnRotatedFrame();
   void testApplyGeometryTransformsCropPreservesAspectAndFocus();
 };
+
+namespace {
+float srgbToLinear(float c) {
+  return (c <= 0.04045f) ? (c / 12.92f)
+                         : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
+QJsonArray makeCurve(const std::vector<std::pair<double, double>>& pts) {
+  QJsonArray arr;
+  for (const auto& [x, y] : pts) {
+    QJsonObject p;
+    p["x"] = x;
+    p["y"] = y;
+    arr.append(p);
+  }
+  return arr;
+}
+}  // namespace
 
 void TestRawEngine::testLoadInvalidFile() {
   RawEngine engine;
@@ -104,6 +125,64 @@ void TestRawEngine::testPhoton001MultipassUsesFloatTargets() {
   verifySourceUsesFloatTarget("photon001MomentsPass");
   verifySourceUsesFloatTarget("photon001ReductionPass");
   verifySourceUsesFloatTarget("photon001DeltaPass");
+}
+
+void TestRawEngine::testToneCurveLumaMatchesReferenceMapping() {
+  constexpr int w = 32;
+  constexpr int h = 32;
+  constexpr ushort inR = 10000;
+  constexpr ushort inG = 5000;
+  constexpr ushort inB = 2000;
+
+  std::vector<ushort> src(w * h * 3);
+  for (int i = 0; i < w * h; ++i) {
+    src[i * 3 + 0] = inR;
+    src[i * 3 + 1] = inG;
+    src[i * 3 + 2] = inB;
+  }
+
+  QJsonObject settings;
+  settings["contrast"] = 1.0;
+  settings["tonemappingEnabled"] = false;
+  settings["denoiseEnabled"] = false;
+  settings["toneCurveLuma"] = makeCurve({{0.0, 0.1}, {1.0, 1.0}});
+  settings["toneCurveRed"] = makeCurve({{0.0, 0.0}, {1.0, 1.0}});
+  settings["toneCurveGreen"] = makeCurve({{0.0, 0.0}, {1.0, 1.0}});
+  settings["toneCurveBlue"] = makeCurve({{0.0, 0.0}, {1.0, 1.0}});
+
+  QImage out = photon::ImageDeveloper::develop(src.data(), w, h, settings);
+  QVERIFY(!out.isNull());
+
+  double sumR = 0.0;
+  double sumG = 0.0;
+  double sumB = 0.0;
+  for (int y = 0; y < out.height(); ++y) {
+    const uchar* scan = out.constScanLine(y);
+    for (int x = 0; x < out.width(); ++x) {
+      sumR += srgbToLinear(scan[x * 3 + 0] / 255.0f);
+      sumG += srgbToLinear(scan[x * 3 + 1] / 255.0f);
+      sumB += srgbToLinear(scan[x * 3 + 2] / 255.0f);
+    }
+  }
+
+  const double invN = 1.0 / double(out.width() * out.height());
+  const double avgR = sumR * invN;
+  const double avgG = sumG * invN;
+  const double avgB = sumB * invN;
+
+  const double inLinR = srgbToLinear(inR / 65535.0f);
+  const double inLinG = srgbToLinear(inG / 65535.0f);
+  const double inLinB = srgbToLinear(inB / 65535.0f);
+
+  // Reference shaderTemplate behavior for a linear luma curve y = 0.1 + 0.9x:
+  // map min/max through the same curve and reproject channels.
+  const double expectedR = 0.1 + 0.9 * inLinR;
+  const double expectedG = 0.1 + 0.9 * inLinG;
+  const double expectedB = 0.1 + 0.9 * inLinB;
+
+  QVERIFY(std::abs(avgR - expectedR) < 0.015);
+  QVERIFY(std::abs(avgG - expectedG) < 0.015);
+  QVERIFY(std::abs(avgB - expectedB) < 0.015);
 }
 
 void TestRawEngine::testSwitchingSourceResetsExposureAndContrast() {

@@ -515,10 +515,11 @@
 - [ ] Dng export
   - [x] Implement a DNG-like export
   - [ ] Move the implementation to ExportManager
-- [ ] New tone processing pipeline
+- [x] New tone processing pipeline
   - [x] Implement new pipeline
   - [x] Port it to ImageDeveloper
-  - [ ] Tune tone targeting
+  - [x] Tune tone targeting
+  - [x] Multi-Pass tone processing
 
 ## Backlog / Future
 
@@ -526,4 +527,5 @@
   - [ ] Keystone/perspective transform controls.
 - [ ] **Lens Correction**
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
-- [ ] Let the use decide whether to use auto brightness or not (and threshold)
+- [ ] Let the user decide whether to use auto brightness or not (and threshold)
+- [ ] HDR merge of bracketed shots

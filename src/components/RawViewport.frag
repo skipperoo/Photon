@@ -79,6 +79,52 @@ float get_luma(vec3 c) {
     return dot(c, LUMA_COEFF);
 }
 
+// --- OKLab / OKLCh perceptual color space ---
+vec3 linear_srgb_to_oklab(vec3 c) {
+    vec3 lms = vec3(
+        dot(c, vec3(0.4122214708, 0.5363325363, 0.0514459929)),
+        dot(c, vec3(0.2119034982, 0.6806995451, 0.1073969566)),
+        dot(c, vec3(0.0883024619, 0.2817188376, 0.6299787005)));
+    vec3 lms3 = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
+    return vec3(
+        dot(lms3, vec3(0.2104542553, 0.7936177850, -0.0040720468)),
+        dot(lms3, vec3(1.9779984951, -2.4285922050, 0.4505937099)),
+        dot(lms3, vec3(0.0259040371, 0.7827717662, -0.8086757660)));
+}
+
+vec3 oklab_to_linear_srgb(vec3 lab) {
+    vec3 lms = vec3(
+        lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z,
+        lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z,
+        lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z);
+    vec3 lms3 = lms * lms * lms;
+    return vec3(
+        dot(lms3, vec3(4.0767416621, -3.3077115913, 0.2309699292)),
+        dot(lms3, vec3(-1.2684380046, 2.6097574011, -0.3413193965)),
+        dot(lms3, vec3(-0.0041960863, -0.7034186147, 1.7076147010)));
+}
+
+// Convert OKLab to linear sRGB, reducing chroma along the hue ray when the
+// lightness/hue combination falls outside the sRGB gamut. Prevents clipping
+// banding and halos in shadow/highlight tones.
+vec3 oklab_to_linear_srgb_gamut(vec3 lab) {
+    vec3 rgb = oklab_to_linear_srgb(lab);
+    float mn = min(rgb.r, min(rgb.g, rgb.b));
+    float mx = max(rgb.r, max(rgb.g, rgb.b));
+    if (mn >= 0.0 && mx <= 1.0) return rgb;
+
+    float lo = 0.0;
+    float hi = 1.0;
+    for (int i = 0; i < 6; ++i) {
+        float mid = 0.5 * (lo + hi);
+        vec3 c = oklab_to_linear_srgb(vec3(lab.x, lab.y * mid, lab.z * mid));
+        float cMn = min(c.r, min(c.g, c.b));
+        float cMx = max(c.r, max(c.g, c.b));
+        if (cMn >= 0.0 && cMx <= 1.0) lo = mid; else hi = mid;
+    }
+    return oklab_to_linear_srgb(vec3(lab.x, lab.y * lo, lab.z * lo));
+}
+
 vec3 srgb_to_linear(vec3 c) {
     return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
 }
@@ -454,12 +500,19 @@ float sample_tone_lut_channel(float value, int channel) {
     return (hi * 256.0 + lo) / 65535.0;
 }
 
-// --- Color Grading Math ---
-vec3 apply_region_tint(vec3 color, float hue, float sat, float lum) {
-    vec3 tint_rgb = hsv_to_rgb(vec3(hue / 360.0, sat / 100.0, 1.0));
-    color = mix(color, color * tint_rgb, sat / 100.0);
-    color *= (1.0 + (lum / 100.0));
-    return color;
+// --- Color Grading Math (OKLab perceptual hue/chroma/lightness) ---
+vec3 apply_region_tint_oklab(vec3 lab, float hueDeg, float sat, float lum) {
+    float hueOk = atan(lab.z, lab.y);
+    float targetH = radians(hueDeg);
+    float dH = targetH - hueOk;
+    dH = mod(dH + 3.14159265359, 6.28318530718) - 3.14159265359;
+    float amount = clamp(sat / 100.0, 0.0, 1.0);
+    hueOk += dH * amount;
+    float chroma = length(lab.yz);
+    chroma *= 1.0 + amount * 0.15;
+    float lightness =
+        clamp(lab.x * (1.0 + (lum / 100.0) * 0.25), 0.0, 1.0);
+    return vec3(lightness, chroma * cos(hueOk), chroma * sin(hueOk));
 }
 
 vec3 color_grade(vec3 color, float luma) {
@@ -480,12 +533,19 @@ vec3 color_grade(vec3 color, float luma) {
     float highlight_mask = smoothstep(highlight_crossover - feather, highlight_crossover + feather, luma);
     float midtone_mask = max(0.0, 1.0 - shadow_mask - highlight_mask);
     
-    // Apply tints using hsv_to_rgb for cinematic coloring
-    vec3 c_s = apply_region_tint(color, ubuf.cgShadowsHue, ubuf.cgShadowsSaturation, ubuf.cgShadowsLuminance);
-    vec3 c_m = apply_region_tint(color, ubuf.cgMidtonesHue, ubuf.cgMidtonesSaturation, ubuf.cgMidtonesLuminance);
-    vec3 c_h = apply_region_tint(color, ubuf.cgHighlightsHue, ubuf.cgHighlightsSaturation, ubuf.cgHighlightsLuminance);
-    
-    return c_s * shadow_mask + c_m * midtone_mask + c_h * highlight_mask;
+    if (ubuf.cgShadowsSaturation == 0.0 && ubuf.cgMidtonesSaturation == 0.0 &&
+        ubuf.cgHighlightsSaturation == 0.0 && ubuf.cgShadowsLuminance == 0.0 &&
+        ubuf.cgMidtonesLuminance == 0.0 && ubuf.cgHighlightsLuminance == 0.0) {
+        return color;
+    }
+
+    vec3 lab = linear_srgb_to_oklab(max(color, 0.0));
+    vec3 lab_s = apply_region_tint_oklab(lab, ubuf.cgShadowsHue, ubuf.cgShadowsSaturation, ubuf.cgShadowsLuminance);
+    vec3 lab_m = apply_region_tint_oklab(lab, ubuf.cgMidtonesHue, ubuf.cgMidtonesSaturation, ubuf.cgMidtonesLuminance);
+    vec3 lab_h = apply_region_tint_oklab(lab, ubuf.cgHighlightsHue, ubuf.cgHighlightsSaturation, ubuf.cgHighlightsLuminance);
+
+    vec3 mixed = lab_s * shadow_mask + lab_m * midtone_mask + lab_h * highlight_mask;
+    return max(oklab_to_linear_srgb_gamut(mixed), 0.0);
 }
 
 // --- AgX Tone Mapping (Ported from reference) ---
@@ -706,9 +766,16 @@ void main()
     color = apply_photon001_delta_stops(color, deltaValue.x, deltaValue.y, sceneWhiteNorm);
     //color = davinci_tonemap(color, ubuf.adaptation);
     
-    // 3. Contrast
+    // 3. Contrast (perceptual S-curve on luma; 1.0 = identity)
     color = max(vec3(0.0), color);
-    color = pow(color, vec3(ubuf.contrast));
+    if (abs(ubuf.contrast - 1.0) > 0.001) {
+        float lumaC = get_luma(color);
+        float x = clamp(lumaC, 0.0, 1.0);
+        float sCurve = x * x * (3.0 - 2.0 * x);
+        float strength = clamp((ubuf.contrast - 1.0) * 1.2, -0.6, 0.6);
+        float target = max(mix(x, sCurve, strength), 0.0);
+        color = apply_luma_target(color, lumaC, target);
+    }
 
     // --- HSL PANEL ---
     vec3 hsv = rgb_to_hsv(color);
@@ -743,27 +810,39 @@ void main()
     sat_mult = mix(sat_mult * 0.35, sat_mult, chromaProtect);
     lum_adj *= mix(0.4, 1.0, chromaProtect);
 
-    hsv.x = fract(hsv.x + hue_shift);
-    float satScale = 1.0 + clamp(sat_mult, -0.85, 1.25);
-    hsv.y = clamp(hsv.y * satScale, 0.0, 1.0);
-    color = hsv_to_rgb(hsv);
-    float lumaAfterHueSat = get_luma(max(color, 0.0));
-    float lumStops = clamp(lum_adj, -0.75, 0.75) * 0.70;
-    float targetHslLuma = compute_target_luma(lumaAfterHueSat, lumStops);
-    color = apply_luma_target(color, lumaAfterHueSat, targetHslLuma);
+    if (abs(hue_shift) > 1e-5 || abs(sat_mult) > 1e-5 || abs(lum_adj) > 1e-5) {
+        vec3 lab = linear_srgb_to_oklab(max(color, 0.0));
+        float hueOk = atan(lab.z, lab.y) + hue_shift * 6.28318530718;
+        float srcL = lab.x;
+        float chroma = length(lab.yz);
+        chroma = max(chroma * (1.0 + clamp(sat_mult, -0.85, 1.25)), 0.0);
+        // L scales with the cube root of the previous linear-luma response so
+        // the slider keeps its familiar strength.
+        float lumStops = clamp(lum_adj, -0.75, 0.75) * 0.70 / 3.0;
+        float targetL = clamp(compute_target_luma(srcL, lumStops), 0.0, 1.0);
+        // Keep chroma proportional to lightness: avoids pushing colours outside
+        // the gamut in deep shadows/highlights (which caused noise/banding).
+        float lumRatio = (srcL > 1e-4) ? clamp(targetL / srcL, 0.0, 4.0) : 1.0;
+        chroma *= lumRatio;
+        lab = vec3(targetL, chroma * cos(hueOk), chroma * sin(hueOk));
+        color = max(oklab_to_linear_srgb_gamut(lab), 0.0);
+    }
 
     // --- COLOR GRADING --- (Applied before global saturation/vibrance)
     color = color_grade(color, get_luma(max(color, 0.0)));
 
-    // 6. Saturation & Vibrance (Global)
-    float gray = get_luma(max(color, 0.0));
-    color = mix(vec3(gray), color, 1.0 + (ubuf.saturation / 100.0));
-    float max_color = max(color.r, max(color.g, color.b));
-    float min_color = min(color.r, min(color.g, color.b));
-    float chroma_sat = (max_color > 1e-5) ? (max_color - min_color) / max_color : 0.0;
-    float vib_boost = (ubuf.vibrance / 100.0) * (1.0 - chroma_sat);
-    color = mix(vec3(gray), color, 1.0 + vib_boost);
-    color = max(color, 0.0);
+    // 6. Saturation & Vibrance (Global) — perceptual chroma scaling in OKLab
+    if (abs(ubuf.saturation) > 0.001 || abs(ubuf.vibrance) > 0.001) {
+        vec3 lab = linear_srgb_to_oklab(max(color, 0.0));
+        float hueOk = atan(lab.z, lab.y);
+        float chroma = length(lab.yz);
+        chroma *= max(1.0 + (ubuf.saturation / 100.0), 0.0);
+        float satNorm = clamp(chroma / 0.32, 0.0, 1.0);
+        chroma *= max(1.0 + (ubuf.vibrance / 100.0) * (1.0 - satNorm), 0.0);
+        lab.y = chroma * cos(hueOk);
+        lab.z = chroma * sin(hueOk);
+        color = max(oklab_to_linear_srgb_gamut(lab), 0.0);
+    }
 
     // 7. Tonemapping
     if (ubuf.tonemappingEnabled > 0.5) {

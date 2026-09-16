@@ -143,6 +143,61 @@ static float get_luma_cpp(float r, float g, float b) {
   return 0.2126f * r + 0.7152f * g + 0.0722f * b;
 }
 
+struct OklabCpp {
+  float L;
+  float a;
+  float b;
+};
+
+static OklabCpp linear_srgb_to_oklab_cpp(float r, float g, float b) {
+  const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
+  const float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
+  const float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
+  const float l3 = std::cbrt(l);
+  const float m3 = std::cbrt(m);
+  const float s3 = std::cbrt(s);
+  return {0.2104542553f * l3 + 0.7936177850f * m3 - 0.0040720468f * s3,
+          1.9779984951f * l3 - 2.4285922050f * m3 + 0.4505937099f * s3,
+          0.0259040371f * l3 + 0.7827717662f * m3 - 0.8086757660f * s3};
+}
+
+static void oklab_to_linear_srgb_cpp(const OklabCpp& lab, float& r, float& g,
+                                     float& b) {
+  const float l = lab.L + 0.3963377774f * lab.a + 0.2158037573f * lab.b;
+  const float m = lab.L - 0.1055613458f * lab.a - 0.0638541728f * lab.b;
+  const float s = lab.L - 0.0894841775f * lab.a - 1.2914855480f * lab.b;
+  const float l3 = l * l * l;
+  const float m3 = m * m * m;
+  const float s3 = s * s * s;
+  r = 4.0767416621f * l3 - 3.3077115913f * m3 + 0.2309699292f * s3;
+  g = -1.2684380046f * l3 + 2.6097574011f * m3 - 0.3413193965f * s3;
+  b = -0.0041960863f * l3 - 0.7034186147f * m3 + 1.7076147010f * s3;
+}
+
+static void oklab_to_linear_srgb_gamut_cpp(const OklabCpp& lab, float& r,
+                                           float& g, float& b) {
+  oklab_to_linear_srgb_cpp(lab, r, g, b);
+  const float mn = std::min({r, g, b});
+  const float mx = std::max({r, g, b});
+  if (mn >= 0.0f && mx <= 1.0f) return;
+
+  float lo = 0.0f;
+  float hi = 1.0f;
+  for (int i = 0; i < 6; ++i) {
+    const float mid = 0.5f * (lo + hi);
+    float cr, cg, cb;
+    oklab_to_linear_srgb_cpp({lab.L, lab.a * mid, lab.b * mid}, cr, cg, cb);
+    const float cMn = std::min({cr, cg, cb});
+    const float cMx = std::max({cr, cg, cb});
+    if (cMn >= 0.0f && cMx <= 1.0f) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  oklab_to_linear_srgb_cpp({lab.L, lab.a * lo, lab.b * lo}, r, g, b);
+}
+
 static float smoothstep_local(float edge0, float edge1, float x) {
   float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
   return t * t * (3.0f - 2.0f * t);
@@ -974,10 +1029,19 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
           sceneWhiteNorm, sceneStats);
 
-      // 2. Contrast
-      r = std::pow(std::max(0.0f, color.r), con);
-      g = std::pow(std::max(0.0f, color.g), con);
-      b = std::pow(std::max(0.0f, color.b), con);
+      // 2. Contrast (perceptual S-curve on luma; 1.0 = identity)
+      r = std::max(0.0f, color.r);
+      g = std::max(0.0f, color.g);
+      b = std::max(0.0f, color.b);
+      if (std::abs(con - 1.0f) > 0.001f) {
+        const float lumaC = get_luma_cpp(r, g, b);
+        const float x = std::clamp(lumaC, 0.0f, 1.0f);
+        const float sCurve = x * x * (3.0f - 2.0f * x);
+        const float strength =
+            std::clamp((con - 1.0f) * 1.2f, -0.6f, 0.6f);
+        const float target = std::max(mix_local(x, sCurve, strength), 0.0f);
+        apply_luma_target_cpp(r, g, b, lumaC, target);
+      }
 
       // 3. HSL
       HSV hsv_struct = rgb_to_hsv(r, g, b);
@@ -1007,17 +1071,34 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       sat_mult = mix(sat_mult * 0.35f, sat_mult, chromaProtect);
       lum_adj *= mix(0.4f, 1.0f, chromaProtect);
 
-      float final_h = std::fmod(hue + hue_shift * 360.0f + 360.0f, 360.0f);
-      float satScale = 1.0f + std::clamp(sat_mult, -0.85f, 1.25f);
-      float final_s = std::clamp(hsv_struct.s * satScale, 0.0f, 1.0f);
-      hsv_to_rgb(final_h, final_s, hsv_struct.v, r, g, b);
-      float lumaAfterHueSat =
-          get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
-      float lumStops = std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f;
-      float targetHslLuma = compute_target_luma_cpp(lumaAfterHueSat, lumStops);
-      apply_luma_target_cpp(r, g, b, lumaAfterHueSat, targetHslLuma);
+      if (std::abs(hue_shift) > 1e-5f || std::abs(sat_mult) > 1e-5f ||
+          std::abs(lum_adj) > 1e-5f) {
+        OklabCpp lab = linear_srgb_to_oklab_cpp(std::max(0.0f, r),
+                                                std::max(0.0f, g),
+                                                std::max(0.0f, b));
+        const float hueOk =
+            std::atan2(lab.b, lab.a) + hue_shift * 6.28318530718f;
+        const float srcL = lab.L;
+        float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+        chroma = std::max(
+            chroma * (1.0f + std::clamp(sat_mult, -0.85f, 1.25f)), 0.0f);
+        const float lumStops =
+            std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f / 3.0f;
+        const float targetL =
+            std::clamp(compute_target_luma_cpp(srcL, lumStops), 0.0f, 1.0f);
+        const float lumRatio =
+            (srcL > 1e-4f) ? std::clamp(targetL / srcL, 0.0f, 4.0f) : 1.0f;
+        chroma *= lumRatio;
+        lab.L = targetL;
+        lab.a = chroma * std::cos(hueOk);
+        lab.b = chroma * std::sin(hueOk);
+        oklab_to_linear_srgb_gamut_cpp(lab, r, g, b);
+        r = std::max(0.0f, r);
+        g = std::max(0.0f, g);
+        b = std::max(0.0f, b);
+      }
 
-      // 6. Color Grading
+      // 6. Color Grading (OKLab perceptual hue/chroma/lightness)
       float l_cg =
           get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
       float s_end = 0.4f + cgBal * 0.3f;
@@ -1028,37 +1109,53 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       float w_h = smoothstep(h_start - cg_feather, h_start + cg_feather, l_cg);
       float w_m = std::max(0.0f, 1.0f - w_s - w_h);
 
-      auto apply_cg_tint = [&](float& pr, float& pg, float& pb, float h,
-                               float s, float l, float weight) {
-        if (weight <= 0.001f) return;
-        float tr, tg, tb;
-        hsv_to_rgb(h, s / 100.0f, 1.0f, tr, tg, tb);
-        pr = mix(pr, pr * tr, (s / 100.0f) * weight) *
-             (1.0f + (l / 100.0f) * weight);
-        pg = mix(pg, pg * tg, (s / 100.0f) * weight) *
-             (1.0f + (l / 100.0f) * weight);
-        pb = mix(pb, pb * tb, (s / 100.0f) * weight) *
-             (1.0f + (l / 100.0f) * weight);
-      };
-      apply_cg_tint(r, g, b, cg[0].h, cg[0].s, cg[0].l, w_s);
-      apply_cg_tint(r, g, b, cg[1].h, cg[1].s, cg[1].l, w_m);
-      apply_cg_tint(r, g, b, cg[2].h, cg[2].s, cg[2].l, w_h);
+      if (cg[0].s != 0.0f || cg[1].s != 0.0f || cg[2].s != 0.0f ||
+          cg[0].l != 0.0f || cg[1].l != 0.0f || cg[2].l != 0.0f) {
+        auto tintOk = [](const OklabCpp& lab, float hueDeg, float s, float l) {
+          float hueOk = std::atan2(lab.b, lab.a);
+          const float targetH = hueDeg * 0.01745329252f;
+          float dH = targetH - hueOk;
+          dH = std::fmod(dH + 3.14159265359f, 6.28318530718f) -
+               3.14159265359f;
+          const float amount = std::clamp(s / 100.0f, 0.0f, 1.0f);
+          hueOk += dH * amount;
+          float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+          chroma *= 1.0f + amount * 0.15f;
+          OklabCpp out;
+          out.L =
+              std::clamp(lab.L * (1.0f + (l / 100.0f) * 0.25f), 0.0f, 1.0f);
+          out.a = chroma * std::cos(hueOk);
+          out.b = chroma * std::sin(hueOk);
+          return out;
+        };
+        const OklabCpp base = linear_srgb_to_oklab_cpp(r, g, b);
+        const OklabCpp ts = tintOk(base, cg[0].h, cg[0].s, cg[0].l);
+        const OklabCpp tm = tintOk(base, cg[1].h, cg[1].s, cg[1].l);
+        const OklabCpp th = tintOk(base, cg[2].h, cg[2].s, cg[2].l);
+        const OklabCpp mixed{ts.L * w_s + tm.L * w_m + th.L * w_h,
+                             ts.a * w_s + tm.a * w_m + th.a * w_h,
+                             ts.b * w_s + tm.b * w_m + th.b * w_h};
+        oklab_to_linear_srgb_gamut_cpp(mixed, r, g, b);
+        r = std::max(0.0f, r);
+        g = std::max(0.0f, g);
+        b = std::max(0.0f, b);
+      }
 
-      // 7. Saturation & Vibrance (Global)
-      float gray =
-          get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
-      float s_factor = 1.0f + (sat_global / 100.0f);
-      r = mix(gray, r, s_factor);
-      g = mix(gray, g, s_factor);
-      b = mix(gray, b, s_factor);
-
-      float c_max = std::max({r, g, b});
-      float c_min = std::min({r, g, b});
-      float chroma_sat = (c_max > 1e-5f) ? (c_max - c_min) / c_max : 0.0f;
-      float vib_boost = (vib_global / 100.0f) * (1.0f - chroma_sat);
-      r = mix(gray, r, 1.0f + vib_boost);
-      g = mix(gray, g, 1.0f + vib_boost);
-      b = mix(gray, b, 1.0f + vib_boost);
+      // 7. Saturation & Vibrance (Global) — perceptual chroma scaling in OKLab
+      if (std::abs(sat_global) > 0.001f || std::abs(vib_global) > 0.001f) {
+        OklabCpp lab = linear_srgb_to_oklab_cpp(std::max(0.0f, r),
+                                                std::max(0.0f, g),
+                                                std::max(0.0f, b));
+        const float hueOk = std::atan2(lab.b, lab.a);
+        float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+        chroma *= std::max(1.0f + (sat_global / 100.0f), 0.0f);
+        const float satNorm = std::clamp(chroma / 0.32f, 0.0f, 1.0f);
+        chroma *=
+            std::max(1.0f + (vib_global / 100.0f) * (1.0f - satNorm), 0.0f);
+        lab.a = chroma * std::cos(hueOk);
+        lab.b = chroma * std::sin(hueOk);
+        oklab_to_linear_srgb_gamut_cpp(lab, r, g, b);
+      }
 
       r = std::max(0.0f, r);
       g = std::max(0.0f, g);

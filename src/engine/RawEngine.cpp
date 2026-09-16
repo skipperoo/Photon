@@ -449,6 +449,62 @@ static float photon001_local_laplacian_mask_hist(float srcLog,
   return std::clamp(lapFine + 0.6f * lapMid, -2.5f, 2.5f);
 }
 
+struct OklabHist {
+  float L;
+  float a;
+  float b;
+};
+
+static OklabHist linear_srgb_to_oklab_hist(float r, float g, float b) {
+  const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
+  const float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
+  const float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
+  const float l3 = std::cbrt(l);
+  const float m3 = std::cbrt(m);
+  const float s3 = std::cbrt(s);
+  return {0.2104542553f * l3 + 0.7936177850f * m3 - 0.0040720468f * s3,
+          1.9779984951f * l3 - 2.4285922050f * m3 + 0.4505937099f * s3,
+          0.0259040371f * l3 + 0.7827717662f * m3 - 0.8086757660f * s3};
+}
+
+static void oklab_to_linear_srgb_hist(const OklabHist& lab, float& r, float& g,
+                                      float& b) {
+  const float l = lab.L + 0.3963377774f * lab.a + 0.2158037573f * lab.b;
+  const float m = lab.L - 0.1055613458f * lab.a - 0.0638541728f * lab.b;
+  const float s = lab.L - 0.0894841775f * lab.a - 1.2914855480f * lab.b;
+  const float l3 = l * l * l;
+  const float m3 = m * m * m;
+  const float s3 = s * s * s;
+  r = 4.0767416621f * l3 - 3.3077115913f * m3 + 0.2309699292f * s3;
+  g = -1.2684380046f * l3 + 2.6097574011f * m3 - 0.3413193965f * s3;
+  b = -0.0041960863f * l3 - 0.7034186147f * m3 + 1.7076147010f * s3;
+}
+
+
+static void oklab_to_linear_srgb_gamut_hist(const OklabHist& lab, float& r,
+                                            float& g, float& b) {
+  oklab_to_linear_srgb_hist(lab, r, g, b);
+  const float mn = std::min({r, g, b});
+  const float mx = std::max({r, g, b});
+  if (mn >= 0.0f && mx <= 1.0f) return;
+
+  float lo = 0.0f;
+  float hi = 1.0f;
+  for (int i = 0; i < 6; ++i) {
+    const float mid = 0.5f * (lo + hi);
+    float cr, cg, cb;
+    oklab_to_linear_srgb_hist({lab.L, lab.a * mid, lab.b * mid}, cr, cg, cb);
+    const float cMn = std::min({cr, cg, cb});
+    const float cMx = std::max({cr, cg, cb});
+    if (cMn >= 0.0f && cMx <= 1.0f) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  oklab_to_linear_srgb_hist({lab.L, lab.a * lo, lab.b * lo}, r, g, b);
+}
+
 static Vec3fHist apply_photon001_tone_ranges_hist(
     const Vec3fHist& color, const Vec3fHist& blurredFine,
     const Vec3fHist& blurredCoarse, float highlightsAmt, float shadowsAmt,
@@ -1999,10 +2055,20 @@ void RawEngine::requestHistogramUpdate() {
       g = color.g;
       b = color.b;
 
-      // 2. Contrast
-      r = std::pow(std::max(0.0f, r), con);
-      g = std::pow(std::max(0.0f, g), con);
-      b = std::pow(std::max(0.0f, b), con);
+      // 2. Contrast (perceptual S-curve on luma; 1.0 = identity)
+      r = std::max(0.0f, r);
+      g = std::max(0.0f, g);
+      b = std::max(0.0f, b);
+      if (std::abs(con - 1.0f) > 0.001f) {
+        const float lumaC =
+            0.2126f * r + 0.7152f * g + 0.0722f * b;
+        const float x = std::clamp(lumaC, 0.0f, 1.0f);
+        const float sCurve = x * x * (3.0f - 2.0f * x);
+        const float strength =
+            std::clamp((con - 1.0f) * 1.2f, -0.6f, 0.6f);
+        const float target = std::max(lerpF(x, sCurve, strength), 0.0f);
+        apply_luma_target_hist(r, g, b, lumaC, target);
+      }
 
       // 5. HSL PANEL
       HSV hsv = rgb_to_hsv_cpp(r, g, b);
@@ -2026,21 +2092,34 @@ void RawEngine::requestHistogramUpdate() {
       hue_shift *= chromaProtect;
       sat_mult = lerpF(sat_mult * 0.35f, sat_mult, chromaProtect);
       lum_adj *= lerpF(0.4f, 1.0f, chromaProtect);
-      hsv.h = std::fmod(hsv.h + hue_shift + 360.0f, 360.0f);
-      float satScale = 1.0f + std::clamp(sat_mult, -0.85f, 1.25f);
-      hsv.s = std::clamp(hsv.s * satScale, 0.0f, 1.0f);
-      float r_hsl, g_hsl, b_hsl;
-      hsv_to_rgb_cpp(hsv.h, hsv.s, hsv.v, r_hsl, g_hsl, b_hsl);
-      r = r_hsl;
-      g = g_hsl;
-      b = b_hsl;
-      float l_hsl = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
-                    0.0722f * std::max(0.0f, b);
-      float lumStops = std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f;
-      float targetHsl = compute_target_luma_hist(l_hsl, lumStops);
-      apply_luma_target_hist(r, g, b, l_hsl, targetHsl);
+      if (std::abs(hue_shift) > 1e-5f || std::abs(sat_mult) > 1e-5f ||
+          std::abs(lum_adj) > 1e-5f) {
+        OklabHist lab = linear_srgb_to_oklab_hist(std::max(0.0f, r),
+                                                  std::max(0.0f, g),
+                                                  std::max(0.0f, b));
+        const float hueOk =
+            std::atan2(lab.b, lab.a) + hue_shift * 0.01745329252f;
+        const float srcL = lab.L;
+        float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+        chroma = std::max(
+            chroma * (1.0f + std::clamp(sat_mult, -0.85f, 1.25f)), 0.0f);
+        const float lumStops =
+            std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f / 3.0f;
+        const float targetL =
+            std::clamp(compute_target_luma_hist(srcL, lumStops), 0.0f, 1.0f);
+        const float lumRatio =
+            (srcL > 1e-4f) ? std::clamp(targetL / srcL, 0.0f, 4.0f) : 1.0f;
+        chroma *= lumRatio;
+        lab.L = targetL;
+        lab.a = chroma * std::cos(hueOk);
+        lab.b = chroma * std::sin(hueOk);
+        oklab_to_linear_srgb_gamut_hist(lab, r, g, b);
+        r = std::max(0.0f, r);
+        g = std::max(0.0f, g);
+        b = std::max(0.0f, b);
+      }
 
-      // 6. COLOR GRADING
+      // 6. COLOR GRADING (OKLab perceptual hue/chroma/lightness)
       float l_cg = 0.2126f * r + 0.7152f * g + 0.0722f * b;
       float s_end = 0.4f + cgBal * 0.3f;
       float h_start = 0.6f + cgBal * 0.3f;
@@ -2049,15 +2128,38 @@ void RawEngine::requestHistogramUpdate() {
       float w_h =
           smoothstep(h_start - cgBlen * 0.4f, h_start + cgBlen * 0.4f, l_cg);
       float w_m = 1.0f - w_s - w_h;
-      float r_s = r, g_s = g, b_s = b;
-      apply_region_tint_cpp(r_s, g_s, b_s, cgSH, cgSS, cgSL);
-      float r_m = r, g_m = g, b_m = b;
-      apply_region_tint_cpp(r_m, g_m, b_m, cgMH, cgMS, cgML);
-      float r_h = r, g_h = g, b_h = b;
-      apply_region_tint_cpp(r_h, g_h, b_h, cgHH, cgHS, cgHL);
-      r = r_s * w_s + r_m * w_m + r_h * w_h;
-      g = g_s * w_s + g_m * w_m + g_h * w_h;
-      b = b_s * w_s + b_m * w_m + b_h * w_h;
+
+      if (cgSS != 0.0f || cgMS != 0.0f || cgHS != 0.0f || cgSL != 0.0f ||
+          cgML != 0.0f || cgHL != 0.0f) {
+        auto tintOk = [](const OklabHist& lab, float hueDeg, float s, float l) {
+          float hueOk = std::atan2(lab.b, lab.a);
+          const float targetH = hueDeg * 0.01745329252f;
+          float dH = targetH - hueOk;
+          dH = std::fmod(dH + 3.14159265359f, 6.28318530718f) -
+               3.14159265359f;
+          const float amount = std::clamp(s / 100.0f, 0.0f, 1.0f);
+          hueOk += dH * amount;
+          float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+          chroma *= 1.0f + amount * 0.15f;
+          OklabHist out;
+          out.L =
+              std::clamp(lab.L * (1.0f + (l / 100.0f) * 0.25f), 0.0f, 1.0f);
+          out.a = chroma * std::cos(hueOk);
+          out.b = chroma * std::sin(hueOk);
+          return out;
+        };
+        const OklabHist base = linear_srgb_to_oklab_hist(r, g, b);
+        const OklabHist ts = tintOk(base, cgSH, cgSS, cgSL);
+        const OklabHist tm = tintOk(base, cgMH, cgMS, cgML);
+        const OklabHist th = tintOk(base, cgHH, cgHS, cgHL);
+        const OklabHist mixed{ts.L * w_s + tm.L * w_m + th.L * w_h,
+                              ts.a * w_s + tm.a * w_m + th.a * w_h,
+                              ts.b * w_s + tm.b * w_m + th.b * w_h};
+        oklab_to_linear_srgb_gamut_hist(mixed, r, g, b);
+        r = std::max(0.0f, r);
+        g = std::max(0.0f, g);
+        b = std::max(0.0f, b);
+      }
 
       uint8_t r8 = static_cast<uint8_t>(std::clamp(r * 255.0f, 0.0f, 255.0f));
       uint8_t g8 = static_cast<uint8_t>(std::clamp(g * 255.0f, 0.0f, 255.0f));

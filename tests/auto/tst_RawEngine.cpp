@@ -19,6 +19,7 @@ class TestRawEngine : public QObject {
   void testProperties();
   void testPhoton001MultipassUsesFloatTargets();
   void testPhoton001ToneRangesReferenceBehavior();
+  void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
   void testSwitchingSourceResetsExposureAndContrast();
   void testApplyGeometryTransformsStraightenKeepsFullFrame();
@@ -351,6 +352,170 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
   QVERIFY(downDiff > 0.001f);
   QVERIFY(upDiff < 2.0f * downDiff);
   QVERIFY(downDiff < 2.0f * upDiff);
+}
+
+void TestRawEngine::testOklabCreativeOps() {
+  auto oklabHueDeg = [](float r, float g, float b) {
+    const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
+    const float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
+    const float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
+    const float l3 = std::cbrt(l);
+    const float m3 = std::cbrt(m);
+    const float s3 = std::cbrt(s);
+    const float A =
+        1.9779984951f * l3 - 2.4285922050f * m3 + 0.4505937099f * s3;
+    const float B =
+        0.0259040371f * l3 + 0.7827717662f * m3 - 0.8086757660f * s3;
+    return std::atan2(B, A) * 180.0f / 3.14159265359f;
+  };
+
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["tonemappingEnabled"] = false;
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+
+  // Muted green patch (has gamut headroom for chroma/lightness changes).
+  constexpr int w = 8;
+  constexpr int h = 8;
+  std::vector<ushort> patch(w * h * 3);
+  const ushort pr = 100 * 257;
+  const ushort pg = 180 * 257;
+  const ushort pb = 80 * 257;
+  for (int i = 0; i < w * h; ++i) {
+    patch[i * 3 + 0] = pr;
+    patch[i * 3 + 1] = pg;
+    patch[i * 3 + 2] = pb;
+  }
+  const float baseHue =
+      oklabHueDeg(srgbToLinear(pr / 65535.0f), srgbToLinear(pg / 65535.0f),
+                  srgbToLinear(pb / 65535.0f));
+
+  auto centerHue = [&](const QImage& img) {
+    const uchar* scan = img.constScanLine(h / 2);
+    return oklabHueDeg(srgbToLinear(scan[(w / 2) * 3 + 0] / 255.0f),
+                       srgbToLinear(scan[(w / 2) * 3 + 1] / 255.0f),
+                       srgbToLinear(scan[(w / 2) * 3 + 2] / 255.0f));
+  };
+
+  QJsonObject lum = base;
+  lum["hslGreenLuminance"] = 40.0;
+  QVERIFY(std::abs(centerHue(
+              photon::ImageDeveloper::develop(patch.data(), w, h, lum)) -
+              baseHue) < 4.0f);
+
+  QJsonObject sat = base;
+  sat["hslGreenSaturation"] = 40.0;
+  QVERIFY(std::abs(centerHue(
+              photon::ImageDeveloper::develop(patch.data(), w, h, sat)) -
+              baseHue) < 4.0f);
+
+  // Saturated yellow at extreme lightness must keep its hue: the OKLab
+  // conversion gamut-maps chroma instead of clipping channels.
+  std::vector<ushort> yellow(w * h * 3);
+  const ushort yr = 230 * 257;
+  const ushort yg = 200 * 257;
+  const ushort yb = 40 * 257;
+  for (int i = 0; i < w * h; ++i) {
+    yellow[i * 3 + 0] = yr;
+    yellow[i * 3 + 1] = yg;
+    yellow[i * 3 + 2] = yb;
+  }
+  const float yellowHue =
+      oklabHueDeg(srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
+                  srgbToLinear(yb / 65535.0f));
+
+  auto yellowHueOut = [&](const QJsonObject& settings) {
+    const QImage img =
+        photon::ImageDeveloper::develop(yellow.data(), w, h, settings);
+    const uchar* scan = img.constScanLine(h / 2);
+    return oklabHueDeg(srgbToLinear(scan[(w / 2) * 3 + 0] / 255.0f),
+                       srgbToLinear(scan[(w / 2) * 3 + 1] / 255.0f),
+                       srgbToLinear(scan[(w / 2) * 3 + 2] / 255.0f));
+  };
+  QJsonObject yUp = base;
+  yUp["hslYellowLuminance"] = 80.0;
+  QVERIFY(std::abs(yellowHueOut(yUp) - yellowHue) < 5.0f);
+  QJsonObject yDown = base;
+  yDown["hslYellowLuminance"] = -80.0;
+  QVERIFY(std::abs(yellowHueOut(yDown) - yellowHue) < 5.0f);
+
+  // Relative chroma must stay proportional to lightness under HSL lightness
+  // changes: otherwise colours leave the gamut and clip into noise.
+  auto labLC = [](float r, float g, float b, float& L, float& C) {
+    const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
+    const float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
+    const float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
+    const float l3 = std::cbrt(l);
+    const float m3 = std::cbrt(m);
+    const float s3 = std::cbrt(s);
+    L = 0.2104542553f * l3 + 0.7936177850f * m3 - 0.0040720468f * s3;
+    const float A =
+        1.9779984951f * l3 - 2.4285922050f * m3 + 0.4505937099f * s3;
+    const float B =
+        0.0259040371f * l3 + 0.7827717662f * m3 - 0.8086757660f * s3;
+    C = std::sqrt(A * A + B * B);
+  };
+  float inL = 0.0f, inC = 0.0f;
+  labLC(srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
+        srgbToLinear(yb / 65535.0f), inL, inC);
+
+  const QImage yellowDark =
+      photon::ImageDeveloper::develop(yellow.data(), w, h, yDown);
+  const uchar* ydScan = yellowDark.constScanLine(h / 2);
+  float outL = 0.0f, outC = 0.0f;
+  labLC(srgbToLinear(ydScan[(w / 2) * 3 + 0] / 255.0f),
+        srgbToLinear(ydScan[(w / 2) * 3 + 1] / 255.0f),
+        srgbToLinear(ydScan[(w / 2) * 3 + 2] / 255.0f), outL, outC);
+  QVERIFY(outC > 0.0f && outL > 0.0f);
+  const float ratioIn = inC / inL;
+  const float ratioOut = outC / outL;
+  QVERIFY(std::abs(ratioOut / ratioIn - 1.0f) < 0.15f);
+
+  // Perceptual contrast S-curve: darkens below mid, brightens above, keeps
+  // mid-gray roughly in place.
+  constexpr int cw = 32;
+  constexpr int ch = 8;
+  auto srgb16 = [](float linear) {
+    const float s = linear <= 0.0031308f
+                        ? linear * 12.92f
+                        : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+    return ushort(std::clamp(s, 0.0f, 1.0f) * 65535.0f + 0.5f);
+  };
+  std::vector<ushort> grad(cw * ch * 3);
+  for (int y = 0; y < ch; ++y) {
+    for (int x = 0; x < cw; ++x) {
+      float v = 0.5f;
+      if (x < 8) v = 0.08f;
+      else if (x >= 24) v = 0.85f;
+      const ushort sv = srgb16(v);
+      const int i = (y * cw + x) * 3;
+      grad[i] = grad[i + 1] = grad[i + 2] = sv;
+    }
+  }
+  auto bandLuma = [&](const QImage& img, int x0, int x1) {
+    double sum = 0.0;
+    int n = 0;
+    for (int y = 0; y < ch; ++y) {
+      const uchar* scan = img.constScanLine(y);
+      for (int x = x0; x < x1; ++x) {
+        sum += 0.2126 * srgbToLinear(scan[x * 3 + 0] / 255.0f) +
+               0.7152 * srgbToLinear(scan[x * 3 + 1] / 255.0f) +
+               0.0722 * srgbToLinear(scan[x * 3 + 2] / 255.0f);
+        ++n;
+      }
+    }
+    return float(sum / double(n));
+  };
+
+  const QImage cRef = photon::ImageDeveloper::develop(grad.data(), cw, ch, base);
+  QJsonObject cHigh = base;
+  cHigh["contrast"] = 1.5;
+  const QImage cOut =
+      photon::ImageDeveloper::develop(grad.data(), cw, ch, cHigh);
+  QVERIFY(bandLuma(cOut, 0, 8) < bandLuma(cRef, 0, 8) - 0.005f);
+  QVERIFY(bandLuma(cOut, 24, 32) > bandLuma(cRef, 24, 32) + 0.005f);
+  QVERIFY(std::abs(bandLuma(cOut, 10, 22) - bandLuma(cRef, 10, 22)) < 0.06f);
 }
 
 void TestRawEngine::testToneCurveLumaMatchesReferenceMapping() {

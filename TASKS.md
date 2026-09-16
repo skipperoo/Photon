@@ -592,12 +592,15 @@ Scope: Tasks 1-10 (Task 11 is follow-up). Every task carries a `Check:` annotati
 - Reason: current QML chain passes the user checks (output identical, editing feels light); the RHI rewrite is a large architectural change with regression risk and no user-visible gain today. Revisit if pass overhead becomes measurable on large images.
 - **Check:** identical output; edits update only on parameter change; reduced GPU cost.
 
-### 10. Perceptual creative ops — PARTIAL
+### 10. Perceptual creative ops — DONE
 
 - [x] Two-sided Clarity (negative softens; GPU + both CPU paths use the signed amount)
 - [x] Symmetric Clarity: one luminance-selected pin (`clarityPin`) replaces the asymmetric highlight/shadow pin pair, so ±amounts act symmetrically
 - [x] Luma-preserving local contrast (see above)
-- [ ] HSL/grading/vibrance in OKLab/OKLCh and a log-space contrast S-curve — deferred for visual iteration
+- [x] Saturation/Vibrance scale OKLab chroma about a preserved lightness/hue (gamut-friendlier, no hue swing)
+- [x] HSL panel applies hue rotation / chroma scale / lightness in OKLCh; band influence is still computed from HSV hue so the existing 8-band targeting is unchanged
+- [x] Color grading rotates hue toward the zone hue and adjusts chroma/lightness in OKLab, blended in OKLab before a single conversion back
+- [x] Contrast is a perceptual S-curve on luma (smoothstep blend, 1.0 = identity) instead of `pow()`
 - **Check:** Clarity -100 softens without flattening highlights; sharpening/structure do not brighten the image; hue stable under luma changes.
 
 ### 11. Wire extras + final validation — FOLLOW-UP
@@ -687,3 +690,6 @@ Steps: photo with fine diagonal texture (foliage); Sharpening +50, then Structur
   - Fixed 2026-09-16: clarity now uses a single luminance-selected pin, making ±amounts symmetric; CPU test asserts the two directions are within 2x. Please re-check symmetry.
 - [x] Sharpening/Structure no longer raise global exposure.
 - [x] HSL/grading/vibrance keep hue stable on saturated colors; contrast behaves like an S-curve.
+  - Reworked 2026-09-16: HSL panel, 3-way grading and Saturation/Vibrance now operate in OKLab/OKLCh, and Contrast is a smoothstep S-curve on luma. Automated checks: saturated-color hue must stay within 4° under HSL luminance/saturation changes; +Contrast darkens below mid-gray, brightens above, and leaves mid-gray unchanged. Please verify visually: equal slider amounts should look even across hues; per-band HSL luminance/saturation should not swing hue; grading tints should be clean; Contrast +100 should deepen without washing saturation, -100 should flatten symmetrically.
+  - Fixed 2026-09-16 (round 2): per-band HSL luminance in deep shadows/highlights produced banding/halos because chroma was kept constant while OKLab lightness moved outside the sRGB gamut (channels clipped). Chroma is now gamut-mapped along the hue ray (bisection) and target lightness is clamped, in GPU + both CPU paths. Automated check: saturated yellow at HSL luminance ±80 must keep its OKLab hue within 5°. Please re-check the Yellow band luminance in the sky/shadows for banding and halos.
+  - Fixed 2026-09-16 (round 3): gamut mapping still produced chroma speckle because absolute chroma was preserved while lightness moved (deep shadows have very little gamut headroom). Chroma now scales proportionally with lightness (relative chroma preserved), so colours stay in gamut instead of being clipped; lightness strength is normalised to the previous linear-luma response (÷3 on the OKLab exponent). Automated check: relative chroma (`C/L`) must stay within 15% under HSL luminance −80. Please re-check Yellow luminance ±100 in sky/shadows.

@@ -9,6 +9,7 @@
 #include <QTransform>
 #include <QtConcurrent>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <cstdio>
 #include <numeric>
@@ -491,70 +492,64 @@ static float photon001_tent_weight_cpp(float value, float center,
       0.0f);
 }
 
-struct Photon001ReductionStatsCpp {
-  float minVal;
-  float maxVal;
-  float meanVal;
-  float variance;
-  float moment3;
-  float reduction0;
-  float reduction1;
+struct Photon001SceneStatsCpp {
+  float detailScale;
+  float highlightPin;
+  float compression;
 };
 
-static Photon001ReductionStatsCpp photon001_collect_reduction_stats_cpp(
-    float srcGrayLog, float blurFineLog, float blurCoarseLog) {
-  const float s0 = srcGrayLog;
-  const float s1 = blurFineLog;
-  const float s2 = blurCoarseLog;
+static Photon001SceneStatsCpp photon001_compute_scene_stats_cpp(
+    const ushort* src, int width, int height, const float* srgb16ToLinear,
+    float sceneWhite) {
+  const size_t pixelCount = size_t(width) * size_t(height);
+  const size_t step = 16;
+  const float toneMid =
+      photon001_encode_log_luma_cpp(std::max(sceneWhite * 0.18f, 1e-4f));
 
-  const float minVal = std::min({s0, s1, s2});
-  const float maxVal = std::max({s0, s1, s2});
-  const float meanVal = (s0 + s1 + s2) / 3.0f;
+  double sum = 0.0;
+  double sumSq = 0.0;
+  float minLog = std::numeric_limits<float>::max();
+  float maxLog = std::numeric_limits<float>::lowest();
+  size_t sampled = 0;
+  size_t highlightSamples = 0;
 
-  const float d0 = s0 - meanVal;
-  const float d1 = s1 - meanVal;
-  const float d2 = s2 - meanVal;
-  const float variance = (d0 * d0 + d1 * d1 + d2 * d2) / 3.0f;
-  const float moment3 = (d0 * d0 * d0 + d1 * d1 * d1 + d2 * d2 * d2) / 3.0f;
+  for (size_t i = 0; i < pixelCount; i += step) {
+    const Vec3fCpp linear{srgb16ToLinear[src[i * 3]],
+                          srgb16ToLinear[src[i * 3 + 1]],
+                          srgb16ToLinear[src[i * 3 + 2]]};
+    const float logL = photon001_log_luma_cpp(linear);
+    sum += logL;
+    sumSq += double(logL) * double(logL);
+    minLog = std::min(minLog, logL);
+    maxLog = std::max(maxLog, logL);
+    if (logL > toneMid + 2.5f) ++highlightSamples;
+    ++sampled;
+  }
+  if (sampled == 0) return {1.0f, 0.0f, 1.0f};
 
-  const float reduction0 = 0.5f * (variance + std::abs(moment3));
-  const float reduction1 = 0.5f * moment3;
-  return {minVal, maxVal, meanVal, variance, moment3, reduction0, reduction1};
-}
+  const double mean = sum / double(sampled);
+  const float stdDev =
+      float(std::sqrt(std::max(sumSq / double(sampled) - mean * mean, 0.0)));
+  const float rangeStops = std::clamp(maxLog - minLog, 0.0f, 20.0f);
+  const float highlightFrac = float(highlightSamples) / float(sampled);
 
-static float photon001_triangle_weight_cpp(float value, float reference,
-                                           float invDs) {
-  const float line0 = invDs * (value - reference) + 1.0f;
-  const float line1 = invDs * (reference - value) + 1.0f;
-  return std::max(std::min(line0, line1), 0.0f);
+  return {std::clamp(0.85f + stdDev * 0.35f, 0.85f, 1.25f),
+          std::clamp(highlightFrac * 3.0f, 0.0f, 1.0f),
+          std::clamp(rangeStops / 12.0f, 0.5f, 1.2f)};
 }
 
 static float photon001_local_laplacian_mask_cpp(float srcLog, float blurFineLog,
-                                                 float blurCoarseLog,
-                                                 float toneMid) {
-  const float maskFine = std::clamp(srcLog - blurFineLog, -2.0f, 2.0f);
-  const float maskCoarse = std::clamp(blurFineLog - blurCoarseLog, -2.0f, 2.0f);
-  const float baseResidual =
-      std::clamp(maskFine * 0.70f + maskCoarse * 0.45f, -2.5f, 2.5f);
-
-  float accum = 0.0f;
-  float weightSum = 0.0f;
-  const float invDs = 0.5f;  // ds = 2 stops between references
-  for (int i = 0; i < 5; ++i) {
-    const float ref = toneMid + (float(i) - 2.0f) * 2.0f;
-    const float alpha = photon001_triangle_weight_cpp(srcLog, ref, invDs);
-    const float levelGain = 1.0f + (float(i) - 2.0f) * 0.08f;
-    accum += alpha * baseResidual * levelGain;
-    weightSum += alpha;
-  }
-
-  return std::clamp(accum / std::max(weightSum, PHOTON001_EPS_CPP), -2.5f, 2.5f);
+                                                 float blurCoarseLog) {
+  const float lapFine = srcLog - blurFineLog;
+  const float lapMid = blurFineLog - blurCoarseLog;
+  return std::clamp(lapFine + 0.6f * lapMid, -2.5f, 2.5f);
 }
 
 static Vec3fCpp apply_photon001_tone_ranges_cpp(
     const Vec3fCpp& color, const Vec3fCpp& blurredFine,
     const Vec3fCpp& blurredCoarse, float highlightsAmt, float shadowsAmt,
-    float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm) {
+    float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm,
+    const Photon001SceneStatsCpp& sceneStats) {
   const float srcGrayLinear = photon001_working_luma_linear_cpp(color);
   const float srcGrayLog = photon001_encode_log_luma_cpp(srcGrayLinear);
   const float blurFineLog = photon001_log_luma_cpp(blurredFine);
@@ -563,26 +558,25 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
       photon001_encode_log_luma_cpp(
           std::max(sceneWhiteNorm * 0.18f, PHOTON001_EPS_CPP));
 
-  const float wBlacks =
-      photon001_tent_weight_cpp(srcGrayLog, toneMid - 3.8f, 1.8f);
   const float wShadows =
-      photon001_tent_weight_cpp(srcGrayLog, toneMid - 1.9f, 1.9f);
+      photon001_tent_weight_cpp(srcGrayLog, toneMid - 2.4f, 2.0f);
   const float wHighlights =
       photon001_tent_weight_cpp(srcGrayLog, toneMid + 1.0f, 1.9f);
   const float wWhites =
       photon001_tent_weight_cpp(srcGrayLog, toneMid + 3.1f, 2.2f);
+  const float wBlacks =
+      photon001_tent_weight_cpp(srcGrayLog, toneMid - 4.6f, 1.9f);
 
-  const Photon001ReductionStatsCpp stats =
-      photon001_collect_reduction_stats_cpp(srcGrayLog, blurFineLog,
-                                            blurCoarseLog);
   const float mask = photon001_local_laplacian_mask_cpp(
-      srcGrayLog, blurFineLog, blurCoarseLog, toneMid);
+      srcGrayLog, blurFineLog, blurCoarseLog);
   const float deltaMask =
       std::clamp(blurFineLog - blurCoarseLog, -1.0f, 1.0f);
 
   const float partSwitch = step_local(srcGrayLog, toneMid);
-  const float compressedLow = toneMid + (srcGrayLog - toneMid) * 0.78f;
-  const float compressedHigh = toneMid + (srcGrayLog - toneMid) * 0.58f;
+  const float compressedLow =
+      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.22f * sceneStats.compression);
+  const float compressedHigh =
+      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.42f * sceneStats.compression);
   const float baseCompressed =
       mix_local(compressedHigh, compressedLow, partSwitch);
 
@@ -590,15 +584,7 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
   localContrastSignal *= clarityAmt;
   localContrastSignal *=
       std::clamp(1.0f + 0.35f * (-highlightsAmt + shadowsAmt), 1.0f, 2.0f);
-  const float rangeSpan = std::max(stats.maxVal - stats.minVal, 0.0f);
-  const float varianceGate = std::clamp(stats.reduction0 * 96.0f, 0.0f, 1.0f);
-  const float skewGate = std::clamp(stats.reduction1 * 32.0f, -1.0f, 1.0f);
-  const float localVariance = std::clamp(stats.variance * 128.0f, 0.0f, 1.0f);
-  localContrastSignal *=
-      mix_local(0.88f, 1.22f, 0.5f * varianceGate + 0.5f * localVariance);
-  localContrastSignal += 0.08f * skewGate;
-  localContrastSignal *=
-      1.0f + std::clamp(rangeSpan * 0.08f, 0.0f, 0.25f);
+  localContrastSignal *= sceneStats.detailScale;
 
   const float lumWeightHigh =
       std::clamp(wHighlights + 0.6f * wWhites, 0.0f, 1.0f);
@@ -643,8 +629,11 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
   recoveryStops += blacksAmt * wBlacks * hsPinY;
   recoveryStops += localContrastSignal * clarityPin;
 
+  const float fadeStrength =
+      0.6f + 0.2f * std::clamp(sceneStats.highlightPin, 0.0f, 1.0f);
   const float positiveFade =
-      1.0f - 0.6f * smoothstep_local(toneMid + 1.0f, toneMid + 4.0f, srcGrayLog);
+      1.0f -
+      fadeStrength * smoothstep_local(toneMid + 1.0f, toneMid + 4.0f, srcGrayLog);
   if (recoveryStops > 0.0f) recoveryStops *= positiveFade;
 
   const float deltaSign = sign_local(recoveryStops);
@@ -848,7 +837,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float r_wb = (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f);
   float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
   float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
-  float exp_mult = std::pow(2.0f, exp);
+  float exp_mult = std::pow(2.0f, exp > 0.0f ? exp * 0.85f : exp);
 
   // Precompute Tone Curve LUTs
   auto jsonArrayToVariantList = [](const QJsonArray& arr) -> QVariantList {
@@ -918,6 +907,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                      90.0f / 360.0f, 60.0f / 360.0f, 60.0f / 360.0f,
                      55.0f / 360.0f, 50.0f / 360.0f};
   const auto& linearLut = srgb16_to_linear_lut_cpp();
+  const Photon001SceneStatsCpp sceneStats =
+      photon001_compute_scene_stats_cpp(src, width, height, linearLut.data(),
+                                        sceneWhite);
 
   std::vector<Vec3fCpp> fineBlurH;
   std::vector<Vec3fCpp> coarseBlurH;
@@ -954,15 +946,20 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       b *= b_wb * exp_mult;
       Vec3fCpp color{r, g, b};
 
-      float luma =
-          get_luma_cpp(std::max(0.0f, color.r), std::max(0.0f, color.g),
-                       std::max(0.0f, color.b));
-      if (luma > sceneWhite && exp > 0.0f) {
-        float over = luma - sceneWhite;
-        float knee = sceneWhite * 0.7f;
-        float compress = over / (1.0f + over / knee);
-        float targetL = sceneWhite + compress;
-        apply_luma_target_cpp(color.r, color.g, color.b, luma, targetL);
+      if (exp > 0.0f) {
+        float kneeStart =
+            sceneWhite * 0.65f *
+            (1.0f - 0.30f * std::clamp(exp / 2.5f, 0.0f, 1.0f));
+        const float luma =
+            get_luma_cpp(std::max(0.0f, color.r), std::max(0.0f, color.g),
+                         std::max(0.0f, color.b));
+        if (luma > kneeStart) {
+          const float range = std::max(1.0f - kneeStart, 1e-4f);
+          const float over = luma - kneeStart;
+          const float target =
+              kneeStart + range * (1.0f - std::exp(-over / range));
+          apply_luma_target_cpp(color.r, color.g, color.b, luma, target);
+        }
       }
 
       Vec3fCpp blurredFineTone{blurredFine.r * r_wb * exp_mult,
@@ -975,7 +972,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       color = apply_photon001_tone_ranges_cpp(
           color, blurredFineTone, blurredCoarseTone, high / 100.0f,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
-          sceneWhiteNorm);
+          sceneWhiteNorm, sceneStats);
 
       // 2. Contrast
       r = std::pow(std::max(0.0f, color.r), con);

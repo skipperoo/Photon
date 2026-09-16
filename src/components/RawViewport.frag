@@ -681,18 +681,25 @@ void main()
     // 1. White Balance
     color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0);
 
-    // 2. Exposure
-    float exposure = pow(2.0, ubuf.exposure);
+    // 2. Exposure (positive side tapers the gain and rolls highlights off earlier)
+    float exposureAmount = ubuf.exposure;
+    float exposure =
+        pow(2.0, exposureAmount * (exposureAmount > 0.0 ? 0.85 : 1.0));
 
     color *= exposure;
-    float luma = get_luma(max(color, 0.0));
-    if (luma > ubuf.sceneWhite && ubuf.exposure > 0.0) {
-        float over     = luma - ubuf.sceneWhite;
-        // The higher the shoulder, the less the highlights get compressed
-        float knee     = ubuf.sceneWhite * 0.7;          // shoulder width
-        float compress = over / (1.0 + over / knee);     // Reinhard-style on the excess
-        float targetL  = ubuf.sceneWhite + compress;
-        color = apply_luma_target(color, luma, targetL);
+    if (exposureAmount > 0.0) {
+        float kneeStart = ubuf.sceneWhite * 0.65 *
+            (1.0 - 0.30 * clamp(exposureAmount / 2.5, 0.0, 1.0));
+        float luma = get_luma(max(color, 0.0));
+        if (luma > kneeStart) {
+            // Continuous exponential soft-clip (slope 1 at the knee) that
+            // asymptotes at display white, preserving highlight detail and
+            // control range at high EV.
+            float range = max(1.0 - kneeStart, 1e-4);
+            float over = luma - kneeStart;
+            float target = kneeStart + range * (1.0 - exp(-over / range));
+            color = apply_luma_target(color, luma, target);
+        }
     }
     float sceneWhiteNorm = max(ubuf.sceneWhite * exposure, 1e-4);
     vec4 deltaValue = texture(photon001Delta, qt_TexCoord0);

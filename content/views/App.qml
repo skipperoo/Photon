@@ -660,54 +660,6 @@ Window {
                             }
 
                             ShaderEffect {
-                                id: photon001MinMaxMeanPass
-                                anchors.fill: parent
-                                visible: false
-                                property variant source: ShaderEffectSource {
-                                    sourceItem: photon001LogPass
-                                    format: ShaderEffectSource.RGBA16F
-                                    hideSource: true
-                                    live: true
-                                }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
-                                fragmentShader: "qrc:/Main/shaders/Photon001MinMaxMean.frag.qsb"
-                            }
-
-                            ShaderEffect {
-                                id: photon001MomentsPass
-                                anchors.fill: parent
-                                visible: false
-                                property variant source: ShaderEffectSource {
-                                    sourceItem: photon001LogPass
-                                    format: ShaderEffectSource.RGBA16F
-                                    hideSource: true
-                                    live: true
-                                }
-                                property variant minmaxmeanSource: ShaderEffectSource {
-                                    sourceItem: photon001MinMaxMeanPass
-                                    format: ShaderEffectSource.RGBA16F
-                                    hideSource: true
-                                    live: true
-                                }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
-                                fragmentShader: "qrc:/Main/shaders/Photon001Moments.frag.qsb"
-                            }
-
-                            ShaderEffect {
-                                id: photon001ReductionPass
-                                anchors.fill: parent
-                                visible: false
-                                property variant source: ShaderEffectSource {
-                                    sourceItem: photon001MomentsPass
-                                    format: ShaderEffectSource.RGBA16F
-                                    hideSource: true
-                                    live: true
-                                }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
-                                fragmentShader: "qrc:/Main/shaders/Photon001ReductionSum.frag.qsb"
-                            }
-
-                            ShaderEffect {
                                 id: photon001DeltaPass
                                 anchors.fill: parent
                                 visible: false
@@ -729,24 +681,6 @@ Window {
                                     hideSource: true
                                     live: true
                                 }
-                                property variant minmaxmeanSource: ShaderEffectSource {
-                                    sourceItem: photon001MinMaxMeanPass
-                                    format: ShaderEffectSource.RGBA16F
-                                    hideSource: true
-                                    live: true
-                                }
-                                property variant momentsSource: ShaderEffectSource {
-                                    sourceItem: photon001MomentsPass
-                                    format: ShaderEffectSource.RGBA16F
-                                    hideSource: true
-                                    live: true
-                                }
-                                property variant reductionSource: ShaderEffectSource {
-                                    sourceItem: photon001ReductionPass
-                                    format: ShaderEffectSource.RGBA16F
-                                    hideSource: true
-                                    live: true
-                                }
                                 property real highlights: rawViewport.highlights
                                 property real shadows: rawViewport.shadows
                                 property real whites: rawViewport.whites
@@ -754,6 +688,9 @@ Window {
                                 property real clarity: rawViewport.clarity
                                 property real sceneWhite: rawViewport.sceneWhite
                                 property real exposure: rawViewport.exposure
+                                property real sceneDetailScale: rawViewport.sceneDetailScale
+                                property real sceneHighlightPin: rawViewport.sceneHighlightPin
+                                property real sceneCompression: rawViewport.sceneCompression
                                 fragmentShader: "qrc:/Main/shaders/Photon001Delta.frag.qsb"
                             }
 

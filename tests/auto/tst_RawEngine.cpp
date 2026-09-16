@@ -126,9 +126,6 @@ void TestRawEngine::testPhoton001MultipassUsesFloatTargets() {
   verifySourceUsesFloatTarget("photon001ColorFineV");
   verifySourceUsesFloatTarget("photon001ColorCoarseV");
   verifySourceUsesFloatTarget("photon001LogPass");
-  verifySourceUsesFloatTarget("photon001MinMaxMeanPass");
-  verifySourceUsesFloatTarget("photon001MomentsPass");
-  verifySourceUsesFloatTarget("photon001ReductionPass");
   verifySourceUsesFloatTarget("photon001DeltaPass");
 }
 
@@ -146,7 +143,7 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
   std::vector<ushort> src(w * h * 3);
   for (int y = 0; y < h; ++y) {
     for (int x = 0; x < w; ++x) {
-      const float linear = 0.02f + 0.98f * float(x) / float(w - 1);
+      const float linear = 0.002f + 0.998f * float(x) / float(w - 1);
       const ushort v = linearToSrgb16(linear);
       const int i = (y * w + x) * 3;
       src[i] = v;
@@ -178,7 +175,7 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
   QVERIFY(!ref.isNull());
   const float refLuma = avgLuma(ref);
 
-  QVERIFY(std::abs(refLuma - 0.51f) < 0.02f);
+  QVERIFY(std::abs(refLuma - 0.5f) < 0.02f);
 
   auto maxLumaDiff = [](const QImage& a, const QImage& b) {
     float maxDiff = 0.0f;
@@ -202,7 +199,7 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
     return photon::ImageDeveloper::develop(src.data(), w, h, settings);
   };
 
-  const char* const sliders[] = {"shadows", "highlights", "whites", "blacks"};
+  const char* const sliders[] = {"shadows", "highlights", "whites"};
   for (const char* key : sliders) {
     const QImage up = imageWith(key, 100.0);
     const QImage down = imageWith(key, -100.0);
@@ -229,24 +226,101 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
   QVERIFY(brightDiff < 0.005f);
 
   // Whites must move the white point (bright region) in both directions.
-  {
-    auto brightMean = [&](const QImage& img) {
-      double sum = 0.0;
-      int n = 0;
-      for (int y = 0; y < h; ++y) {
-        const uchar* scan = img.constScanLine(y);
-        for (int x = brightStart; x < w; ++x) {
-          sum += srgbToLinear(scan[x * 3 + 0] / 255.0f) * 0.2126 +
-                 srgbToLinear(scan[x * 3 + 1] / 255.0f) * 0.7152 +
-                 srgbToLinear(scan[x * 3 + 2] / 255.0f) * 0.0722;
-          ++n;
-        }
+  auto bandMean = [&](const QImage& img, int x0, int x1) {
+    double sum = 0.0;
+    int n = 0;
+    for (int y = 0; y < h; ++y) {
+      const uchar* scan = img.constScanLine(y);
+      for (int x = x0; x < x1; ++x) {
+        sum += srgbToLinear(scan[x * 3 + 0] / 255.0f) * 0.2126 +
+               srgbToLinear(scan[x * 3 + 1] / 255.0f) * 0.7152 +
+               srgbToLinear(scan[x * 3 + 2] / 255.0f) * 0.0722;
+        ++n;
       }
-      return float(sum / double(n));
-    };
-    const float brightRef = brightMean(ref);
-    QVERIFY(brightMean(imageWith("whites", 100.0)) > brightRef + 0.005f);
-    QVERIFY(brightMean(imageWith("whites", -100.0)) < brightRef - 0.005f);
+    }
+    return float(sum / double(n));
+  };
+  auto bandStd = [&](const QImage& img, int x0, int x1) {
+    const float mean = bandMean(img, x0, x1);
+    double sum = 0.0;
+    int n = 0;
+    for (int y = 0; y < h; ++y) {
+      const uchar* scan = img.constScanLine(y);
+      for (int x = x0; x < x1; ++x) {
+        const float luma =
+            srgbToLinear(scan[x * 3 + 0] / 255.0f) * 0.2126 +
+            srgbToLinear(scan[x * 3 + 1] / 255.0f) * 0.7152 +
+            srgbToLinear(scan[x * 3 + 2] / 255.0f) * 0.0722;
+        sum += double(luma - mean) * double(luma - mean);
+        ++n;
+      }
+    }
+    return float(std::sqrt(sum / double(n)));
+  };
+  {
+    const float brightRef = bandMean(ref, brightStart, w);
+    QVERIFY(bandMean(imageWith("whites", 100.0), brightStart, w) >
+            brightRef + 0.005f);
+    QVERIFY(bandMean(imageWith("whites", -100.0), brightStart, w) <
+            brightRef - 0.005f);
+  }
+
+  // Window targeting: blacks must stay in the deepest tones and not behave
+  // like shadows.
+  {
+    const QImage blacksUp = imageWith("blacks", 100.0);
+    const float deepRef = bandMean(ref, 0, 2);
+    const float deepBlacks = bandMean(blacksUp, 0, 2);
+    QVERIFY(std::abs(deepBlacks - deepRef) > 0.0002f);
+    QVERIFY(std::abs(bandMean(blacksUp, 4, 12) - bandMean(ref, 4, 12)) <
+            0.001f);
+  }
+
+  // Shadows must reach deep shadows but leave mid/bright tones alone.
+  {
+    const float deepMidRef = bandMean(ref, 1, 5);
+    QVERIFY(std::abs(bandMean(shadowsUp, 1, 5) - deepMidRef) > 0.002f);
+  }
+
+  // Exposure must brighten progressively without crushing shadow detail, and
+  // the positive half must be tapered (less sensitive) rather than raw 2^EV.
+  {
+    const float darkRef = bandMean(ref, 0, 16);
+    float prevDark = darkRef;
+    float prevMid = bandMean(ref, 24, 40);
+    const double exposures[] = {0.15, 0.3, 0.5};
+    for (double e : exposures) {
+      QJsonObject settings = base;
+      settings["exposure"] = e;
+      const QImage out =
+          photon::ImageDeveloper::develop(src.data(), w, h, settings);
+      const float dark = bandMean(out, 0, 16);
+      const float mid = bandMean(out, 24, 40);
+      QVERIFY2(dark > prevDark, "exposure must not crush shadows");
+      QVERIFY2(mid > prevMid, "exposure must be monotonic");
+      QVERIFY2(dark < darkRef * 3.0f, "exposure must stay sane");
+      prevDark = dark;
+      prevMid = mid;
+    }
+
+    const float midRef = bandMean(ref, 24, 40);
+    QJsonObject oneStop = base;
+    oneStop["exposure"] = 1.0;
+    const QImage out =
+        photon::ImageDeveloper::develop(src.data(), w, h, oneStop);
+    const float gain = bandMean(out, 24, 40) / midRef;
+    QVERIFY2(gain > 1.4f, "positive exposure must still brighten");
+    QVERIFY2(gain < 1.95f, "positive exposure must be tapered below 2^EV");
+
+    // Highlights must keep a usable control range: no washed-out plateau at
+    // moderate positive exposure and no blown white.
+    const float brightRef = bandMean(ref, brightStart, w);
+    const float stdRef = bandStd(ref, brightStart, w);
+    const float brightOut = bandMean(out, brightStart, w);
+    QVERIFY2(brightOut > brightRef + 0.005f, "highlights must brighten");
+    QVERIFY2(brightOut < 0.985f, "highlights must not blow out at +1 EV");
+    QVERIFY2(bandStd(out, brightStart, w) > 0.15f * stdRef,
+             "highlight detail must not wash out");
   }
 
   auto meanAbsLumaDiff = [](const QImage& a, const QImage& b) {

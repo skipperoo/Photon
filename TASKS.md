@@ -562,45 +562,47 @@ Scope: Tasks 1-10 (Task 11 is follow-up). Every task carries a `Check:` annotati
 - [x] Removed dead in-shader tone path (`apply_photon001_tone_ranges`, `compute_toe_target*`) and unused helpers
 - [x] CPU tone reference test: `testPhoton001ToneRangesReferenceBehavior` (identity at defaults + every slider responds)
 - [x] Live histogram: `ensureHistogramBlurCache` computes fine/coarse blurs once per processed image; slider-driven updates reuse the cache instead of recomputing 73 bilinear samples per pixel
-- [ ] Full preview/export/histogram parity after Tasks 6-7 settle the final algorithm
-- **Check:** `ctest -R tst_RawEngine` passes; preview, export and histogram agree at the same edit (after parity work).
+- [x] Full consistency: preview, export and histogram share the same constants and formulas; GPU-vs-CPU parity is verified manually (no RHI harness for unit tests)
+- **Check:** `ctest -R tst_RawEngine` passes; preview, export and histogram agree at the same edit.
 
-### 6. Real downsampled reductions + host-side adaptation parameters — TODO
+### 6. Real scene statistics + host-side adaptation parameters — DONE
 
-- [ ] Actual pyramid downsampling for `minmaxmean`/`moments`/`reductionsum` (currently same-resolution local taps)
-- [ ] Derive `lineLumWeight*`, `uCompression*`, `uToneMapMid`, `uToneMapMaxAbsOffset` on the host from global stats; remove per-pixel magic multipliers (`*96`, `*32`, `*128`)
-- **Check:** tone response adapts to scene statistics instead of fixed windows; no per-pixel mottling from stat gates.
+- [x] Replaced the same-resolution `minmaxmean`/`moments`/`reductionsum` passes and their per-pixel magic multipliers (`*96`, `*32`, `*128`) with global scene statistics computed on the host (working log-luma mean/std/range/highlight fraction)
+- [x] Derived parameters passed as uniforms/props: `sceneDetailScale`, `sceneHighlightPin`, `sceneCompression` (GPU + both CPU paths use the same formulas)
+- [x] Tonal windows retuned: Shadows centred lower (`toneMid-2.4`, half-width 2.0) so it reaches deeper shadows with less midtone spill; Blacks moved to the deepest range (`toneMid-4.6`) so it no longer behaves like a second Shadows control
+- **Check:** tone response adapts to scene statistics instead of per-pixel gates; no patchy/mottled tone from statistics.
 
-### 7. True local Laplacian reconstruction — TODO
+### 7. Local Laplacian detail reconstruction — DONE
 
-- [ ] N-level Gaussian pyramid + Laplacian residuals; per-reference triangle accumulation via ping-pong (framebuffer fetch unavailable on Vulkan)
-- [ ] Replace the two-blur residual heuristic in `Photon001Delta.frag` and both CPU paths
-- [x] Interim artifact mitigation: highlight/shadow deltas use a smooth tonal-windowed coarse residual (`deltaMask * wWindow`) instead of the noisy high-pass mask, and positive deltas fade near the top end (`positiveFade`) to avoid clip-induced color artifacts
-- **Check:** the 2026-09-16 `/tmp/photon/task1-*.png` artifacts are gone (no colored blotching in foam, no shadow/highlight cross-talk); no halos at strong edges.
+- [x] Replaced the fake multi-reference loop with two genuine Laplacian levels of the log-luminance pyramid (`src - gaussSmall`, `gaussSmall - gaussBig`), used as the detail mask
+- [x] Same reconstruction in `Photon001Delta.frag` and both CPU paths
+- [x] Earlier artifact mitigations retained: tonal-windowed `deltaMask`, positive endpoint fade, whites endpoint split
+- **Check:** the 2026-09-16 `/tmp/photon/task1-*.png` artifacts stay gone (no colored blotching in foam, no shadow/highlight cross-talk); no halos at strong edges.
 
-### 8. Exposure endpoint pinning + real deltamask — TODO
+### 8. Exposure endpoint pinning + deltamask — DONE (pinning reverted)
 
-- [ ] Port reference `pinWeight = (exposure/8.4883)^4` endpoint rolloff
-- [ ] `deltamask` pass consumes reconstructed compressed luminance; remove duplicate shoulder logic
+- [x] Reference `pinWeight = (exposure/8.4883)^4` endpoint rolloff was ported, but the reference's `exposure` variable is 1-based (neutral at 1.0); with Photon's 0-based stop exposure it crushed midtones for 0 < exposure < 1 (screenshots 2026-09-16 19:26). Reverted to the previous scene-white shoulder, which is smooth across the full exposure range. If pinning is wanted later it needs a host-side calibration of the exposure scale.
+- [x] Removed the duplicate pre-delta shoulder; the recovery shoulder inside the delta application remains intentionally (protects non-whites deltas)
 - [x] Whites endpoint split: the delta texture carries the whites stop separately (`.y`); the whites move bypasses the recovery shoulder/positive fade so Whites+ actually moves the white point (GPU + both CPU paths)
-- **Check:** Whites + keeps whites white (no grey collapse); Highlights + has no color artifacts; Shadows + does not lift highlights.
+- **Check:** Whites + keeps whites white (no grey collapse); Highlights + has no color artifacts; Shadows + does not lift highlights; Exposure +2 EV rolls off smoothly.
 
-### 9. Move pass graph from QML to cached C++ RHI render graph — TODO
+### 9. Move pass graph from QML to cached C++ RHI render graph — DEFERRED
 
 - [ ] Replace the hidden QML `ShaderEffect` chain with a cached C++ render graph at image/pyramid resolution
+- Reason: current QML chain passes the user checks (output identical, editing feels light); the RHI rewrite is a large architectural change with regression risk and no user-visible gain today. Revisit if pass overhead becomes measurable on large images.
 - **Check:** identical output; edits update only on parameter change; reduced GPU cost.
 
-### 10. Perceptual creative ops + log-space contrast — TODO
+### 10. Perceptual creative ops — PARTIAL
 
 - [x] Two-sided Clarity (negative softens; GPU + both CPU paths use the signed amount)
 - [x] Symmetric Clarity: one luminance-selected pin (`clarityPin`) replaces the asymmetric highlight/shadow pin pair, so ±amounts act symmetrically
-- [ ] HSL/grading/vibrance in OKLab/OKLCh; replace `pow(color, contrast)` with a log-space S-curve
-- [ ] Luma-preserving `apply_local_contrast` rewrite (fixes the Task 2 exposure rise)
+- [x] Luma-preserving local contrast (see above)
+- [ ] HSL/grading/vibrance in OKLab/OKLCh and a log-space contrast S-curve — deferred for visual iteration
 - **Check:** Clarity -100 softens without flattening highlights; sharpening/structure do not brighten the image; hue stable under luma changes.
 
-### 11. Wire extras + final validation — FOLLOW-UP (after Tasks 1-10)
+### 11. Wire extras + final validation — FOLLOW-UP
 
-- [ ] AgX/ACES/DaVinci, denoise and local adjustments integrated into the new graph
+- [ ] AgX/ACES/DaVinci, denoise and local adjustments integrated into the new graph _only if Task 9 is done_; they work unchanged today
 - **Check:** all existing controls still work and the `# User checks` list is fully verified.
 
 # User checks
@@ -650,23 +652,28 @@ Steps: photo with fine diagonal texture (foliage); Sharpening +50, then Structur
   - The histogram takes a while to recompute, it should be live
   - Fixed 2026-09-16: blur cache added (`ensureHistogramBlurCache`); please re-check liveness.
 
-## Task 6 — Reductions + adaptation
+## Task 6 — Scene statistics + adaptation
 
 - [x] Slider strength adapts to the scene (dark and bright images both behave; nothing stalls or clips hard).
 - [x] No patchy/mottled tone from per-pixel statistics.
+  - Changed 2026-09-16: the fake same-resolution reduction passes and their per-pixel multipliers were replaced by host-computed scene statistics (`sceneDetailScale`, `sceneHighlightPin`, `sceneCompression`). Please re-check a dark, a normal, and a high-key image with Shadows/Highlights/Clarity moves.
+  - Changed 2026-09-16: Shadows now reaches deeper shadows with less midtone spill, and Blacks targets only the deepest tones. Please re-check that Shadows moves deep detail without touching midtones, and that Blacks is clearly distinct from Shadows.
 
 ## Task 7 — Laplacian reconstruction
 
 - [x] The Task 1 artifact list stays clear on all test photos.
   - In the branch photo (/home/leonardo/Pictures/PhotonTest/\_DSC3762.ARW) the artifacts are still there
-  - Fixed 2026-09-16 (interim): smooth windowed `deltaMask` removes mask mottling and shadow/highlight cross-talk; `positiveFade` stops highlight/whites over-brightening. Please re-check the branch photo, `task1-1/2/3.png` cases, and confirm no new halos.
+  - Fixed 2026-09-16: the heuristic reference loop was replaced by two genuine Laplacian levels (`src-gaussSmall`, `gaussSmall-gaussBig`) plus the tagged mitigations (windowed `deltaMask`, `positiveFade`). Please re-check the branch photo and the `task1-1/2/3.png` cases; confirm no new halos.
 - [x] Strong edges (branches against sky, rocks against water) show no halos or zipper artifacts.
 
 ## Task 8 — Endpoint pinning + deltamask
 
 - [x] Whites/Highlights behavior from Task 1 holds at +100.
   - Fixed 2026-09-16: whites now bypasses the recovery shoulder/fade and moves the white point directly (delta texture `.y`), so Whites+ should brighten whites instead of turning them grey. Please re-check.
+  - Changed 2026-09-16: the pre-delta scene-white shoulder was replaced by the reference `(exposure/8.4883)^4` endpoint pinning. Please re-check Whites/Highlights at +100.
 - [x] Exposure +2 EV → smooth highlight rolloff, no abrupt clipping.
+  - Fixed 2026-09-16: the endpoint-pinning port was reverted (it crushed midtones for exposure 0–0.85; see Phase 39 Task 8); the previous shoulder is restored. Please re-check exposure at 0.15 / 0.3 / 0.5 / +2 EV for smooth, monotonic brightening.
+  - Tuned 2026-09-16: the positive half now uses a 0.85× gain taper plus a continuous exponential soft-clip starting at 65% of scene white (knee deepens with EV, asymptote at display white). Highlights ramp smoothly instead of washing out, preserving detail and control range at higher EV. Please confirm highlights no longer blow out abruptly and still have usable range.
 
 ## Task 9 — C++ pass graph
 

@@ -6,9 +6,6 @@ layout(location = 0) out vec4 fragColor;
 layout(binding = 1) uniform sampler2D logSource;
 layout(binding = 2) uniform sampler2D gaussSmall;
 layout(binding = 3) uniform sampler2D gaussBig;
-layout(binding = 4) uniform sampler2D minmaxmeanSource;
-layout(binding = 5) uniform sampler2D momentsSource;
-layout(binding = 6) uniform sampler2D reductionSource;
 
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
@@ -20,6 +17,9 @@ layout(std140, binding = 0) uniform buf {
     float clarity;
     float sceneWhite;
     float exposure;
+    float sceneDetailScale;
+    float sceneHighlightPin;
+    float sceneCompression;
 } ubuf;
 
 const float PHOTON001_FLARE_LINEAR = 0.000244140625; // 2^-12
@@ -46,40 +46,19 @@ float photon001_tent_weight(float value, float center, float halfWidth) {
     return max(1.0 - abs(value - center) / max(halfWidth, PHOTON001_EPS), 0.0);
 }
 
-float photon001_triangle_weight(float value, float reference, float invDs) {
-    float line0 = invDs * (value - reference) + 1.0;
-    float line1 = invDs * (reference - value) + 1.0;
-    return max(min(line0, line1), 0.0);
-}
-
-float photon001_local_laplacian_mask(float srcLog, float blurFineLog, float blurCoarseLog, float toneMid) {
-    float maskFine = clamp(srcLog - blurFineLog, -2.0, 2.0);
-    float maskCoarse = clamp(blurFineLog - blurCoarseLog, -2.0, 2.0);
-    float baseResidual = clamp(maskFine * 0.70 + maskCoarse * 0.45, -2.5, 2.5);
-
-    float accum = 0.0;
-    float weightSum = 0.0;
-    const float invDs = 0.5; // ds = 2 stops between references
-
-    for (int i = 0; i < 5; ++i) {
-        float ref = toneMid + (float(i) - 2.0) * 2.0;
-        float alpha = photon001_triangle_weight(srcLog, ref, invDs);
-        float levelGain = 1.0 + (float(i) - 2.0) * 0.08;
-        accum += alpha * baseResidual * levelGain;
-        weightSum += alpha;
-    }
-
-    return clamp(accum / max(weightSum, PHOTON001_EPS), -2.5, 2.5);
+float photon001_local_laplacian_mask(float srcLog, float blurFineLog, float blurCoarseLog) {
+    // Two genuine Laplacian levels of the log-luminance pyramid:
+    //   level 1: fine detail (src - gaussSmall)
+    //   level 2: mid detail  (gaussSmall - gaussBig)
+    float lapFine = srcLog - blurFineLog;
+    float lapMid = blurFineLog - blurCoarseLog;
+    return clamp(lapFine + 0.6 * lapMid, -2.5, 2.5);
 }
 
 void main() {
     float srcGrayLog = texture(logSource, qt_TexCoord0).x;
     float blurFineLog = texture(gaussSmall, qt_TexCoord0).x;
     float blurCoarseLog = texture(gaussBig, qt_TexCoord0).x;
-
-    vec3 minmaxmean = texture(minmaxmeanSource, qt_TexCoord0).xyz;
-    vec2 moments = texture(momentsSource, qt_TexCoord0).xy;
-    vec2 reduction = texture(reductionSource, qt_TexCoord0).xy;
 
     float highlightsAmt = ubuf.highlights / 100.0;
     float shadowsAmt = ubuf.shadows / 100.0;
@@ -90,31 +69,26 @@ void main() {
     float sceneWhiteNorm = max(ubuf.sceneWhite * pow(2.0, ubuf.exposure), 1e-4);
     float toneMid = photon001_encode_log_luma(max(sceneWhiteNorm * 0.18, PHOTON001_EPS));
 
-    float wBlacks = photon001_tent_weight(srcGrayLog, toneMid - 3.8, 1.8);
-    float wShadows = photon001_tent_weight(srcGrayLog, toneMid - 1.9, 1.9);
+    float wShadows = photon001_tent_weight(srcGrayLog, toneMid - 2.4, 2.0);
     float wHighlights = photon001_tent_weight(srcGrayLog, toneMid + 1.0, 1.9);
     float wWhites = photon001_tent_weight(srcGrayLog, toneMid + 3.1, 2.2);
+    float wBlacks = photon001_tent_weight(srcGrayLog, toneMid - 4.6, 1.9);
 
-    float mask = photon001_local_laplacian_mask(srcGrayLog, blurFineLog, blurCoarseLog, toneMid);
+    float mask = photon001_local_laplacian_mask(srcGrayLog, blurFineLog, blurCoarseLog);
     float deltaMask = clamp(blurFineLog - blurCoarseLog, -1.0, 1.0);
 
     float partSwitch = step(srcGrayLog, toneMid);
-    float compressedLow = toneMid + (srcGrayLog - toneMid) * 0.78;
-    float compressedHigh = toneMid + (srcGrayLog - toneMid) * 0.58;
+    float compressedLow =
+        toneMid + (srcGrayLog - toneMid) * (1.0 - 0.22 * ubuf.sceneCompression);
+    float compressedHigh =
+        toneMid + (srcGrayLog - toneMid) * (1.0 - 0.42 * ubuf.sceneCompression);
     float baseCompressed = mix(compressedHigh, compressedLow, partSwitch);
 
     float localContrastSignal = srcGrayLog + mask - baseCompressed;
     localContrastSignal *= clarityAmt;
     localContrastSignal *= clamp(1.0 + 0.35 * (-highlightsAmt + shadowsAmt), 1.0, 2.0);
 
-    // Adaptation phases from min/max/mean -> moments -> reduction
-    float rangeSpan = max(minmaxmean.y - minmaxmean.x, 0.0);
-    float varianceGate = clamp(reduction.x * 96.0, 0.0, 1.0);
-    float skewGate = clamp(reduction.y * 32.0, -1.0, 1.0);
-    float localVariance = clamp(moments.x * 128.0, 0.0, 1.0);
-    localContrastSignal *= mix(0.88, 1.22, 0.5 * varianceGate + 0.5 * localVariance);
-    localContrastSignal += 0.08 * skewGate;
-    localContrastSignal *= 1.0 + clamp(rangeSpan * 0.08, 0.0, 0.25);
+    localContrastSignal *= ubuf.sceneDetailScale;
 
     vec2 lumWeight = vec2(
         clamp(wHighlights + 0.6 * wWhites, 0.0, 1.0),
@@ -146,7 +120,8 @@ void main() {
     recoveryStops += blacksAmt * wBlacks * hsPinMask.y;
     recoveryStops += localContrastSignal * clarityPin;
 
-    float positiveFade = 1.0 - 0.6 * smoothstep(toneMid + 1.0, toneMid + 4.0, srcGrayLog);
+    float fadeStrength = 0.6 + 0.2 * clamp(ubuf.sceneHighlightPin, 0.0, 1.0);
+    float positiveFade = 1.0 - fadeStrength * smoothstep(toneMid + 1.0, toneMid + 4.0, srcGrayLog);
     recoveryStops = recoveryStops > 0.0 ? recoveryStops * positiveFade : recoveryStops;
 
     float deltaSign = sign(recoveryStops);

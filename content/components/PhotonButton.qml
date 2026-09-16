@@ -9,6 +9,7 @@ Button {
 
     property bool variantOutline: false
     property bool variantDestructive: false
+    property bool variantGhost: false
     property font fontType: Theme.fontMedium
 
     contentItem: RowLayout {
@@ -52,9 +53,10 @@ Button {
         radius: Theme.radius
         border.width: control.variantOutline ? 1 : 0
         border.color: Theme.border
-        color: {
-            if (!control.enabled) return Theme.mutedFg
-            if (control.variantDestructive) {
+            color: {
+                if (control.variantGhost) return "transparent"
+                if (!control.enabled) return Theme.mutedFg
+                if (control.variantDestructive) {
                 return control.down ? Qt.darker(Theme.destructive, 1.2) :
                        control.hovered ? Qt.lighter(Theme.destructive, 1.2) : Theme.destructive
             }

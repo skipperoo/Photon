@@ -96,6 +96,7 @@ void main() {
     float wWhites = photon001_tent_weight(srcGrayLog, toneMid + 3.1, 2.2);
 
     float mask = photon001_local_laplacian_mask(srcGrayLog, blurFineLog, blurCoarseLog, toneMid);
+    float deltaMask = clamp(blurFineLog - blurCoarseLog, -1.0, 1.0);
 
     float partSwitch = step(srcGrayLog, toneMid);
     float compressedLow = toneMid + (srcGrayLog - toneMid) * 0.78;
@@ -103,7 +104,7 @@ void main() {
     float baseCompressed = mix(compressedHigh, compressedLow, partSwitch);
 
     float localContrastSignal = srcGrayLog + mask - baseCompressed;
-    localContrastSignal *= max(clarityAmt, 0.0);
+    localContrastSignal *= clarityAmt;
     localContrastSignal *= clamp(1.0 + 0.35 * (-highlightsAmt + shadowsAmt), 1.0, 2.0);
 
     // Adaptation phases from min/max/mean -> moments -> reduction
@@ -115,8 +116,6 @@ void main() {
     localContrastSignal += 0.08 * skewGate;
     localContrastSignal *= 1.0 + clamp(rangeSpan * 0.08, 0.0, 0.25);
 
-    vec2 localContrastSignal2 = vec2(max(localContrastSignal, 0.0), min(localContrastSignal, 0.0));
-
     vec2 lumWeight = vec2(
         clamp(wHighlights + 0.6 * wWhites, 0.0, 1.0),
         clamp(wShadows + 0.6 * wBlacks, 0.0, 1.0)
@@ -127,6 +126,7 @@ void main() {
         1.0
     );
     vec2 claritySHPinMask = mix(endpoint_pin_mask(lumWeight), vec2(1.0), endpointStrength * endpointStrength);
+    float clarityPin = mix(claritySHPinMask.y, claritySHPinMask.x, partSwitch);
 
     vec2 hsPinMask;
     hsPinMask.y = mix(0.5 + 0.5 * max(1.0 - sign(shadowsAmt), 0.0), 1.0, claritySHPinMask.x);
@@ -138,32 +138,31 @@ void main() {
     vec2 offsetHS = vec2(wHighlights, wShadows) * vec2(abs(highlightsAmt), abs(shadowsAmt)) * baseOffset;
     vec2 deltaHS = vec2(-highlightsAmt, shadowsAmt);
     deltaHS = clamp(deltaHS, -1.0, 1.0);
-    deltaHS *= vec2(min(mask, 0.0), max(mask, 0.0));
+    deltaHS *= vec2(min(deltaMask, 0.0) * wHighlights, max(deltaMask, 0.0) * wShadows);
     deltaHS += offsetHS;
 
-    float deltaStops = dot(deltaHS, hsPinMask);
-    deltaStops += whitesAmt * wWhites * hsPinMask.x;
-    deltaStops += blacksAmt * wBlacks * hsPinMask.y;
-    deltaStops += dot(localContrastSignal2, claritySHPinMask);
+    float whitesStops = whitesAmt * wWhites * hsPinMask.x;
+    float recoveryStops = dot(deltaHS, hsPinMask);
+    recoveryStops += blacksAmt * wBlacks * hsPinMask.y;
+    recoveryStops += localContrastSignal * clarityPin;
 
-    float deltaSign = sign(deltaStops);
+    float positiveFade = 1.0 - 0.6 * smoothstep(toneMid + 1.0, toneMid + 4.0, srcGrayLog);
+    recoveryStops = recoveryStops > 0.0 ? recoveryStops * positiveFade : recoveryStops;
+
+    float deltaSign = sign(recoveryStops);
     float flareSwitch = 1.0 - max(deltaSign, 0.0);
     float zeroSwitch = 1.0 - abs(deltaSign);
     float flare = flareSwitch * PHOTON001_FLARE_LOG;
-    float startpoint = flare - (deltaStops + deltaStops);
+    float startpoint = flare - (recoveryStops + recoveryStops);
     float t1 = step(startpoint, srcGrayLog);
     float t2 = step(srcGrayLog, startpoint);
     float t = clamp((srcGrayLog - startpoint) / (flare - startpoint + zeroSwitch), 0.0, 1.0);
     t *= t * (1.0 - mix(t2, t1, flareSwitch));
-    deltaStops = mix(deltaStops, 0.0, t);
+    recoveryStops = mix(recoveryStops, 0.0, t);
 
     // deltamask phase with shadow-gain cap (+4 stops max lift)
-    float dst = srcGrayLog + deltaStops;
-    float diff = dst - srcGrayLog;
-    if (diff > 0.0) {
-        diff = min(diff, 4.0);
-    }
-    deltaStops = diff;
+    recoveryStops = min(recoveryStops, 4.0);
 
-    fragColor = vec4(deltaStops, 0.0, 0.0, 1.0);
+    float deltaStops = recoveryStops + whitesStops;
+    fragColor = vec4(deltaStops, whitesStops, 0.0, 1.0);
 }

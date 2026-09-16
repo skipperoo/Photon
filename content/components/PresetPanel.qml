@@ -104,37 +104,52 @@ Rectangle {
                 T.ScrollBar.vertical: PhotonScrollBar {}
 
                 delegate: T.ItemDelegate {
+                    id: presetItem
                     width: presetList.width
                     height: 42
+                    topPadding: 0
+                    bottomPadding: 0
+                    leftPadding: 12
+                    rightPadding: 8
                     
-                    contentItem: RowLayout {
-                        Text {
-                            text: modelData
-                            color: parent.hovered ? "white" : Theme.foreground
-                            font: Theme.fontMedium
-                            Layout.fillWidth: true
-                        }
-                        
-                        PhotonButton {
-                            visible: parent.parent.hovered
-                            implicitWidth: 32
-                            implicitHeight: 32
-                            onClicked: {
-                                root.presetToDelete = modelData
-                                deleteConfirmDialog.open()
+                    contentItem: Item {
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: 8
+                            
+                            Text {
+                                text: modelData
+                                color: presetItem.hovered ? "white" : Theme.foreground
+                                font: Theme.fontMedium
+                                Layout.fillWidth: true
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
                             }
                             
-                            icon.source: "qrc:/Main/assets/icons/trash.svg"
-                            icon.width: 16
-                            icon.height: 16
-                            icon.color: Theme.foreground
-                            variantDestructive: true
-                            
+                            PhotonButton {
+                                Layout.alignment: Qt.AlignVCenter
+                                opacity: presetItem.hovered ? 1.0 : 0.0
+                                enabled: presetItem.hovered
+                                implicitWidth: 28
+                                implicitHeight: 28
+                                onClicked: {
+                                    root.presetToDelete = modelData
+                                    deleteConfirmDialog.open()
+                                }
+                                
+                                icon.source: "qrc:/Main/assets/icons/trash.svg"
+                                icon.width: 16
+                                icon.height: 16
+                                icon.color: presetItem.hovered ? Qt.lighter(Theme.destructive, 1.15) : Theme.destructive
+                                variantGhost: true
+                                variantDestructive: false
+                                
+                            }
                         }
                     }
 
                     background: Rectangle {
-                        color: parent.hovered ? Theme.secondary : "transparent"
+                        color: presetItem.hovered ? Theme.secondary : "transparent"
                         radius: 4
                     }
 

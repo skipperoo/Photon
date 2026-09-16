@@ -6,6 +6,8 @@ layout(location = 0) out vec4 fragColor;
 layout(binding = 1) uniform sampler2D source;
 layout(binding = 2) uniform sampler2D toneLUT;
 layout(binding = 3) uniform sampler2D photon001Delta;
+layout(binding = 4) uniform sampler2D colorBlurFine;
+layout(binding = 5) uniform sampler2D colorBlurCoarse;
 
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
@@ -249,43 +251,6 @@ vec3 apply_white_balance(vec3 color, float temp, float tnt) {
     return color * temp_mult * tint_mult;
 }
 
-vec3 sample_source_linear(vec2 uv) {
-    return srgb_to_linear(texture(source, uv).rgb);
-}
-
-vec3 photon001_gaussian_sigma1_axis(vec2 uv, vec2 texelSize, vec2 axis) {
-    vec2 stepUv = axis * texelSize;
-    vec3 b = sample_source_linear(uv) * 0.39894347;
-    b += 0.29596257 * (sample_source_linear(uv + stepUv * 1.18242552) + sample_source_linear(uv - stepUv * 1.18242552));
-    b += 0.00456569 * (sample_source_linear(uv + stepUv * 3.02931223) + sample_source_linear(uv - stepUv * 3.02931223));
-    return b;
-}
-
-vec3 photon001_gaussian_sigma35_axis(vec2 uv, vec2 texelSize, vec2 axis) {
-    vec2 stepUv = axis * texelSize;
-    vec3 b = sample_source_linear(uv) * 0.11398719;
-    b += 0.20624514 * (sample_source_linear(uv + stepUv * 1.46942595) + sample_source_linear(uv - stepUv * 1.46942595));
-    b += 0.13826867 * (sample_source_linear(uv + stepUv * 3.42905340) + sample_source_linear(uv - stepUv * 3.42905340));
-    b += 0.06731104 * (sample_source_linear(uv + stepUv * 5.38960340) + sample_source_linear(uv - stepUv * 5.38960340));
-    b += 0.02378969 * (sample_source_linear(uv + stepUv * 7.35154728) + sample_source_linear(uv - stepUv * 7.35154728));
-    b += 0.00610264 * (sample_source_linear(uv + stepUv * 9.31528835) + sample_source_linear(uv - stepUv * 9.31528835));
-    b += 0.00113588 * (sample_source_linear(uv + stepUv * 11.28114775) + sample_source_linear(uv - stepUv * 11.28114775));
-    b += 0.00015335 * (sample_source_linear(uv + stepUv * 13.24935770) + sample_source_linear(uv - stepUv * 13.24935770));
-    return b;
-}
-
-vec3 compute_fine_blur(vec2 uv, vec2 texelSize) {
-    vec3 horizontal = photon001_gaussian_sigma1_axis(uv, texelSize, vec2(1.0, 0.0));
-    vec3 vertical = photon001_gaussian_sigma1_axis(uv, texelSize, vec2(0.0, 1.0));
-    return 0.5 * (horizontal + vertical);
-}
-
-vec3 compute_coarse_blur(vec2 uv, vec2 texelSize) {
-    vec3 horizontal = photon001_gaussian_sigma35_axis(uv, texelSize, vec2(1.0, 0.0));
-    vec3 vertical = photon001_gaussian_sigma35_axis(uv, texelSize, vec2(0.0, 1.0));
-    return 0.5 * (horizontal + vertical);
-}
-
 // --- Local Contrast, Clarity, Dehaze & Centre (Ported from RapidRAW) ---
 
 vec3 apply_local_contrast(vec3 color_linear, vec3 blurred_linear, float amount, int mode) {
@@ -402,27 +367,6 @@ float compute_target_luma(float luma, float stops) {
     return max(target, 0.0);
 }
 
-float compute_toe_target(float luma, float stops) {
-    if (stops == 0.0) return luma;
-
-    // Multiplicative base
-    float target = luma * pow(2.0, stops);
-
-    if (stops > 0.0) {
-        // Soft Gamma Lift (Prevents Posterization)
-        // A power curve is much smoother than a linear lift for deep darks.
-        float liftGamma = 1.0 / (1.0 + stops * 0.5);
-        float liftTarget = pow(max(luma, 1e-6), liftGamma);
-        
-        // Only apply the gamma lift to the bottom 15% of the range
-        float toeMask = 1.0 - smoothstep(0.0, 0.15, luma);
-        target = mix(target, liftTarget, toeMask * 0.4);
-    }
-    
-    return max(target, 0.0);
-}
-
-
 vec3 apply_luma_target(vec3 color, float lumaIn, float targetLuma) {
     targetLuma      = max(targetLuma, 0.0);
     float safeLuma  = max(lumaIn, 1e-4);
@@ -440,16 +384,15 @@ vec3 apply_luma_target(vec3 color, float lumaIn, float targetLuma) {
 }
 
 const float PHOTON001_FLARE_LINEAR = 0.000244140625; // 2^-12
-const float PHOTON001_FLARE_LOG = -12.0;
 const float PHOTON001_EPS = 0.00000190734;
 
 const mat3 RGB_TO_PROPHOTO = mat3(
-    0.529285, 0.098394, 0.016823,
-    0.330046, 0.873493, 0.117671,
-    0.140669, 0.028113, 0.865506
+    0.52932379, 0.09842654, 0.01684577,
+    0.33005506, 0.87350873, 0.11769549,
+    0.14064019, 0.02811156, 0.86547399
 );
 
-const vec3 PROPHOTO_LUMA_WEIGHTS = vec3(0.25, 0.5, 0.25);
+const vec3 WORKING_LUMA_WEIGHTS = vec3(0.30, 0.59, 0.11);
 
 vec3 eval_undo_render_curve(vec3 col) {
     vec2 fMinMax;
@@ -470,7 +413,7 @@ vec3 eval_undo_render_curve(vec3 col) {
 float photon001_working_luma_linear(vec3 c) {
     vec3 prophoto = RGB_TO_PROPHOTO * clamp(c, 0.0001, 0.999);
     vec3 unmapped = clamp(eval_undo_render_curve(prophoto), 0.0, 1.0);
-    return max(dot(unmapped, PROPHOTO_LUMA_WEIGHTS), PHOTON001_EPS);
+    return max(dot(unmapped, WORKING_LUMA_WEIGHTS), PHOTON001_EPS);
 }
 
 float photon001_encode_log_luma(float linearLuma) {
@@ -481,136 +424,22 @@ float photon001_decode_log_luma(float logLuma) {
     return max(exp2(logLuma) - PHOTON001_FLARE_LINEAR, PHOTON001_EPS);
 }
 
-vec2 endpoint_pin_mask(vec2 x) {
-    x = clamp(x, 0.0, 1.0);
-    vec2 invX = 1.0 - x;
-    vec2 inv2 = invX * invX;
-    vec2 inv4 = inv2 * inv2;
-    vec2 inv8 = inv4 * inv4;
-    vec2 inv16 = inv8 * inv8;
-    vec2 base = 1.0 - inv8;
-    vec2 strong = 1.0 - inv16;
-    return mix(base, strong, smoothstep(vec2(0.35), vec2(1.0), x));
-}
-
-float photon001_log_luma(vec3 c) {
-    return photon001_encode_log_luma(photon001_working_luma_linear(c));
-}
-
-float photon001_tent_weight(float value, float center, float halfWidth) {
-    return max(1.0 - abs(value - center) / max(halfWidth, PHOTON001_EPS), 0.0);
-}
-
-vec3 apply_photon001_tone_ranges(
-    vec3 color,
-    vec3 blurredFine,
-    vec3 blurredCoarse,
-    float highlightsAmt,
-    float shadowsAmt,
-    float whitesAmt,
-    float blacksAmt,
-    float clarityAmt,
-    float sceneWhiteNorm
-) {
+vec3 apply_photon001_delta_stops(vec3 color, float deltaStops, float whitesStops, float sceneWhiteNorm) {
     float srcGrayLinear = photon001_working_luma_linear(color);
     float srcGrayLog = photon001_encode_log_luma(srcGrayLinear);
-    float blurFineLog = photon001_log_luma(blurredFine);
-    float blurCoarseLog = photon001_log_luma(blurredCoarse);
-    float toneMid = photon001_encode_log_luma(max(sceneWhiteNorm * 0.18, PHOTON001_EPS));
 
-    // Approximation of tonal windows in log-space (black -> shadow -> mid -> highlight -> white).
-    // Moving the center (toneMid - center) changes the tonal range of action,
-    // while moving the width (second param), changes the overlap with other tones.
-    float wBlacks = photon001_tent_weight(srcGrayLog, toneMid - 3.8, 1.8);
-    float wShadows = photon001_tent_weight(srcGrayLog, toneMid - 1.9, 1.9);
-    float wHighlights = photon001_tent_weight(srcGrayLog, toneMid + 1.0, 1.9);
-    float wWhites = photon001_tent_weight(srcGrayLog, toneMid + 3.1, 2.2);
-
-    // Stronger single-pass 2-scale local mask proxy (fine + coarse residuals).
-    float maskFine = clamp(srcGrayLog - blurFineLog, -2.0, 2.0);
-    float maskCoarse = clamp(blurFineLog - blurCoarseLog, -2.0, 2.0);
-    float mask = clamp(maskFine * 0.70 + maskCoarse * 0.45, -2.5, 2.5);
-
-    float partSwitch = step(srcGrayLog, toneMid);
-    float compressedLow = toneMid + (srcGrayLog - toneMid) * 0.78;
-    float compressedHigh = toneMid + (srcGrayLog - toneMid) * 0.58;
-    float baseCompressed = mix(compressedHigh, compressedLow, partSwitch);
-
-    float localContrastSignal = srcGrayLog + mask - baseCompressed;
-    localContrastSignal *= max(clarityAmt, 0.0);
-    localContrastSignal *= clamp(1.0 + 0.35 * (-highlightsAmt + shadowsAmt), 1.0, 2.0);
-    vec2 localContrastSignal2 = vec2(max(localContrastSignal, 0.0), min(localContrastSignal, 0.0));
-
-    vec2 lumWeight = vec2(
-        clamp(wHighlights + 0.6 * wWhites, 0.0, 1.0),
-        clamp(wShadows + 0.6 * wBlacks, 0.0, 1.0)
-    );
-    vec2 endpointStrength = clamp(
-        vec2(abs(highlightsAmt) + 0.35 * abs(whitesAmt), abs(shadowsAmt) + 0.35 * abs(blacksAmt)),
-        0.0,
-        1.0
-    );
-    vec2 claritySHPinMask = mix(endpoint_pin_mask(lumWeight), vec2(1.0), endpointStrength * endpointStrength);
-
-    vec2 hsPinMask;
-    hsPinMask.y = mix(0.5 + 0.5 * max(1.0 - sign(shadowsAmt), 0.0), 1.0, claritySHPinMask.x);
-    hsPinMask.x = mix(1.0, 0.5, (1.0 - claritySHPinMask.y) * max(-sign(highlightsAmt), 0.0));
-    hsPinMask.x = mix(1.0, hsPinMask.x, clamp(abs(highlightsAmt), 0.0, 1.0));
-
-    float maxAbsHS = max(max(abs(highlightsAmt), abs(shadowsAmt)), PHOTON001_EPS);
-    float baseOffset = 0.85 * (highlightsAmt + shadowsAmt) / maxAbsHS;
-    vec2 offsetHS = vec2(wHighlights, wShadows) * vec2(abs(highlightsAmt), abs(shadowsAmt)) * baseOffset;
-    vec2 deltaHS = vec2(-highlightsAmt, shadowsAmt);
-    deltaHS = clamp(deltaHS, -1.0, 1.0);
-    deltaHS *= vec2(min(mask, 0.0), max(mask, 0.0));
-    deltaHS += offsetHS;
-
-    float deltaStops = dot(deltaHS, hsPinMask);
-    deltaStops += whitesAmt * wWhites * hsPinMask.x;
-    deltaStops += blacksAmt * wBlacks * hsPinMask.y;
-    deltaStops += dot(localContrastSignal2, claritySHPinMask);
-
-    float deltaSign = sign(deltaStops);
-    float flareSwitch = 1.0 - max(deltaSign, 0.0);
-    float zeroSwitch = 1.0 - abs(deltaSign);
-    float flare = flareSwitch * PHOTON001_FLARE_LOG;
-    float startpoint = flare - (deltaStops + deltaStops);
-    float t1 = step(startpoint, srcGrayLog);
-    float t2 = step(srcGrayLog, startpoint);
-    float t = clamp((srcGrayLog - startpoint) / (flare - startpoint + zeroSwitch), 0.0, 1.0);
-    t *= t * (1.0 - mix(t2, t1, flareSwitch));
-    deltaStops = mix(deltaStops, 0.0, t);
-
-    // Analogous to ToneMapLimitShadowGain path (max +4 stops lift).
-    deltaStops = min(deltaStops, 4.0);
-
-    float targetLog = srcGrayLog + deltaStops;
+    float recoveryStops = deltaStops - whitesStops;
+    float targetLog = srcGrayLog + recoveryStops;
     float targetLuma = photon001_decode_log_luma(targetLog);
 
-    if (targetLuma > sceneWhiteNorm && deltaStops > 0.0) {
+    if (targetLuma > sceneWhiteNorm && recoveryStops > 0.0) {
         float over = targetLuma - sceneWhiteNorm;
         float knee = max(sceneWhiteNorm * 0.7, PHOTON001_EPS);
         float compress = over / (1.0 + over / knee);
         targetLuma = sceneWhiteNorm + compress;
     }
 
-    return apply_luma_target(color, srcGrayLinear, targetLuma);
-}
-
-vec3 apply_photon001_delta_stops(vec3 color, float deltaStops, float sceneWhiteNorm) {
-    float srcGrayLinear = photon001_working_luma_linear(color);
-    float srcGrayLog = photon001_encode_log_luma(srcGrayLinear);
-
-    float targetLog = srcGrayLog + deltaStops;
-    float targetLuma = photon001_decode_log_luma(targetLog);
-
-    if (targetLuma > sceneWhiteNorm && deltaStops > 0.0) {
-        float over = targetLuma - sceneWhiteNorm;
-        float knee = max(sceneWhiteNorm * 0.7, PHOTON001_EPS);
-        float compress = over / (1.0 + over / knee);
-        targetLuma = sceneWhiteNorm + compress;
-    }
-
+    targetLuma *= exp2(whitesStops);
     return apply_luma_target(color, srcGrayLinear, targetLuma);
 }
 
@@ -820,8 +649,8 @@ void main()
     // --- Approximated Blur for Local Contrast (Clarity, Structure, Sharpness) ---
     // Stronger two-scale blur with more taps to better emulate a single-pass local pyramid mask.
     vec2 texelSize = 1.0 / ubuf.sourceSize;
-    vec3 blurredFine = compute_fine_blur(qt_TexCoord0, texelSize);
-    vec3 blurredCoarse = compute_coarse_blur(qt_TexCoord0, texelSize);
+    vec3 blurredFine = texture(colorBlurFine, qt_TexCoord0).rgb;
+    vec3 blurredCoarse = texture(colorBlurCoarse, qt_TexCoord0).rgb;
     vec3 blurred = mix(blurredFine, blurredCoarse, 0.35);
 
     // Compute edge mask with feathering, then gate by focus detection
@@ -866,8 +695,8 @@ void main()
         color = apply_luma_target(color, luma, targetL);
     }
     float sceneWhiteNorm = max(ubuf.sceneWhite * exposure, 1e-4);
-    float deltaStops = texture(photon001Delta, qt_TexCoord0).x;
-    color = apply_photon001_delta_stops(color, deltaStops, sceneWhiteNorm);
+    vec4 deltaValue = texture(photon001Delta, qt_TexCoord0);
+    color = apply_photon001_delta_stops(color, deltaValue.x, deltaValue.y, sceneWhiteNorm);
     //color = davinci_tonemap(color, ubuf.adaptation);
     
     // 3. Contrast
@@ -923,9 +752,11 @@ void main()
     float gray = get_luma(max(color, 0.0));
     color = mix(vec3(gray), color, 1.0 + (ubuf.saturation / 100.0));
     float max_color = max(color.r, max(color.g, color.b));
-    float avg_color = (color.r + color.g + color.b) / 3.0;
-    float amt = (max_color - avg_color) * (-ubuf.vibrance / 100.0) * 3.0;
-    color = mix(color, vec3(max_color), amt);
+    float min_color = min(color.r, min(color.g, color.b));
+    float chroma_sat = (max_color > 1e-5) ? (max_color - min_color) / max_color : 0.0;
+    float vib_boost = (ubuf.vibrance / 100.0) * (1.0 - chroma_sat);
+    color = mix(vec3(gray), color, 1.0 + vib_boost);
+    color = max(color, 0.0);
 
     // 7. Tonemapping
     if (ubuf.tonemappingEnabled > 0.5) {
@@ -956,6 +787,7 @@ void main()
         color = mix(c, color, step(1.001, max(color.r, max(color.g, color.b))));
     }
 
+    color = max(color, 0.0);
     vec3 final_rgb = linear_to_srgb(color);
 
     // 8. Creative: Film Grain

@@ -19,12 +19,12 @@ const float PHOTON001_FLARE_LINEAR = 0.000244140625; // 2^-12
 const float PHOTON001_EPS = 0.00000190734;
 
 const mat3 RGB_TO_PROPHOTO = mat3(
-    0.529285, 0.098394, 0.016823,
-    0.330046, 0.873493, 0.117671,
-    0.140669, 0.028113, 0.865506
+    0.52932379, 0.09842654, 0.01684577,
+    0.33005506, 0.87350873, 0.11769549,
+    0.14064019, 0.02811156, 0.86547399
 );
 
-const vec3 PROPHOTO_LUMA_WEIGHTS = vec3(0.25, 0.5, 0.25);
+const vec3 WORKING_LUMA_WEIGHTS = vec3(0.30, 0.59, 0.11);
 
 vec3 srgb_to_linear(vec3 c) {
     return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
@@ -55,7 +55,7 @@ vec3 eval_undo_render_curve(vec3 col) {
 float photon001_working_luma_linear(vec3 c) {
     vec3 prophoto = RGB_TO_PROPHOTO * clamp(c, 0.0001, 0.999);
     vec3 unmapped = clamp(eval_undo_render_curve(prophoto), 0.0, 1.0);
-    return max(dot(unmapped, PROPHOTO_LUMA_WEIGHTS), PHOTON001_EPS);
+    return max(dot(unmapped, WORKING_LUMA_WEIGHTS), PHOTON001_EPS);
 }
 
 float photon001_encode_log_luma(float linearLuma) {

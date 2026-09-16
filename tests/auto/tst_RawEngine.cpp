@@ -18,6 +18,7 @@ class TestRawEngine : public QObject {
   void testLoadValidFile();
   void testProperties();
   void testPhoton001MultipassUsesFloatTargets();
+  void testPhoton001ToneRangesReferenceBehavior();
   void testToneCurveLumaMatchesReferenceMapping();
   void testSwitchingSourceResetsExposureAndContrast();
   void testApplyGeometryTransformsStraightenKeepsFullFrame();
@@ -118,13 +119,164 @@ void TestRawEngine::testPhoton001MultipassUsesFloatTargets() {
              qPrintable(QString("Float format not scoped to '%1' block").arg(sourceToken)));
   };
 
-  verifySourceUsesFloatTarget("photon001GaussianSmallPass");
-  verifySourceUsesFloatTarget("photon001GaussianBigPass");
+  verifySourceUsesFloatTarget("photon001GaussianSmallH");
+  verifySourceUsesFloatTarget("photon001GaussianSmallV");
+  verifySourceUsesFloatTarget("photon001GaussianBigH");
+  verifySourceUsesFloatTarget("photon001GaussianBigV");
+  verifySourceUsesFloatTarget("photon001ColorFineV");
+  verifySourceUsesFloatTarget("photon001ColorCoarseV");
   verifySourceUsesFloatTarget("photon001LogPass");
   verifySourceUsesFloatTarget("photon001MinMaxMeanPass");
   verifySourceUsesFloatTarget("photon001MomentsPass");
   verifySourceUsesFloatTarget("photon001ReductionPass");
   verifySourceUsesFloatTarget("photon001DeltaPass");
+}
+
+void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
+  constexpr int w = 64;
+  constexpr int h = 16;
+
+  auto linearToSrgb16 = [](float linear) {
+    const float s = linear <= 0.0031308f
+                        ? linear * 12.92f
+                        : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+    return ushort(std::clamp(s, 0.0f, 1.0f) * 65535.0f + 0.5f);
+  };
+
+  std::vector<ushort> src(w * h * 3);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const float linear = 0.02f + 0.98f * float(x) / float(w - 1);
+      const ushort v = linearToSrgb16(linear);
+      const int i = (y * w + x) * 3;
+      src[i] = v;
+      src[i + 1] = v;
+      src[i + 2] = v;
+    }
+  }
+
+  auto avgLuma = [](const QImage& img) {
+    double sum = 0.0;
+    for (int y = 0; y < img.height(); ++y) {
+      const uchar* scan = img.constScanLine(y);
+      for (int x = 0; x < img.width(); ++x) {
+        sum += srgbToLinear(scan[x * 3 + 0] / 255.0f) * 0.2126 +
+               srgbToLinear(scan[x * 3 + 1] / 255.0f) * 0.7152 +
+               srgbToLinear(scan[x * 3 + 2] / 255.0f) * 0.0722;
+      }
+    }
+    return float(sum / double(img.width() * img.height()));
+  };
+
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["tonemappingEnabled"] = false;
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+
+  const QImage ref = photon::ImageDeveloper::develop(src.data(), w, h, base);
+  QVERIFY(!ref.isNull());
+  const float refLuma = avgLuma(ref);
+
+  QVERIFY(std::abs(refLuma - 0.51f) < 0.02f);
+
+  auto maxLumaDiff = [](const QImage& a, const QImage& b) {
+    float maxDiff = 0.0f;
+    for (int y = 0; y < a.height(); ++y) {
+      const uchar* scanA = a.constScanLine(y);
+      const uchar* scanB = b.constScanLine(y);
+      for (int x = 0; x < a.width(); ++x) {
+        for (int c = 0; c < 3; ++c) {
+          const float la = srgbToLinear(scanA[x * 3 + c] / 255.0f);
+          const float lb = srgbToLinear(scanB[x * 3 + c] / 255.0f);
+          maxDiff = std::max(maxDiff, std::abs(la - lb));
+        }
+      }
+    }
+    return maxDiff;
+  };
+
+  auto imageWith = [&](const char* key, double value) {
+    QJsonObject settings = base;
+    settings[key] = value;
+    return photon::ImageDeveloper::develop(src.data(), w, h, settings);
+  };
+
+  const char* const sliders[] = {"shadows", "highlights", "whites", "blacks"};
+  for (const char* key : sliders) {
+    const QImage up = imageWith(key, 100.0);
+    const QImage down = imageWith(key, -100.0);
+    QVERIFY2(maxLumaDiff(up, ref) > 0.005f, key);
+    QVERIFY2(maxLumaDiff(down, ref) > 0.005f, key);
+    QVERIFY2(maxLumaDiff(up, down) > 0.005f, key);
+  }
+
+  // Shadows must not lift the highlights (cross-talk regression).
+  const QImage shadowsUp = imageWith("shadows", 100.0);
+  float brightDiff = 0.0f;
+  const int brightStart = (w * 3) / 4;
+  for (int y = 0; y < h; ++y) {
+    const uchar* scanRef = ref.constScanLine(y);
+    const uchar* scanUp = shadowsUp.constScanLine(y);
+    for (int x = brightStart; x < w; ++x) {
+      for (int c = 0; c < 3; ++c) {
+        const float a = srgbToLinear(scanRef[x * 3 + c] / 255.0f);
+        const float b = srgbToLinear(scanUp[x * 3 + c] / 255.0f);
+        brightDiff = std::max(brightDiff, std::abs(a - b));
+      }
+    }
+  }
+  QVERIFY(brightDiff < 0.005f);
+
+  // Whites must move the white point (bright region) in both directions.
+  {
+    auto brightMean = [&](const QImage& img) {
+      double sum = 0.0;
+      int n = 0;
+      for (int y = 0; y < h; ++y) {
+        const uchar* scan = img.constScanLine(y);
+        for (int x = brightStart; x < w; ++x) {
+          sum += srgbToLinear(scan[x * 3 + 0] / 255.0f) * 0.2126 +
+                 srgbToLinear(scan[x * 3 + 1] / 255.0f) * 0.7152 +
+                 srgbToLinear(scan[x * 3 + 2] / 255.0f) * 0.0722;
+          ++n;
+        }
+      }
+      return float(sum / double(n));
+    };
+    const float brightRef = brightMean(ref);
+    QVERIFY(brightMean(imageWith("whites", 100.0)) > brightRef + 0.005f);
+    QVERIFY(brightMean(imageWith("whites", -100.0)) < brightRef - 0.005f);
+  }
+
+  auto meanAbsLumaDiff = [](const QImage& a, const QImage& b) {
+    double sum = 0.0;
+    for (int y = 0; y < a.height(); ++y) {
+      const uchar* scanA = a.constScanLine(y);
+      const uchar* scanB = b.constScanLine(y);
+      for (int x = 0; x < a.width(); ++x) {
+        for (int c = 0; c < 3; ++c) {
+          const float la = srgbToLinear(scanA[x * 3 + c] / 255.0f);
+          const float lb = srgbToLinear(scanB[x * 3 + c] / 255.0f);
+          sum += std::abs(la - lb);
+        }
+      }
+    }
+    return float(sum / double(a.width() * a.height() * 3));
+  };
+
+  const QImage clarityUp = imageWith("clarity", 100.0);
+  const QImage clarityDown = imageWith("clarity", -100.0);
+  QVERIFY(maxLumaDiff(clarityUp, ref) > 0.005f);
+  QVERIFY(maxLumaDiff(clarityDown, ref) > 0.005f);
+  QVERIFY(maxLumaDiff(clarityUp, clarityDown) > 0.005f);
+
+  const float upDiff = meanAbsLumaDiff(clarityUp, ref);
+  const float downDiff = meanAbsLumaDiff(clarityDown, ref);
+  QVERIFY(upDiff > 0.001f);
+  QVERIFY(downDiff > 0.001f);
+  QVERIFY(upDiff < 2.0f * downDiff);
+  QVERIFY(downDiff < 2.0f * upDiff);
 }
 
 void TestRawEngine::testToneCurveLumaMatchesReferenceMapping() {

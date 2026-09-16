@@ -1,0 +1,9 @@
+.git
+.cache
+build
+build-*
+dist
+tmp
+testphoton
+research
+CMakeLists.txt.user

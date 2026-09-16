@@ -159,18 +159,6 @@ static float compute_target_luma_cpp(float luma, float stops) {
   return std::max(target, 0.0f);
 }
 
-static float compute_toe_target_cpp(float luma, float stops) {
-  if (stops == 0.0f) return luma;
-  float target = luma * std::pow(2.0f, stops);
-  if (stops > 0.0f) {
-    float liftGamma = 1.0f / (1.0f + stops * 0.5f);
-    float liftTarget = std::pow(std::max(luma, 1e-6f), liftGamma);
-    float toeMask = 1.0f - smoothstep_local(0.0f, 0.15f, luma);
-    target = mix_local(target, liftTarget, toeMask * 0.4f);
-  }
-  return std::max(target, 0.0f);
-}
-
 static void apply_luma_target_cpp(float& r, float& g, float& b, float lumaIn,
                                   float targetLuma) {
   targetLuma = std::max(targetLuma, 0.0f);
@@ -344,26 +332,94 @@ static Vec3fCpp photon001_gaussian_sigma35_axis_cpp(
   return blur;
 }
 
-static Vec3fCpp compute_fine_blur_cpp(const ushort* src, int width, int height,
-                                      float u, float v,
-                                      const float* srgb16ToLinear) {
-  Vec3fCpp horizontal = photon001_gaussian_sigma1_axis_cpp(
-      src, width, height, u, v, 1.0f, 0.0f, srgb16ToLinear);
-  Vec3fCpp vertical = photon001_gaussian_sigma1_axis_cpp(
-      src, width, height, u, v, 0.0f, 1.0f, srgb16ToLinear);
-  return {(horizontal.r + vertical.r) * 0.5f, (horizontal.g + vertical.g) * 0.5f,
-          (horizontal.b + vertical.b) * 0.5f};
+static Vec3fCpp sample_buffer_bilinear_cpp(const std::vector<Vec3fCpp>& buf,
+                                           int width, int height, float u,
+                                           float v) {
+  u = std::clamp(u, 0.0f, 1.0f);
+  v = std::clamp(v, 0.0f, 1.0f);
+
+  const float xf = u * float(width) - 0.5f;
+  const float yf = v * float(height) - 0.5f;
+  const int x0 = int(std::floor(xf));
+  const int y0 = int(std::floor(yf));
+  const int x1 = x0 + 1;
+  const int y1 = y0 + 1;
+  const float tx = xf - float(x0);
+  const float ty = yf - float(y0);
+
+  auto at = [&](int x, int y) -> const Vec3fCpp& {
+    x = std::clamp(x, 0, width - 1);
+    y = std::clamp(y, 0, height - 1);
+    return buf[size_t(y) * size_t(width) + size_t(x)];
+  };
+
+  const Vec3fCpp& c00 = at(x0, y0);
+  const Vec3fCpp& c10 = at(x1, y0);
+  const Vec3fCpp& c01 = at(x0, y1);
+  const Vec3fCpp& c11 = at(x1, y1);
+
+  Vec3fCpp out{};
+  out.r = mix_local(mix_local(c00.r, c10.r, tx), mix_local(c01.r, c11.r, tx),
+                    ty);
+  out.g = mix_local(mix_local(c00.g, c10.g, tx), mix_local(c01.g, c11.g, tx),
+                    ty);
+  out.b = mix_local(mix_local(c00.b, c10.b, tx), mix_local(c01.b, c11.b, tx),
+                    ty);
+  return out;
 }
 
-static Vec3fCpp compute_coarse_blur_cpp(const ushort* src, int width,
-                                        int height, float u, float v,
-                                        const float* srgb16ToLinear) {
-  Vec3fCpp horizontal = photon001_gaussian_sigma35_axis_cpp(
-      src, width, height, u, v, 1.0f, 0.0f, srgb16ToLinear);
-  Vec3fCpp vertical = photon001_gaussian_sigma35_axis_cpp(
-      src, width, height, u, v, 0.0f, 1.0f, srgb16ToLinear);
-  return {(horizontal.r + vertical.r) * 0.5f, (horizontal.g + vertical.g) * 0.5f,
-          (horizontal.b + vertical.b) * 0.5f};
+static void photon001_precompute_horizontal_blur_cpp(
+    const ushort* src, int width, int height, const float* srgb16ToLinear,
+    bool coarse, std::vector<Vec3fCpp>& out) {
+  out.resize(size_t(width) * size_t(height));
+  std::vector<int> rows(height);
+  std::iota(rows.begin(), rows.end(), 0);
+  QtConcurrent::blockingMap(rows, [&](int y) {
+    const float v = (float(y) + 0.5f) / float(height);
+    for (int x = 0; x < width; ++x) {
+      const float u = (float(x) + 0.5f) / float(width);
+      out[size_t(y) * size_t(width) + size_t(x)] =
+          coarse ? photon001_gaussian_sigma35_axis_cpp(src, width, height, u, v,
+                                                       1.0f, 0.0f,
+                                                       srgb16ToLinear)
+                 : photon001_gaussian_sigma1_axis_cpp(src, width, height, u, v,
+                                                      1.0f, 0.0f,
+                                                      srgb16ToLinear);
+    }
+  });
+}
+
+static Vec3fCpp photon001_vertical_blur_cpp(const std::vector<Vec3fCpp>& hbuf,
+                                            int width, int height, float u,
+                                            float v, bool coarse) {
+  const float centerWeight = coarse ? 0.11398719f : 0.39894347f;
+  Vec3fCpp blur = sample_buffer_bilinear_cpp(hbuf, width, height, u, v);
+  blur.r *= centerWeight;
+  blur.g *= centerWeight;
+  blur.b *= centerWeight;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float dv = offset / float(height);
+    Vec3fCpp p = sample_buffer_bilinear_cpp(hbuf, width, height, u, v + dv);
+    Vec3fCpp n = sample_buffer_bilinear_cpp(hbuf, width, height, u, v - dv);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
+  };
+
+  if (coarse) {
+    tapPair(1.46942595f, 0.20624514f);
+    tapPair(3.42905340f, 0.13826867f);
+    tapPair(5.38960340f, 0.06731104f);
+    tapPair(7.35154728f, 0.02378969f);
+    tapPair(9.31528835f, 0.00610264f);
+    tapPair(11.28114775f, 0.00113588f);
+    tapPair(13.24935770f, 0.00015335f);
+  } else {
+    tapPair(1.18242552f, 0.29596257f);
+    tapPair(3.02931223f, 0.00456569f);
+  }
+  return blur;
 }
 
 constexpr float PHOTON001_FLARE_LINEAR_CPP = 0.000244140625f;  // 2^-12
@@ -390,12 +446,15 @@ static Vec3fCpp eval_undo_render_curve_cpp(const Vec3fCpp& col) {
 static float photon001_working_luma_linear_cpp(const Vec3fCpp& c) {
   Vec3fCpp clamped = clamp_vec3_cpp(c, 0.0001f, 0.999f);
   Vec3fCpp prophoto{
-      0.529285f * clamped.r + 0.330046f * clamped.g + 0.140669f * clamped.b,
-      0.098394f * clamped.r + 0.873493f * clamped.g + 0.028113f * clamped.b,
-      0.016823f * clamped.r + 0.117671f * clamped.g + 0.865506f * clamped.b};
+      0.52932379f * clamped.r + 0.33005506f * clamped.g +
+          0.14064019f * clamped.b,
+      0.09842654f * clamped.r + 0.87350873f * clamped.g +
+          0.02811156f * clamped.b,
+      0.01684577f * clamped.r + 0.11769549f * clamped.g +
+          0.86547399f * clamped.b};
   Vec3fCpp unmapped =
       clamp_vec3_cpp(eval_undo_render_curve_cpp(prophoto), 0.0f, 1.0f);
-  return std::max(unmapped.r * 0.25f + unmapped.g * 0.5f + unmapped.b * 0.25f,
+  return std::max(unmapped.r * 0.30f + unmapped.g * 0.59f + unmapped.b * 0.11f,
                   PHOTON001_EPS_CPP);
 }
 
@@ -518,6 +577,8 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
                                             blurCoarseLog);
   const float mask = photon001_local_laplacian_mask_cpp(
       srcGrayLog, blurFineLog, blurCoarseLog, toneMid);
+  const float deltaMask =
+      std::clamp(blurFineLog - blurCoarseLog, -1.0f, 1.0f);
 
   const float partSwitch = step_local(srcGrayLog, toneMid);
   const float compressedLow = toneMid + (srcGrayLog - toneMid) * 0.78f;
@@ -526,7 +587,7 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
       mix_local(compressedHigh, compressedLow, partSwitch);
 
   float localContrastSignal = srcGrayLog + mask - baseCompressed;
-  localContrastSignal *= std::max(clarityAmt, 0.0f);
+  localContrastSignal *= clarityAmt;
   localContrastSignal *=
       std::clamp(1.0f + 0.35f * (-highlightsAmt + shadowsAmt), 1.0f, 2.0f);
   const float rangeSpan = std::max(stats.maxVal - stats.minVal, 0.0f);
@@ -538,8 +599,6 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
   localContrastSignal += 0.08f * skewGate;
   localContrastSignal *=
       1.0f + std::clamp(rangeSpan * 0.08f, 0.0f, 0.25f);
-  const float localSignalHigh = std::max(localContrastSignal, 0.0f);
-  const float localSignalLow = std::min(localContrastSignal, 0.0f);
 
   const float lumWeightHigh =
       std::clamp(wHighlights + 0.6f * wWhites, 0.0f, 1.0f);
@@ -554,6 +613,7 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
   const float clarityPinLow =
       mix_local(endpoint_pin_mask_component_cpp(lumWeightLow), 1.0f,
                 endpointLow * endpointLow);
+  const float clarityPin = mix_local(clarityPinLow, clarityPinHigh, partSwitch);
 
   float hsPinY =
       mix_local(0.5f + 0.5f * std::max(1.0f - sign_local(shadowsAmt), 0.0f),
@@ -573,43 +633,43 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
 
   float deltaHSHigh = std::clamp(-highlightsAmt, -1.0f, 1.0f);
   float deltaHSLow = std::clamp(shadowsAmt, -1.0f, 1.0f);
-  deltaHSHigh *= std::min(mask, 0.0f);
-  deltaHSLow *= std::max(mask, 0.0f);
+  deltaHSHigh *= std::min(deltaMask, 0.0f) * wHighlights;
+  deltaHSLow *= std::max(deltaMask, 0.0f) * wShadows;
   deltaHSHigh += offsetHSHigh;
   deltaHSLow += offsetHSLow;
 
-  float deltaStops = deltaHSHigh * hsPinX + deltaHSLow * hsPinY;
-  deltaStops += whitesAmt * wWhites * hsPinX;
-  deltaStops += blacksAmt * wBlacks * hsPinY;
-  deltaStops +=
-      localSignalHigh * clarityPinHigh + localSignalLow * clarityPinLow;
+  const float whitesStops = whitesAmt * wWhites * hsPinX;
+  float recoveryStops = deltaHSHigh * hsPinX + deltaHSLow * hsPinY;
+  recoveryStops += blacksAmt * wBlacks * hsPinY;
+  recoveryStops += localContrastSignal * clarityPin;
 
-  const float deltaSign = sign_local(deltaStops);
+  const float positiveFade =
+      1.0f - 0.6f * smoothstep_local(toneMid + 1.0f, toneMid + 4.0f, srcGrayLog);
+  if (recoveryStops > 0.0f) recoveryStops *= positiveFade;
+
+  const float deltaSign = sign_local(recoveryStops);
   const float flareSwitch = 1.0f - std::max(deltaSign, 0.0f);
   const float zeroSwitch = 1.0f - std::abs(deltaSign);
   const float flare = flareSwitch * PHOTON001_FLARE_LOG_CPP;
-  const float startpoint = flare - (deltaStops + deltaStops);
+  const float startpoint = flare - (recoveryStops + recoveryStops);
   const float t1 = step_local(startpoint, srcGrayLog);
   const float t2 = step_local(srcGrayLog, startpoint);
   float t =
       std::clamp((srcGrayLog - startpoint) / (flare - startpoint + zeroSwitch),
                  0.0f, 1.0f);
   t *= t * (1.0f - mix_local(t2, t1, flareSwitch));
-  deltaStops = mix_local(deltaStops, 0.0f, t);
+  recoveryStops = mix_local(recoveryStops, 0.0f, t);
+  recoveryStops = std::min(recoveryStops, 4.0f);
 
-  const float dst = srcGrayLog + deltaStops;
-  float diff = dst - srcGrayLog;
-  if (diff > 0.0f) diff = std::min(diff, 4.0f);
-  deltaStops = diff;
-  const float targetLog = srcGrayLog + deltaStops;
-  float targetLuma = photon001_decode_log_luma_cpp(targetLog);
-
-  if (targetLuma > sceneWhiteNorm && deltaStops > 0.0f) {
-    const float over = targetLuma - sceneWhiteNorm;
+  float recoveryTarget =
+      photon001_decode_log_luma_cpp(srcGrayLog + recoveryStops);
+  if (recoveryTarget > sceneWhiteNorm && recoveryStops > 0.0f) {
+    const float over = recoveryTarget - sceneWhiteNorm;
     const float knee = std::max(sceneWhiteNorm * 0.7f, PHOTON001_EPS_CPP);
     const float compress = over / (1.0f + over / knee);
-    targetLuma = sceneWhiteNorm + compress;
+    recoveryTarget = sceneWhiteNorm + compress;
   }
+  const float targetLuma = recoveryTarget * std::exp2(whitesStops);
 
   Vec3fCpp out = color;
   apply_luma_target_cpp(out.r, out.g, out.b, srcGrayLinear, targetLuma);
@@ -859,6 +919,13 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                      55.0f / 360.0f, 50.0f / 360.0f};
   const auto& linearLut = srgb16_to_linear_lut_cpp();
 
+  std::vector<Vec3fCpp> fineBlurH;
+  std::vector<Vec3fCpp> coarseBlurH;
+  photon001_precompute_horizontal_blur_cpp(src, width, height, linearLut.data(),
+                                           false, fineBlurH);
+  photon001_precompute_horizontal_blur_cpp(src, width, height, linearLut.data(),
+                                           true, coarseBlurH);
+
   QImage output(width, height, QImage::Format_RGB888);
 
   // Parallel processing using rows
@@ -876,10 +943,10 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
 
       const float u = (float(x) + 0.5f) / float(width);
       const float v = (float(y) + 0.5f) / float(height);
-      Vec3fCpp blurredFine =
-          compute_fine_blur_cpp(src, width, height, u, v, linearLut.data());
-      Vec3fCpp blurredCoarse =
-          compute_coarse_blur_cpp(src, width, height, u, v, linearLut.data());
+      Vec3fCpp blurredFine = photon001_vertical_blur_cpp(
+          fineBlurH, width, height, u, v, false);
+      Vec3fCpp blurredCoarse = photon001_vertical_blur_cpp(
+          coarseBlurH, width, height, u, v, true);
 
       // 1. WB & Exposure
       r *= r_wb * exp_mult;
@@ -989,11 +1056,16 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       b = mix(gray, b, s_factor);
 
       float c_max = std::max({r, g, b});
-      float c_avg = (r + g + b) / 3.0f;
-      float v_amt = (c_max - c_avg) * (-vib_global / 100.0f) * 3.0f;
-      r = mix(r, c_max, v_amt);
-      g = mix(g, c_max, v_amt);
-      b = mix(b, c_max, v_amt);
+      float c_min = std::min({r, g, b});
+      float chroma_sat = (c_max > 1e-5f) ? (c_max - c_min) / c_max : 0.0f;
+      float vib_boost = (vib_global / 100.0f) * (1.0f - chroma_sat);
+      r = mix(gray, r, 1.0f + vib_boost);
+      g = mix(gray, g, 1.0f + vib_boost);
+      b = mix(gray, b, 1.0f + vib_boost);
+
+      r = std::max(0.0f, r);
+      g = std::max(0.0f, g);
+      b = std::max(0.0f, b);
 
       // 8. Tonemapping
       if (agx_enabled) {
@@ -1044,6 +1116,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       }
 
       // 9. Linear to sRGB
+      r = std::max(0.0f, r);
+      g = std::max(0.0f, g);
+      b = std::max(0.0f, b);
       r = linear_to_srgb_f(r);
       g = linear_to_srgb_f(g);
       b = linear_to_srgb_f(b);

@@ -1,0 +1,78 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+ENV HOME=/tmp
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build git wget curl ca-certificates \
+    pkg-config python3 python3-pip \
+    libraw-dev liblcms2-dev libjpeg-turbo8-dev libtiff-dev libvulkan-dev \
+    libgl1-mesa-dev libfuse2 \
+    libxcb-cursor0 libxcb-xinerama0 libxcb-xinput0 libxcb-icccm4 \
+    libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 \
+    libwayland-client0 libwayland-cursor0 libwayland-egl1 libxkbcommon-x11-0 \
+    libxkbcommon-dev libxkbcommon-x11-dev libxcb-xkb-dev \
+    libfontconfig1-dev libfreetype6-dev libx11-xcb-dev \
+    libwayland-dev wayland-protocols libwayland-server0 \
+    libdbus-1-3 \
+    imagemagick file patchelf \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG OPENCV_VERSION=4.13.0
+
+RUN git clone --depth 1 --branch ${OPENCV_VERSION} https://github.com/opencv/opencv.git /opt/opencv-src && \
+    cmake -S /opt/opencv-src -B /opt/opencv-build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DBUILD_LIST=core,imgproc,flann,features2d,calib3d,stitching \
+      -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF \
+      -DBUILD_JAVA=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_apps=OFF \
+      -DWITH_IPP=OFF -DWITH_OPENCL=OFF -DWITH_TBB=OFF -DWITH_EIGEN=OFF -DWITH_LAPACK=OFF -DWITH_ITT=OFF \
+      -DWITH_ZLIB=OFF -DWITH_JPEG=OFF -DWITH_PNG=OFF -DWITH_TIFF=OFF -DWITH_WEBP=OFF \
+      -DWITH_OPENJPEG=OFF -DWITH_OPENEXR=OFF -DWITH_GDAL=OFF -DWITH_GDCM=OFF \
+      -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF -DWITH_V4L=OFF -DWITH_1394=OFF -DWITH_GTK=OFF -DWITH_QT=OFF \
+      -DOPENCV_GENERATE_PKGCONFIG=ON && \
+    cmake --build /opt/opencv-build -j"$(nproc)" && \
+    cmake --install /opt/opencv-build && \
+    rm -rf /opt/opencv-src /opt/opencv-build
+
+RUN pip3 install --no-cache-dir aqtinstall && \
+    aqt install-qt linux desktop 6.10.1 linux_gcc_64 -m qtshadertools --outputdir /opt/qt
+
+ENV PATH=/opt/qt/6.10.1/gcc_64/bin:${PATH}
+ENV QT_DIR=/opt/qt/6.10.1/gcc_64
+
+WORKDIR /tools
+RUN wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage && \
+    wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage && \
+    chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage && \
+    ./linuxdeploy-x86_64.AppImage --appimage-extract >/dev/null && \
+    mv squashfs-root linuxdeploy-extracted && \
+    ./linuxdeploy-plugin-qt-x86_64.AppImage --appimage-extract >/dev/null && \
+    mv squashfs-root linuxdeploy-plugin-qt-extracted && \
+    rm linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage && \
+    ln -s /tools/linuxdeploy-extracted/usr/bin/linuxdeploy /usr/local/bin/linuxdeploy && \
+    ln -s /tools/linuxdeploy-plugin-qt-extracted/usr/bin/linuxdeploy-plugin-qt /usr/local/bin/linuxdeploy-plugin-qt
+
+RUN mkdir -p /usr/local/lib/pkgconfig && printf '%s\n' \
+    'prefix=/usr' \
+    'exec_prefix=${prefix}' \
+    'libdir=${prefix}/lib/x86_64-linux-gnu' \
+    'includedir=${prefix}/include' \
+    '' \
+    'Name: libraw' \
+    'Description: Raw image decoder library (static)' \
+    'Requires: lcms2' \
+    'Version: 0.20.2' \
+    'Libs: -L${libdir} -l:libraw.a -lstdc++ -fopenmp -ljpeg -llcms2 -lm -lpthread -lgomp' \
+    'Cflags: -I${includedir}/libraw -I${includedir}' \
+    > /usr/local/lib/pkgconfig/libraw.pc && \
+    sed -i 's/^Libs: \(.*\)$/Libs: \1 -lz/' /usr/local/lib/pkgconfig/opencv4.pc
+
+WORKDIR /app
+COPY . .
+RUN chmod +x build_release_internal.sh
+
+CMD ["/app/build_release_internal.sh"]

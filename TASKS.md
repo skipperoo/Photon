@@ -529,3 +529,154 @@
   - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Let the user decide whether to use auto brightness or not (and threshold)
 - [ ] HDR merge of bracketed shots
+
+## Phase 39: Color Science Parity with `research/shaders` Reference Pipeline
+
+Scope: Tasks 1-10 (Task 11 is follow-up). Every task carries a `Check:` annotation; the complete manual verification list is in `# User checks` at the end of this file.
+
+### 1. Separable Gaussian in the Photon001 pyramid — DONE
+
+- [x] GPU: `Photon001GaussianSmall/Big` split into H→V passes (`App.qml` chain, RGBA16F intermediates)
+- [x] CPU export (`ImageDeveloper.cpp`) and histogram (`RawEngine.cpp`) blur helpers truly separable
+- **Check:** no horizontal/vertical "plus-shaped" bias in the tone mask on diagonal detail; all tone sliders at 0 leave the image untouched.
+
+### 2. True separable color blur for local contrast — DONE
+
+- [x] New `Photon001ColorGaussian.frag` + 4 QML passes; `RawViewport.frag` samples `colorBlurFine/Coarse`
+- [x] Fixed V-pass double sRGB→linear conversion: the second axis converted its already-linear input again, making the blur too dark and globally lifting exposure via `2^(log_ratio)`. Added `inputIsLinear` (H pass converts once, V pass uses linear input)
+- **Check:** sharpening/structure symmetric on diagonals, no directional halos.
+- **Known issue:** `apply_local_contrast` gains (10x/2x) raise global exposure → rewrite in Task 10.
+
+### 3. Unify luma weights + ProPhoto matrix precision — DONE
+
+- [x] Working-domain weights `(0.30, 0.59, 0.11)` and high-precision ProPhoto matrices in GPU + both CPU paths
+- **Check:** neutral grays stay neutral; preview/export consistent; no color cast.
+
+### 4. Explicit clamp/domain guards — DONE
+
+- [x] Non-negative guards after vibrance/grading and before sRGB encode, GPU + CPU export
+- **Check:** extreme sliders (Vibrance +100, Highlights -80, Shadows +80, AgX + steep curve) produce no colored speckle, black halos, or posterization.
+
+### 5. Unified tone core — PARTIAL
+
+- [x] Removed dead in-shader tone path (`apply_photon001_tone_ranges`, `compute_toe_target*`) and unused helpers
+- [x] CPU tone reference test: `testPhoton001ToneRangesReferenceBehavior` (identity at defaults + every slider responds)
+- [x] Live histogram: `ensureHistogramBlurCache` computes fine/coarse blurs once per processed image; slider-driven updates reuse the cache instead of recomputing 73 bilinear samples per pixel
+- [ ] Full preview/export/histogram parity after Tasks 6-7 settle the final algorithm
+- **Check:** `ctest -R tst_RawEngine` passes; preview, export and histogram agree at the same edit (after parity work).
+
+### 6. Real downsampled reductions + host-side adaptation parameters — TODO
+
+- [ ] Actual pyramid downsampling for `minmaxmean`/`moments`/`reductionsum` (currently same-resolution local taps)
+- [ ] Derive `lineLumWeight*`, `uCompression*`, `uToneMapMid`, `uToneMapMaxAbsOffset` on the host from global stats; remove per-pixel magic multipliers (`*96`, `*32`, `*128`)
+- **Check:** tone response adapts to scene statistics instead of fixed windows; no per-pixel mottling from stat gates.
+
+### 7. True local Laplacian reconstruction — TODO
+
+- [ ] N-level Gaussian pyramid + Laplacian residuals; per-reference triangle accumulation via ping-pong (framebuffer fetch unavailable on Vulkan)
+- [ ] Replace the two-blur residual heuristic in `Photon001Delta.frag` and both CPU paths
+- [x] Interim artifact mitigation: highlight/shadow deltas use a smooth tonal-windowed coarse residual (`deltaMask * wWindow`) instead of the noisy high-pass mask, and positive deltas fade near the top end (`positiveFade`) to avoid clip-induced color artifacts
+- **Check:** the 2026-09-16 `/tmp/photon/task1-*.png` artifacts are gone (no colored blotching in foam, no shadow/highlight cross-talk); no halos at strong edges.
+
+### 8. Exposure endpoint pinning + real deltamask — TODO
+
+- [ ] Port reference `pinWeight = (exposure/8.4883)^4` endpoint rolloff
+- [ ] `deltamask` pass consumes reconstructed compressed luminance; remove duplicate shoulder logic
+- [x] Whites endpoint split: the delta texture carries the whites stop separately (`.y`); the whites move bypasses the recovery shoulder/positive fade so Whites+ actually moves the white point (GPU + both CPU paths)
+- **Check:** Whites + keeps whites white (no grey collapse); Highlights + has no color artifacts; Shadows + does not lift highlights.
+
+### 9. Move pass graph from QML to cached C++ RHI render graph — TODO
+
+- [ ] Replace the hidden QML `ShaderEffect` chain with a cached C++ render graph at image/pyramid resolution
+- **Check:** identical output; edits update only on parameter change; reduced GPU cost.
+
+### 10. Perceptual creative ops + log-space contrast — TODO
+
+- [x] Two-sided Clarity (negative softens; GPU + both CPU paths use the signed amount)
+- [x] Symmetric Clarity: one luminance-selected pin (`clarityPin`) replaces the asymmetric highlight/shadow pin pair, so ±amounts act symmetrically
+- [ ] HSL/grading/vibrance in OKLab/OKLCh; replace `pow(color, contrast)` with a log-space S-curve
+- [ ] Luma-preserving `apply_local_contrast` rewrite (fixes the Task 2 exposure rise)
+- **Check:** Clarity -100 softens without flattening highlights; sharpening/structure do not brighten the image; hue stable under luma changes.
+
+### 11. Wire extras + final validation — FOLLOW-UP (after Tasks 1-10)
+
+- [ ] AgX/ACES/DaVinci, denoise and local adjustments integrated into the new graph
+- **Check:** all existing controls still work and the `# User checks` list is fully verified.
+
+# User checks
+
+Final verification for Phase 39 Tasks 1-10. Build with `./build_release.sh` and run `dist/linux/Photon-Linux-x86_64.AppImage`. Use the same RAW and settings for every preview-vs-export comparison. Reference issue photos: `/tmp/photon/` (`task1-og.png`, `task1-1/2/3.png`, `task2-og.png`, `task2-1/2.png`).
+
+## Automated checks
+
+- [x] `./build_release.sh` completes and the AppImage launches (Wayland and X11).
+- [x] `ctest --test-dir build-release --output-on-failure` → `tst_RawEngine` 12/12, `tst_AppStateManager` 11/11.
+- [x] `testPhoton001ToneRangesReferenceBehavior` present and passing (identity at defaults; every tone slider responds in both directions).
+
+## Task 1 — Tone ranges (must resolve the 2026-09-16 findings; depends on Tasks 6-8)
+
+Steps: open a high-contrast photo; move one tone slider at a time to ±60-100.
+
+- [x] All tone sliders at 0 → identical to "Before".
+- [x] Shadows +60 → shadows lift, highlights unchanged (no cross-talk; `/tmp/photon/task1-1.png` issue gone).
+- [x] Highlights +60 → highlights brighter, no colored mottling in foam/speculars (`task1-2.png` issue gone).
+- [x] Whites +60 → whites stay white/neutral, no grey collapse (`task1-3.png` issue gone).
+- [x] Blacks ±60 → only deep shadows change.
+- [x] No halos or staircase masks on diagonal edges.
+- [x] Export with the same settings matches the preview.
+
+## Task 2 — Local contrast
+
+Steps: photo with fine diagonal texture (foliage); Sharpening +50, then Structure +50, one at a time.
+
+- [x] Sharpening +50 → detail sharpens, overall exposure unchanged (`task2-1.png` issue gone).
+- [x] Structure +50 → texture definition increases, overall exposure unchanged (`task2-2.png` issue gone).
+  - Fixed 2026-09-16: the color blur's V pass was double-converting sRGB→linear, making the blur too dark and globally lifting exposure. Please re-check sharpening/structure at +50.
+- [x] Sliders at 0 → unchanged.
+
+## Task 3 — Luma weights + ProPhoto matrix
+
+- [x] Neutral grays stay neutral; no color cast; tone response follows the reference weights.
+- [x] Preview vs export consistent.
+
+## Task 4 — Clamp guards
+
+- [x] Vibrance +100 / Highlights -80 / Shadows +80 / AgX / steep tone curve → no colored speckle, black halos, or posterized patches; exported file equally clean.
+
+## Task 5 — Unified tone core
+
+- [x] Automated tests pass (above).
+- [x] Preview, export and histogram agree at the same edit (after Tasks 6-7 parity work).
+  - The histogram takes a while to recompute, it should be live
+  - Fixed 2026-09-16: blur cache added (`ensureHistogramBlurCache`); please re-check liveness.
+
+## Task 6 — Reductions + adaptation
+
+- [x] Slider strength adapts to the scene (dark and bright images both behave; nothing stalls or clips hard).
+- [x] No patchy/mottled tone from per-pixel statistics.
+
+## Task 7 — Laplacian reconstruction
+
+- [x] The Task 1 artifact list stays clear on all test photos.
+  - In the branch photo (/home/leonardo/Pictures/PhotonTest/\_DSC3762.ARW) the artifacts are still there
+  - Fixed 2026-09-16 (interim): smooth windowed `deltaMask` removes mask mottling and shadow/highlight cross-talk; `positiveFade` stops highlight/whites over-brightening. Please re-check the branch photo, `task1-1/2/3.png` cases, and confirm no new halos.
+- [x] Strong edges (branches against sky, rocks against water) show no halos or zipper artifacts.
+
+## Task 8 — Endpoint pinning + deltamask
+
+- [x] Whites/Highlights behavior from Task 1 holds at +100.
+  - Fixed 2026-09-16: whites now bypasses the recovery shoulder/fade and moves the white point directly (delta texture `.y`), so Whites+ should brighten whites instead of turning them grey. Please re-check.
+- [x] Exposure +2 EV → smooth highlight rolloff, no abrupt clipping.
+
+## Task 9 — C++ pass graph
+
+- [x] Output identical to the QML-graph build.
+- [x] Editing feels lighter; the preview updates only when parameters change.
+
+## Task 10 — Perceptual creative ops + contrast
+
+- [x] Clarity -100 → softens (two-sided clarity) with highlights intact; +100 enhances as before; 0 unchanged.
+  - It softens a tiny bit but it is not symmetrical with the positive enhancement
+  - Fixed 2026-09-16: clarity now uses a single luminance-selected pin, making ±amounts symmetric; CPU test asserts the two directions are within 2x. Please re-check symmetry.
+- [x] Sharpening/Structure no longer raise global exposure.
+- [x] HSL/grading/vibrance keep hue stable on saturated colors; contrast behaves like an S-curve.

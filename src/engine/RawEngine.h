@@ -621,6 +621,9 @@ class RawEngine : public QObject {
 
   void clearProcessedImage();
 
+  void ensureHistogramBlurCache(const ushort* src, int width, int height,
+                                int step, int sampleCount);
+
   void recomputeSceneWhite();
   float computeSceneWhite(const libraw_processed_image_t* img, float percentile = 0.97f);
   void updateProcessingParams();
@@ -728,6 +731,10 @@ class RawEngine : public QObject {
   QImage m_downsampledImage;  // Used for fast histogram computation
   bool m_histogramUpdatePending = false;
   bool m_histogramNeedsUpdate = false;
+  std::shared_ptr<std::vector<float>> m_histFineBlurCache;
+  std::shared_ptr<std::vector<float>> m_histCoarseBlurCache;
+  const void* m_histBlurSource = nullptr;
+  int m_histBlurStep = 0;
   QVariantMap m_metadata;
   int m_orientation = 1;
 

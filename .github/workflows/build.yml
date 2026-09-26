@@ -17,10 +17,12 @@ jobs:
         os: [ubuntu-22.04, windows-latest]
         include:
           - os: ubuntu-22.04
-            qt_ver: 6.10.1
+            qt_ver: 6.10.2
+            qt_extra: ""
           - os: windows-latest
-            qt_ver: 6.10.1
+            qt_ver: 6.10.2
             qt_arch: win64_msvc2022_64
+            qt_extra: "--external 7z"
 
     steps:
       - name: Checkout Code
@@ -29,11 +31,12 @@ jobs:
           fetch-depth: 0
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: ${{ matrix.qt_ver }}
           arch: ${{ matrix.qt_arch }}
           modules: "qtshadertools"
+          extra: ${{ matrix.qt_extra }}
           cache: true
 
       - name: Cache vcpkg packages (Windows)
@@ -90,7 +93,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $qtDir = "${{ github.workspace }}\..\Qt\6.10.1\msvc2022_64"
+          $qtDir = $env:QT_ROOT_DIR
           $env:PATH = "$qtDir\bin;C:\vcpkg\installed\x64-windows\bin;" + $env:PATH
 
           # Install to a staging directory first

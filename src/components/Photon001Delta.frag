@@ -1,0 +1,143 @@
+#version 440
+
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
+
+layout(binding = 1) uniform sampler2D logSource;
+layout(binding = 2) uniform sampler2D gaussSmall;
+layout(binding = 3) uniform sampler2D gaussBig;
+
+layout(std140, binding = 0) uniform buf {
+    mat4 qt_Matrix;
+    float qt_Opacity;
+    float highlights;
+    float shadows;
+    float whites;
+    float blacks;
+    float clarity;
+    float sceneWhite;
+    float exposure;
+    float sceneDetailScale;
+    float sceneHighlightPin;
+    float sceneCompression;
+} ubuf;
+
+const float PHOTON001_FLARE_LINEAR = 0.000244140625; // 2^-12
+const float PHOTON001_FLARE_LOG = -12.0;
+const float PHOTON001_EPS = 0.00000190734;
+
+float photon001_encode_log_luma(float linearLuma) {
+    return log2(max(linearLuma + PHOTON001_FLARE_LINEAR, PHOTON001_EPS));
+}
+
+vec2 endpoint_pin_mask(vec2 x) {
+    x = clamp(x, 0.0, 1.0);
+    vec2 invX = 1.0 - x;
+    vec2 inv2 = invX * invX;
+    vec2 inv4 = inv2 * inv2;
+    vec2 inv8 = inv4 * inv4;
+    vec2 inv16 = inv8 * inv8;
+    vec2 base = 1.0 - inv8;
+    vec2 strong = 1.0 - inv16;
+    return mix(base, strong, smoothstep(vec2(0.35), vec2(1.0), x));
+}
+
+float photon001_tent_weight(float value, float center, float halfWidth) {
+    return max(1.0 - abs(value - center) / max(halfWidth, PHOTON001_EPS), 0.0);
+}
+
+float photon001_local_laplacian_mask(float srcLog, float blurFineLog, float blurCoarseLog) {
+    // Two genuine Laplacian levels of the log-luminance pyramid:
+    //   level 1: fine detail (src - gaussSmall)
+    //   level 2: mid detail  (gaussSmall - gaussBig)
+    float lapFine = srcLog - blurFineLog;
+    float lapMid = blurFineLog - blurCoarseLog;
+    return clamp(lapFine + 0.6 * lapMid, -2.5, 2.5);
+}
+
+void main() {
+    float srcGrayLog = texture(logSource, qt_TexCoord0).x;
+    float blurFineLog = texture(gaussSmall, qt_TexCoord0).x;
+    float blurCoarseLog = texture(gaussBig, qt_TexCoord0).x;
+
+    float highlightsAmt = ubuf.highlights / 100.0;
+    float shadowsAmt = ubuf.shadows / 100.0;
+    float whitesAmt = ubuf.whites / 100.0;
+    float blacksAmt = ubuf.blacks / 100.0;
+    float clarityAmt = ubuf.clarity / 100.0;
+
+    float sceneWhiteNorm = max(ubuf.sceneWhite * pow(2.0, ubuf.exposure), 1e-4);
+    float toneMid = photon001_encode_log_luma(max(sceneWhiteNorm * 0.18, PHOTON001_EPS));
+
+    float wShadows = photon001_tent_weight(srcGrayLog, toneMid - 2.4, 2.0);
+    float wHighlights = photon001_tent_weight(srcGrayLog, toneMid + 1.0, 1.9);
+    float wWhites = photon001_tent_weight(srcGrayLog, toneMid + 3.1, 2.2);
+    float wBlacks = photon001_tent_weight(srcGrayLog, toneMid - 4.6, 1.9);
+
+    float mask = photon001_local_laplacian_mask(srcGrayLog, blurFineLog, blurCoarseLog);
+    float deltaMask = clamp(blurFineLog - blurCoarseLog, -1.0, 1.0);
+
+    float partSwitch = step(srcGrayLog, toneMid);
+    float compressedLow =
+        toneMid + (srcGrayLog - toneMid) * (1.0 - 0.22 * ubuf.sceneCompression);
+    float compressedHigh =
+        toneMid + (srcGrayLog - toneMid) * (1.0 - 0.42 * ubuf.sceneCompression);
+    float baseCompressed = mix(compressedHigh, compressedLow, partSwitch);
+
+    float localContrastSignal = srcGrayLog + mask - baseCompressed;
+    localContrastSignal *= clarityAmt;
+    localContrastSignal *= clamp(1.0 + 0.35 * (-highlightsAmt + shadowsAmt), 1.0, 2.0);
+
+    localContrastSignal *= ubuf.sceneDetailScale;
+
+    vec2 lumWeight = vec2(
+        clamp(wHighlights + 0.6 * wWhites, 0.0, 1.0),
+        clamp(wShadows + 0.6 * wBlacks, 0.0, 1.0)
+    );
+    vec2 endpointStrength = clamp(
+        vec2(abs(highlightsAmt) + 0.35 * abs(whitesAmt), abs(shadowsAmt) + 0.35 * abs(blacksAmt)),
+        0.0,
+        1.0
+    );
+    vec2 claritySHPinMask = mix(endpoint_pin_mask(lumWeight), vec2(1.0), endpointStrength * endpointStrength);
+    float clarityPin = mix(claritySHPinMask.y, claritySHPinMask.x, partSwitch);
+
+    vec2 hsPinMask;
+    hsPinMask.y = mix(0.5 + 0.5 * max(1.0 - sign(shadowsAmt), 0.0), 1.0, claritySHPinMask.x);
+    hsPinMask.x = mix(1.0, 0.5, (1.0 - claritySHPinMask.y) * max(-sign(highlightsAmt), 0.0));
+    hsPinMask.x = mix(1.0, hsPinMask.x, clamp(abs(highlightsAmt), 0.0, 1.0));
+
+    float maxAbsHS = max(max(abs(highlightsAmt), abs(shadowsAmt)), PHOTON001_EPS);
+    float baseOffset = 0.85 * (highlightsAmt + shadowsAmt) / maxAbsHS;
+    vec2 offsetHS = vec2(wHighlights, wShadows) * vec2(abs(highlightsAmt), abs(shadowsAmt)) * baseOffset;
+    vec2 deltaHS = vec2(-highlightsAmt, shadowsAmt);
+    deltaHS = clamp(deltaHS, -1.0, 1.0);
+    deltaHS *= vec2(min(deltaMask, 0.0) * wHighlights, max(deltaMask, 0.0) * wShadows);
+    deltaHS += offsetHS;
+
+    float whitesStops = whitesAmt * wWhites * hsPinMask.x;
+    float recoveryStops = dot(deltaHS, hsPinMask);
+    recoveryStops += blacksAmt * wBlacks * hsPinMask.y;
+    recoveryStops += localContrastSignal * clarityPin;
+
+    float fadeStrength = 0.6 + 0.2 * clamp(ubuf.sceneHighlightPin, 0.0, 1.0);
+    float positiveFade = 1.0 - fadeStrength * smoothstep(toneMid + 1.0, toneMid + 4.0, srcGrayLog);
+    recoveryStops = recoveryStops > 0.0 ? recoveryStops * positiveFade : recoveryStops;
+
+    float deltaSign = sign(recoveryStops);
+    float flareSwitch = 1.0 - max(deltaSign, 0.0);
+    float zeroSwitch = 1.0 - abs(deltaSign);
+    float flare = flareSwitch * PHOTON001_FLARE_LOG;
+    float startpoint = flare - (recoveryStops + recoveryStops);
+    float t1 = step(startpoint, srcGrayLog);
+    float t2 = step(srcGrayLog, startpoint);
+    float t = clamp((srcGrayLog - startpoint) / (flare - startpoint + zeroSwitch), 0.0, 1.0);
+    t *= t * (1.0 - mix(t2, t1, flareSwitch));
+    recoveryStops = mix(recoveryStops, 0.0, t);
+
+    // deltamask phase with shadow-gain cap (+4 stops max lift)
+    recoveryStops = min(recoveryStops, 4.0);
+
+    float deltaStops = recoveryStops + whitesStops;
+    fragColor = vec4(deltaStops, whitesStops, 0.0, 1.0);
+}

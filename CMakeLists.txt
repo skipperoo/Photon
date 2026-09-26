@@ -84,6 +84,11 @@ qt6_add_shaders(Photon "raw_shaders"
     FILES
         src/components/RawViewport.vert
         src/components/RawViewport.frag
+        src/components/Photon001Log.frag
+        src/components/Photon001GaussianSmall.frag
+        src/components/Photon001GaussianBig.frag
+        src/components/Photon001ColorGaussian.frag
+        src/components/Photon001Delta.frag
         src/components/PatchSearch.vert
         src/components/PatchSearch.frag
         src/components/ColorMask.frag

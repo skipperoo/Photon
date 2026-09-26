@@ -31,6 +31,9 @@ class RawEngine : public QObject {
   Q_PROPERTY(float shadows READ shadows WRITE setShadows NOTIFY shadowsChanged)
   Q_PROPERTY(float whites READ whites WRITE setWhites NOTIFY whitesChanged)
   Q_PROPERTY(float sceneWhite READ sceneWhite WRITE setSceneWhite NOTIFY sceneWhiteChanged)
+  Q_PROPERTY(float sceneDetailScale READ sceneDetailScale NOTIFY sceneStatsChanged)
+  Q_PROPERTY(float sceneHighlightPin READ sceneHighlightPin NOTIFY sceneStatsChanged)
+  Q_PROPERTY(float sceneCompression READ sceneCompression NOTIFY sceneStatsChanged)
   Q_PROPERTY(float blacks READ blacks WRITE setBlacks NOTIFY blacksChanged)
   Q_PROPERTY(float adaptation READ adaptation WRITE setAdaptation NOTIFY adaptationChanged)
   Q_PROPERTY(
@@ -249,6 +252,9 @@ class RawEngine : public QObject {
   void setWhites(float val);
 
   float sceneWhite() const { return m_sceneWhite; }
+  float sceneDetailScale() const { return m_sceneDetailScale; }
+  float sceneHighlightPin() const { return m_sceneHighlightPin; }
+  float sceneCompression() const { return m_sceneCompression; }
   void setSceneWhite(float val);
 
   float blacks() const { return m_blacks; }
@@ -513,6 +519,7 @@ class RawEngine : public QObject {
   void shadowsChanged();
   void whitesChanged();
   void sceneWhiteChanged();
+  void sceneStatsChanged();
   void blacksChanged();
   void adaptationChanged();
   void vibranceChanged();
@@ -621,7 +628,11 @@ class RawEngine : public QObject {
 
   void clearProcessedImage();
 
+  void ensureHistogramBlurCache(const ushort* src, int width, int height,
+                                int step, int sampleCount);
+
   void recomputeSceneWhite();
+  void computeSceneStats(const libraw_processed_image_t* img);
   float computeSceneWhite(const libraw_processed_image_t* img, float percentile = 0.97f);
   void updateProcessingParams();
   void rebuildToneLut();
@@ -642,6 +653,9 @@ class RawEngine : public QObject {
   float m_shadows = 0.0f;
   float m_whites = 0.0f;
   float m_sceneWhite = 0.0f;
+  float m_sceneDetailScale = 1.0f;
+  float m_sceneHighlightPin = 0.0f;
+  float m_sceneCompression = 1.0f;
   float m_blacks = 0.0f;
   float m_adaptation = 0.0f;
   float m_vibrance = 0.0f;
@@ -728,6 +742,10 @@ class RawEngine : public QObject {
   QImage m_downsampledImage;  // Used for fast histogram computation
   bool m_histogramUpdatePending = false;
   bool m_histogramNeedsUpdate = false;
+  std::shared_ptr<std::vector<float>> m_histFineBlurCache;
+  std::shared_ptr<std::vector<float>> m_histCoarseBlurCache;
+  const void* m_histBlurSource = nullptr;
+  int m_histBlurStep = 0;
   QVariantMap m_metadata;
   int m_orientation = 1;
 

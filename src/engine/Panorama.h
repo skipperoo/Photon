@@ -6,7 +6,8 @@
 #include <QThread>
 #include <QtQml/qqml.h>
 #include <libraw/libraw.h>
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 #include <opencv2/stitching.hpp>
 #include <opencv2/stitching/detail/exposure_compensate.hpp>
 #include <opencv2/stitching/detail/blenders.hpp>

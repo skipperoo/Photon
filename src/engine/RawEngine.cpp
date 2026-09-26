@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <numeric>
 #include <vector>
 #if defined(__AVX2__) || defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
@@ -35,7 +36,12 @@ static float smoothstep(float edge0, float edge1, float x) {
   return t * t * (3.0f - 2.0f * t);
 }
 
-static float lerp(float a, float b, float t) { return a + t * (b - a); }
+static float lerpF(float a, float b, float t) { return a + t * (b - a); }
+
+static float srgb_to_linear_hist(float c) {
+  return (c <= 0.04045f) ? (c / 12.92f)
+                         : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
 
 struct HSV {
   float h, s, v;
@@ -104,9 +110,9 @@ static void apply_region_tint_cpp(float& r, float& g, float& b, float hue,
                                   float sat, float lum) {
   float tr, tg, tb;
   hsv_to_rgb_cpp(hue, sat / 100.0f, 1.0f, tr, tg, tb);
-  r = lerp(r, r * tr, sat / 100.0f) * (1.0f + lum / 100.0f);
-  g = lerp(g, g * tg, sat / 100.0f) * (1.0f + lum / 100.0f);
-  b = lerp(b, b * tb, sat / 100.0f) * (1.0f + lum / 100.0f);
+  r = lerpF(r, r * tr, sat / 100.0f) * (1.0f + lum / 100.0f);
+  g = lerpF(g, g * tg, sat / 100.0f) * (1.0f + lum / 100.0f);
+  b = lerpF(b, b * tb, sat / 100.0f) * (1.0f + lum / 100.0f);
 }
 
 static float compute_target_luma_hist(float luma, float stops) {
@@ -115,18 +121,6 @@ static float compute_target_luma_hist(float luma, float stops) {
   if (target > 1.0f) {
     float over = target - 1.0f;
     target = 1.0f + over / (1.0f + over * 1.25f);
-  }
-  return std::max(target, 0.0f);
-}
-
-static float compute_toe_target_hist(float luma, float stops) {
-  if (stops == 0.0f) return luma;
-  float target = luma * std::pow(2.0f, stops);
-  if (stops > 0.0f) {
-    float liftGamma = 1.0f / (1.0f + stops * 0.5f);
-    float liftTarget = std::pow(std::max(luma, 1e-6f), liftGamma);
-    float toeMask = 1.0f - smoothstep(0.0f, 0.15f, luma);
-    target = lerp(target, liftTarget, toeMask * 0.4f);
   }
   return std::max(target, 0.0f);
 }
@@ -231,7 +225,8 @@ static Vec3fHist sample_source_linear_bilinear_hist(const ushort* src,
 
   alignas(16) float packed[4];
   _mm_store_ps(packed, _mm256_castps256_ps128(out));
-  return {packed[0], packed[1], packed[2]};
+  return {srgb_to_linear_hist(packed[0]), srgb_to_linear_hist(packed[1]),
+          srgb_to_linear_hist(packed[2])};
 #elif defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
   const __m128 c00 = load_rgb16_norm_hist_sse(p00);
   const __m128 c10 = load_rgb16_norm_hist_sse(p10);
@@ -249,7 +244,8 @@ static Vec3fHist sample_source_linear_bilinear_hist(const ushort* src,
 
   alignas(16) float packed[4];
   _mm_store_ps(packed, out);
-  return {packed[0], packed[1], packed[2]};
+  return {srgb_to_linear_hist(packed[0]), srgb_to_linear_hist(packed[1]),
+          srgb_to_linear_hist(packed[2])};
 #else
   constexpr float invU16 = 1.0f / 65535.0f;
   const Vec3fHist c00{p00[0] * invU16, p00[1] * invU16, p00[2] * invU16};
@@ -257,106 +253,130 @@ static Vec3fHist sample_source_linear_bilinear_hist(const ushort* src,
   const Vec3fHist c01{p01[0] * invU16, p01[1] * invU16, p01[2] * invU16};
   const Vec3fHist c11{p11[0] * invU16, p11[1] * invU16, p11[2] * invU16};
 
-  const float topR = lerp(c00.r, c10.r, tx);
-  const float topG = lerp(c00.g, c10.g, tx);
-  const float topB = lerp(c00.b, c10.b, tx);
-  const float bottomR = lerp(c01.r, c11.r, tx);
-  const float bottomG = lerp(c01.g, c11.g, tx);
-  const float bottomB = lerp(c01.b, c11.b, tx);
-  return {lerp(topR, bottomR, ty), lerp(topG, bottomG, ty),
-          lerp(topB, bottomB, ty)};
+  const float topR = lerpF(c00.r, c10.r, tx);
+  const float topG = lerpF(c00.g, c10.g, tx);
+  const float topB = lerpF(c00.b, c10.b, tx);
+  const float bottomR = lerpF(c01.r, c11.r, tx);
+  const float bottomG = lerpF(c01.g, c11.g, tx);
+  const float bottomB = lerpF(c01.b, c11.b, tx);
+  return {srgb_to_linear_hist(lerpF(topR, bottomR, ty)),
+          srgb_to_linear_hist(lerpF(topG, bottomG, ty)),
+          srgb_to_linear_hist(lerpF(topB, bottomB, ty))};
 #endif
 }
 
-static Vec3fHist compute_fine_blur_hist(const ushort* src, int width,
-                                        int height, float u, float v) {
-  Vec3fHist blur{0.0f, 0.0f, 0.0f};
-  const float invW = 1.0f / float(width);
-  const float invH = 1.0f / float(height);
-  auto tap = [&](float dx, float dy, float w) {
-    Vec3fHist s = sample_source_linear_bilinear_hist(src, width, height,
-                                                     u + dx * invW,
-                                                     v + dy * invH);
-    blur.r += s.r * w;
-    blur.g += s.g * w;
-    blur.b += s.b * w;
+static Vec3fHist photon001_gaussian_sigma1_axis_hist(const ushort* src,
+                                                     int width, int height,
+                                                     float u, float v,
+                                                     float axisX,
+                                                     float axisY) {
+  Vec3fHist blur = sample_source_linear_bilinear_hist(src, width, height, u, v);
+  blur.r *= 0.39894347f;
+  blur.g *= 0.39894347f;
+  blur.b *= 0.39894347f;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float du = axisX * offset / float(width);
+    const float dv = axisY * offset / float(height);
+    Vec3fHist p =
+        sample_source_linear_bilinear_hist(src, width, height, u + du, v + dv);
+    Vec3fHist n =
+        sample_source_linear_bilinear_hist(src, width, height, u - du, v - dv);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
   };
 
-  constexpr float r1 = 1.5f;
-  constexpr float r2 = 3.0f;
-
-  tap(0.0f, 0.0f, 0.18f);
-  tap(r1, 0.0f, 0.095f);
-  tap(-r1, 0.0f, 0.095f);
-  tap(0.0f, r1, 0.095f);
-  tap(0.0f, -r1, 0.095f);
-  tap(r1, r1, 0.055f);
-  tap(-r1, r1, 0.055f);
-  tap(r1, -r1, 0.055f);
-  tap(-r1, -r1, 0.055f);
-
-  tap(r2, 0.0f, 0.04f);
-  tap(-r2, 0.0f, 0.04f);
-  tap(0.0f, r2, 0.04f);
-  tap(0.0f, -r2, 0.04f);
-  tap(r2, r2, 0.015f);
-  tap(-r2, r2, 0.015f);
-  tap(r2, -r2, 0.015f);
-  tap(-r2, -r2, 0.015f);
+  tapPair(1.18242552f, 0.29596257f);
+  tapPair(3.02931223f, 0.00456569f);
   return blur;
+}
+
+static Vec3fHist photon001_gaussian_sigma35_axis_hist(const ushort* src,
+                                                      int width, int height,
+                                                      float u, float v,
+                                                      float axisX,
+                                                      float axisY) {
+  Vec3fHist blur = sample_source_linear_bilinear_hist(src, width, height, u, v);
+  blur.r *= 0.11398719f;
+  blur.g *= 0.11398719f;
+  blur.b *= 0.11398719f;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float du = axisX * offset / float(width);
+    const float dv = axisY * offset / float(height);
+    Vec3fHist p =
+        sample_source_linear_bilinear_hist(src, width, height, u + du, v + dv);
+    Vec3fHist n =
+        sample_source_linear_bilinear_hist(src, width, height, u - du, v - dv);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
+  };
+
+  tapPair(1.46942595f, 0.20624514f);
+  tapPair(3.42905340f, 0.13826867f);
+  tapPair(5.38960340f, 0.06731104f);
+  tapPair(7.35154728f, 0.02378969f);
+  tapPair(9.31528835f, 0.00610264f);
+  tapPair(11.28114775f, 0.00113588f);
+  tapPair(13.24935770f, 0.00015335f);
+  return blur;
+}
+
+static Vec3fHist photon001_separable_gaussian_hist(const ushort* src, int width,
+                                                   int height, float u, float v,
+                                                   bool coarse) {
+  auto horizontal = [&](float vv) -> Vec3fHist {
+    return coarse ? photon001_gaussian_sigma35_axis_hist(src, width, height, u,
+                                                         vv, 1.0f, 0.0f)
+                  : photon001_gaussian_sigma1_axis_hist(src, width, height, u,
+                                                        vv, 1.0f, 0.0f);
+  };
+
+  const float centerWeight = coarse ? 0.11398719f : 0.39894347f;
+  Vec3fHist blur = horizontal(v);
+  blur.r *= centerWeight;
+  blur.g *= centerWeight;
+  blur.b *= centerWeight;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float dv = offset / float(height);
+    Vec3fHist p = horizontal(v + dv);
+    Vec3fHist n = horizontal(v - dv);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
+  };
+
+  if (coarse) {
+    tapPair(1.46942595f, 0.20624514f);
+    tapPair(3.42905340f, 0.13826867f);
+    tapPair(5.38960340f, 0.06731104f);
+    tapPair(7.35154728f, 0.02378969f);
+    tapPair(9.31528835f, 0.00610264f);
+    tapPair(11.28114775f, 0.00113588f);
+    tapPair(13.24935770f, 0.00015335f);
+  } else {
+    tapPair(1.18242552f, 0.29596257f);
+    tapPair(3.02931223f, 0.00456569f);
+  }
+  return blur;
+}
+
+static Vec3fHist compute_fine_blur_hist(const ushort* src, int width, int height,
+                                        float u, float v) {
+  return photon001_separable_gaussian_hist(src, width, height, u, v, false);
 }
 
 static Vec3fHist compute_coarse_blur_hist(const ushort* src, int width,
                                           int height, float u, float v) {
-  Vec3fHist blur{0.0f, 0.0f, 0.0f};
-  const float invW = 1.0f / float(width);
-  const float invH = 1.0f / float(height);
-  auto tap = [&](float dx, float dy, float w) {
-    Vec3fHist s = sample_source_linear_bilinear_hist(src, width, height,
-                                                     u + dx * invW,
-                                                     v + dy * invH);
-    blur.r += s.r * w;
-    blur.g += s.g * w;
-    blur.b += s.b * w;
-  };
-
-  constexpr float r1 = 4.5f;
-  constexpr float r2 = 7.0f;
-  constexpr float r3 = 9.5f;
-
-  tap(0.0f, 0.0f, 0.20f);
-  tap(r1, 0.0f, 0.055f);
-  tap(-r1, 0.0f, 0.055f);
-  tap(0.0f, r1, 0.055f);
-  tap(0.0f, -r1, 0.055f);
-  tap(r1, r1, 0.038f);
-  tap(-r1, r1, 0.038f);
-  tap(r1, -r1, 0.038f);
-  tap(-r1, -r1, 0.038f);
-
-  tap(r2, 0.0f, 0.04f);
-  tap(-r2, 0.0f, 0.04f);
-  tap(0.0f, r2, 0.04f);
-  tap(0.0f, -r2, 0.04f);
-  tap(r2, r2, 0.03f);
-  tap(-r2, r2, 0.03f);
-  tap(r2, -r2, 0.03f);
-  tap(-r2, -r2, 0.03f);
-
-  tap(r3, 0.0f, 0.022f);
-  tap(-r3, 0.0f, 0.022f);
-  tap(0.0f, r3, 0.022f);
-  tap(0.0f, -r3, 0.022f);
-  tap(r3, r3, 0.015f);
-  tap(-r3, r3, 0.015f);
-  tap(r3, -r3, 0.015f);
-  tap(-r3, -r3, 0.015f);
-  return blur;
+  return photon001_separable_gaussian_hist(src, width, height, u, v, true);
 }
 
-constexpr float PV_FLARE_LINEAR_HIST = 0.000244140625f;  // 2^-12
-constexpr float PV_FLARE_LOG_HIST = -12.0f;
-constexpr float PV_EPS_HIST = 0.00000190734f;
+constexpr float PHOTON001_FLARE_LINEAR_HIST = 0.000244140625f;  // 2^-12
+constexpr float PHOTON001_FLARE_LOG_HIST = -12.0f;
+constexpr float PHOTON001_EPS_HIST = 0.00000190734f;
 
 static Vec3fHist eval_undo_render_curve_hist(const Vec3fHist& col) {
   constexpr float eps = 0.00001f;
@@ -373,24 +393,29 @@ static Vec3fHist eval_undo_render_curve_hist(const Vec3fHist& col) {
           (col.b - fMin) * scale + nMin};
 }
 
-static float pv_working_luma_linear_hist(const Vec3fHist& c) {
+static float photon001_working_luma_linear_hist(const Vec3fHist& c) {
   Vec3fHist clamped = clamp_vec3_hist(c, 0.0001f, 0.999f);
   Vec3fHist prophoto{
-      0.529285f * clamped.r + 0.330046f * clamped.g + 0.140669f * clamped.b,
-      0.098394f * clamped.r + 0.873493f * clamped.g + 0.028113f * clamped.b,
-      0.016823f * clamped.r + 0.117671f * clamped.g + 0.865506f * clamped.b};
+      0.52932379f * clamped.r + 0.33005506f * clamped.g +
+          0.14064019f * clamped.b,
+      0.09842654f * clamped.r + 0.87350873f * clamped.g +
+          0.02811156f * clamped.b,
+      0.01684577f * clamped.r + 0.11769549f * clamped.g +
+          0.86547399f * clamped.b};
   Vec3fHist unmapped =
       clamp_vec3_hist(eval_undo_render_curve_hist(prophoto), 0.0f, 1.0f);
-  return std::max(unmapped.r * 0.25f + unmapped.g * 0.5f + unmapped.b * 0.25f,
-                  PV_EPS_HIST);
+  return std::max(unmapped.r * 0.30f + unmapped.g * 0.59f + unmapped.b * 0.11f,
+                  PHOTON001_EPS_HIST);
 }
 
-static float pv_encode_log_luma_hist(float linearLuma) {
-  return std::log2(std::max(linearLuma + PV_FLARE_LINEAR_HIST, PV_EPS_HIST));
+static float photon001_encode_log_luma_hist(float linearLuma) {
+  return std::log2(std::max(linearLuma + PHOTON001_FLARE_LINEAR_HIST,
+                            PHOTON001_EPS_HIST));
 }
 
-static float pv_decode_log_luma_hist(float logLuma) {
-  return std::max(std::exp2(logLuma) - PV_FLARE_LINEAR_HIST, PV_EPS_HIST);
+static float photon001_decode_log_luma_hist(float logLuma) {
+  return std::max(std::exp2(logLuma) - PHOTON001_FLARE_LINEAR_HIST,
+                  PHOTON001_EPS_HIST);
 }
 
 static float endpoint_pin_mask_component_hist(float x) {
@@ -402,51 +427,123 @@ static float endpoint_pin_mask_component_hist(float x) {
   const float inv16 = inv8 * inv8;
   const float base = 1.0f - inv8;
   const float strong = 1.0f - inv16;
-  return lerp(base, strong, smoothstep(0.35f, 1.0f, x));
+  return lerpF(base, strong, smoothstep(0.35f, 1.0f, x));
 }
 
-static float pv_log_luma_hist(const Vec3fHist& c) {
-  return pv_encode_log_luma_hist(pv_working_luma_linear_hist(c));
+static float photon001_log_luma_hist(const Vec3fHist& c) {
+  return photon001_encode_log_luma_hist(photon001_working_luma_linear_hist(c));
 }
 
-static float pv_tent_weight_hist(float value, float center, float halfWidth) {
+static float photon001_tent_weight_hist(float value, float center,
+                                        float halfWidth) {
   return std::max(
-      1.0f - std::abs(value - center) / std::max(halfWidth, PV_EPS_HIST), 0.0f);
+      1.0f - std::abs(value - center) / std::max(halfWidth, PHOTON001_EPS_HIST),
+      0.0f);
 }
 
-static Vec3fHist apply_photon0001_tone_ranges_hist(
+static float photon001_local_laplacian_mask_hist(float srcLog,
+                                                  float blurFineLog,
+                                                  float blurCoarseLog) {
+  const float lapFine = srcLog - blurFineLog;
+  const float lapMid = blurFineLog - blurCoarseLog;
+  return std::clamp(lapFine + 0.6f * lapMid, -2.5f, 2.5f);
+}
+
+struct OklabHist {
+  float L;
+  float a;
+  float b;
+};
+
+static OklabHist linear_srgb_to_oklab_hist(float r, float g, float b) {
+  const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
+  const float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
+  const float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
+  const float l3 = std::cbrt(l);
+  const float m3 = std::cbrt(m);
+  const float s3 = std::cbrt(s);
+  return {0.2104542553f * l3 + 0.7936177850f * m3 - 0.0040720468f * s3,
+          1.9779984951f * l3 - 2.4285922050f * m3 + 0.4505937099f * s3,
+          0.0259040371f * l3 + 0.7827717662f * m3 - 0.8086757660f * s3};
+}
+
+static void oklab_to_linear_srgb_hist(const OklabHist& lab, float& r, float& g,
+                                      float& b) {
+  const float l = lab.L + 0.3963377774f * lab.a + 0.2158037573f * lab.b;
+  const float m = lab.L - 0.1055613458f * lab.a - 0.0638541728f * lab.b;
+  const float s = lab.L - 0.0894841775f * lab.a - 1.2914855480f * lab.b;
+  const float l3 = l * l * l;
+  const float m3 = m * m * m;
+  const float s3 = s * s * s;
+  r = 4.0767416621f * l3 - 3.3077115913f * m3 + 0.2309699292f * s3;
+  g = -1.2684380046f * l3 + 2.6097574011f * m3 - 0.3413193965f * s3;
+  b = -0.0041960863f * l3 - 0.7034186147f * m3 + 1.7076147010f * s3;
+}
+
+
+static void oklab_to_linear_srgb_gamut_hist(const OklabHist& lab, float& r,
+                                            float& g, float& b) {
+  oklab_to_linear_srgb_hist(lab, r, g, b);
+  const float mn = std::min({r, g, b});
+  const float mx = std::max({r, g, b});
+  if (mn >= 0.0f && mx <= 1.0f) return;
+
+  float lo = 0.0f;
+  float hi = 1.0f;
+  for (int i = 0; i < 6; ++i) {
+    const float mid = 0.5f * (lo + hi);
+    float cr, cg, cb;
+    oklab_to_linear_srgb_hist({lab.L, lab.a * mid, lab.b * mid}, cr, cg, cb);
+    const float cMn = std::min({cr, cg, cb});
+    const float cMx = std::max({cr, cg, cb});
+    if (cMn >= 0.0f && cMx <= 1.0f) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  oklab_to_linear_srgb_hist({lab.L, lab.a * lo, lab.b * lo}, r, g, b);
+}
+
+static Vec3fHist apply_photon001_tone_ranges_hist(
     const Vec3fHist& color, const Vec3fHist& blurredFine,
     const Vec3fHist& blurredCoarse, float highlightsAmt, float shadowsAmt,
-    float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm) {
-  const float srcGrayLinear = pv_working_luma_linear_hist(color);
-  const float srcGrayLog = pv_encode_log_luma_hist(srcGrayLinear);
-  const float blurFineLog = pv_log_luma_hist(blurredFine);
-  const float blurCoarseLog = pv_log_luma_hist(blurredCoarse);
+    float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm,
+    float sceneDetailScale, float sceneHighlightPin, float sceneCompression) {
+  const float srcGrayLinear = photon001_working_luma_linear_hist(color);
+  const float srcGrayLog = photon001_encode_log_luma_hist(srcGrayLinear);
+  const float blurFineLog = photon001_log_luma_hist(blurredFine);
+  const float blurCoarseLog = photon001_log_luma_hist(blurredCoarse);
   const float toneMid =
-      pv_encode_log_luma_hist(std::max(sceneWhiteNorm * 0.18f, PV_EPS_HIST));
+      photon001_encode_log_luma_hist(
+          std::max(sceneWhiteNorm * 0.18f, PHOTON001_EPS_HIST));
 
-  const float wBlacks = pv_tent_weight_hist(srcGrayLog, toneMid - 3.8f, 1.8f);
-  const float wShadows = pv_tent_weight_hist(srcGrayLog, toneMid - 1.9f, 1.9f);
+  const float wShadows =
+      photon001_tent_weight_hist(srcGrayLog, toneMid - 2.4f, 2.0f);
   const float wHighlights =
-      pv_tent_weight_hist(srcGrayLog, toneMid + 1.0f, 1.9f);
-  const float wWhites = pv_tent_weight_hist(srcGrayLog, toneMid + 3.1f, 2.2f);
+      photon001_tent_weight_hist(srcGrayLog, toneMid + 1.0f, 1.9f);
+  const float wWhites =
+      photon001_tent_weight_hist(srcGrayLog, toneMid + 3.1f, 2.2f);
+  const float wBlacks =
+      photon001_tent_weight_hist(srcGrayLog, toneMid - 4.6f, 1.9f);
 
-  const float maskFine = std::clamp(srcGrayLog - blurFineLog, -2.0f, 2.0f);
-  const float maskCoarse = std::clamp(blurFineLog - blurCoarseLog, -2.0f, 2.0f);
-  const float mask =
-      std::clamp(maskFine * 0.70f + maskCoarse * 0.45f, -2.5f, 2.5f);
+  const float mask = photon001_local_laplacian_mask_hist(
+      srcGrayLog, blurFineLog, blurCoarseLog);
+  const float deltaMask =
+      std::clamp(blurFineLog - blurCoarseLog, -1.0f, 1.0f);
 
   const float partSwitch = step_hist(srcGrayLog, toneMid);
-  const float compressedLow = toneMid + (srcGrayLog - toneMid) * 0.78f;
-  const float compressedHigh = toneMid + (srcGrayLog - toneMid) * 0.58f;
-  const float baseCompressed = lerp(compressedHigh, compressedLow, partSwitch);
+  const float compressedLow =
+      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.22f * sceneCompression);
+  const float compressedHigh =
+      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.42f * sceneCompression);
+  const float baseCompressed = lerpF(compressedHigh, compressedLow, partSwitch);
 
   float localContrastSignal = srcGrayLog + mask - baseCompressed;
-  localContrastSignal *= std::max(clarityAmt, 0.0f);
+  localContrastSignal *= clarityAmt;
   localContrastSignal *=
       std::clamp(1.0f + 0.35f * (-highlightsAmt + shadowsAmt), 1.0f, 2.0f);
-  const float localSignalHigh = std::max(localContrastSignal, 0.0f);
-  const float localSignalLow = std::min(localContrastSignal, 0.0f);
+  localContrastSignal *= sceneDetailScale;
 
   const float lumWeightHigh =
       std::clamp(wHighlights + 0.6f * wWhites, 0.0f, 1.0f);
@@ -456,62 +553,70 @@ static Vec3fHist apply_photon0001_tone_ranges_hist(
   const float endpointLow = std::clamp(
       std::abs(shadowsAmt) + 0.35f * std::abs(blacksAmt), 0.0f, 1.0f);
   const float clarityPinHigh =
-      lerp(endpoint_pin_mask_component_hist(lumWeightHigh), 1.0f,
+      lerpF(endpoint_pin_mask_component_hist(lumWeightHigh), 1.0f,
            endpointHigh * endpointHigh);
   const float clarityPinLow =
-      lerp(endpoint_pin_mask_component_hist(lumWeightLow), 1.0f,
+      lerpF(endpoint_pin_mask_component_hist(lumWeightLow), 1.0f,
            endpointLow * endpointLow);
+  const float clarityPin = lerpF(clarityPinLow, clarityPinHigh, partSwitch);
 
   float hsPinY =
-      lerp(0.5f + 0.5f * std::max(1.0f - sign_hist(shadowsAmt), 0.0f), 1.0f,
+      lerpF(0.5f + 0.5f * std::max(1.0f - sign_hist(shadowsAmt), 0.0f), 1.0f,
            clarityPinHigh);
   float hsPinX =
-      lerp(1.0f, 0.5f,
+      lerpF(1.0f, 0.5f,
            (1.0f - clarityPinLow) * std::max(-sign_hist(highlightsAmt), 0.0f));
-  hsPinX = lerp(1.0f, hsPinX, std::clamp(std::abs(highlightsAmt), 0.0f, 1.0f));
+  hsPinX = lerpF(1.0f, hsPinX, std::clamp(std::abs(highlightsAmt), 0.0f, 1.0f));
 
   const float maxAbsHS = std::max(
-      std::max(std::abs(highlightsAmt), std::abs(shadowsAmt)), PV_EPS_HIST);
+      std::max(std::abs(highlightsAmt), std::abs(shadowsAmt)),
+      PHOTON001_EPS_HIST);
   const float baseOffset = 0.85f * (highlightsAmt + shadowsAmt) / maxAbsHS;
   const float offsetHSHigh = wHighlights * std::abs(highlightsAmt) * baseOffset;
   const float offsetHSLow = wShadows * std::abs(shadowsAmt) * baseOffset;
 
   float deltaHSHigh = std::clamp(-highlightsAmt, -1.0f, 1.0f);
   float deltaHSLow = std::clamp(shadowsAmt, -1.0f, 1.0f);
-  deltaHSHigh *= std::min(mask, 0.0f);
-  deltaHSLow *= std::max(mask, 0.0f);
+  deltaHSHigh *= std::min(deltaMask, 0.0f) * wHighlights;
+  deltaHSLow *= std::max(deltaMask, 0.0f) * wShadows;
   deltaHSHigh += offsetHSHigh;
   deltaHSLow += offsetHSLow;
 
-  float deltaStops = deltaHSHigh * hsPinX + deltaHSLow * hsPinY;
-  deltaStops += whitesAmt * wWhites * hsPinX;
-  deltaStops += blacksAmt * wBlacks * hsPinY;
-  deltaStops +=
-      localSignalHigh * clarityPinHigh + localSignalLow * clarityPinLow;
+  const float whitesStops = whitesAmt * wWhites * hsPinX;
+  float recoveryStops = deltaHSHigh * hsPinX + deltaHSLow * hsPinY;
+  recoveryStops += blacksAmt * wBlacks * hsPinY;
+  recoveryStops += localContrastSignal * clarityPin;
 
-  const float deltaSign = sign_hist(deltaStops);
+  const float fadeStrength =
+      0.6f + 0.2f * std::clamp(sceneHighlightPin, 0.0f, 1.0f);
+  const float positiveFade =
+      1.0f -
+      fadeStrength * smoothstep(toneMid + 1.0f, toneMid + 4.0f, srcGrayLog);
+  if (recoveryStops > 0.0f) recoveryStops *= positiveFade;
+
+  const float deltaSign = sign_hist(recoveryStops);
   const float flareSwitch = 1.0f - std::max(deltaSign, 0.0f);
   const float zeroSwitch = 1.0f - std::abs(deltaSign);
-  const float flare = flareSwitch * PV_FLARE_LOG_HIST;
-  const float startpoint = flare - (deltaStops + deltaStops);
+  const float flare = flareSwitch * PHOTON001_FLARE_LOG_HIST;
+  const float startpoint = flare - (recoveryStops + recoveryStops);
   const float t1 = step_hist(startpoint, srcGrayLog);
   const float t2 = step_hist(srcGrayLog, startpoint);
   float t =
       std::clamp((srcGrayLog - startpoint) / (flare - startpoint + zeroSwitch),
                  0.0f, 1.0f);
-  t *= t * (1.0f - lerp(t2, t1, flareSwitch));
-  deltaStops = lerp(deltaStops, 0.0f, t);
+  t *= t * (1.0f - lerpF(t2, t1, flareSwitch));
+  recoveryStops = lerpF(recoveryStops, 0.0f, t);
+  recoveryStops = std::min(recoveryStops, 4.0f);
 
-  deltaStops = std::min(deltaStops, 4.0f);
-  const float targetLog = srcGrayLog + deltaStops;
-  float targetLuma = pv_decode_log_luma_hist(targetLog);
-
-  if (targetLuma > sceneWhiteNorm && deltaStops > 0.0f) {
-    const float over = targetLuma - sceneWhiteNorm;
-    const float knee = std::max(sceneWhiteNorm * 0.7f, PV_EPS_HIST);
+  float recoveryTarget =
+      photon001_decode_log_luma_hist(srcGrayLog + recoveryStops);
+  if (recoveryTarget > sceneWhiteNorm && recoveryStops > 0.0f) {
+    const float over = recoveryTarget - sceneWhiteNorm;
+    const float knee = std::max(sceneWhiteNorm * 0.7f, PHOTON001_EPS_HIST);
     const float compress = over / (1.0f + over / knee);
-    targetLuma = sceneWhiteNorm + compress;
+    recoveryTarget = sceneWhiteNorm + compress;
   }
+  const float targetLuma = recoveryTarget * std::exp2(whitesStops);
 
   Vec3fHist out = color;
   apply_luma_target_hist(out.r, out.g, out.b, srcGrayLinear, targetLuma);
@@ -1764,6 +1869,47 @@ void RawEngine::rebuildToneLut() {
   }
 }
 
+void RawEngine::ensureHistogramBlurCache(const ushort* src, int width,
+                                         int height, int step,
+                                         int sampleCount) {
+  if (m_histBlurSource == static_cast<const void*>(src) &&
+      m_histBlurStep == step && m_histFineBlurCache &&
+      int(m_histFineBlurCache->size()) == sampleCount * 3 &&
+      m_histCoarseBlurCache &&
+      int(m_histCoarseBlurCache->size()) == sampleCount * 3) {
+    return;
+  }
+
+  auto fine = std::make_shared<std::vector<float>>(size_t(sampleCount) * 3);
+  auto coarse = std::make_shared<std::vector<float>>(size_t(sampleCount) * 3);
+
+  std::vector<int> samples(sampleCount);
+  std::iota(samples.begin(), samples.end(), 0);
+  QtConcurrent::blockingMap(samples, [&](int k) {
+    const int i = k * step;
+    const int x = i % width;
+    const int y = i / width;
+    const float u = (float(x) + 0.5f) / float(width);
+    const float v = (float(y) + 0.5f) / float(height);
+    const Vec3fHist blurFine =
+        compute_fine_blur_hist(src, width, height, u, v);
+    const Vec3fHist blurCoarse =
+        compute_coarse_blur_hist(src, width, height, u, v);
+    const size_t base = size_t(k) * 3;
+    (*fine)[base + 0] = blurFine.r;
+    (*fine)[base + 1] = blurFine.g;
+    (*fine)[base + 2] = blurFine.b;
+    (*coarse)[base + 0] = blurCoarse.r;
+    (*coarse)[base + 1] = blurCoarse.g;
+    (*coarse)[base + 2] = blurCoarse.b;
+  });
+
+  m_histFineBlurCache = fine;
+  m_histCoarseBlurCache = coarse;
+  m_histBlurSource = static_cast<const void*>(src);
+  m_histBlurStep = step;
+}
+
 void RawEngine::requestHistogramUpdate() {
   if (!m_isLoaded) return;
 
@@ -1820,15 +1966,28 @@ void RawEngine::requestHistogramUpdate() {
 
   if (!src || totalPixels <= 0) return;
 
+  const int step = std::max(1, totalPixels / 131072);
+  const int sampleCount = (totalPixels + step - 1) / step;
+  ensureHistogramBlurCache(src, imageWidth, imageHeight, step, sampleCount);
+  const auto histFineCache = m_histFineBlurCache;
+  const auto histCoarseCache = m_histCoarseBlurCache;
+  if (!histFineCache || !histCoarseCache) return;
+
   m_histogramUpdatePending = true;
   m_histogramNeedsUpdate = false;
 
+  const float statsDetail = m_sceneDetailScale;
+  const float statsPin = m_sceneHighlightPin;
+  const float statsComp = m_sceneCompression;
+
   m_histogramFuture = QtConcurrent::run([this, src, imageWidth, imageHeight,
-                                         totalPixels, exp, con, high, shad,
+                                         totalPixels, step, histFineCache,
+                                         histCoarseCache, exp, con, high, shad,
                                          whites, sceneWhite, blacks, clarity,
                                          temp, tint, hsl_h, hsl_s, hsl_l, cgSH,
                                          cgSS, cgSL, cgMH, cgMS, cgML, cgHH,
-                                         cgHS, cgHL, cgBal, cgBlen]() {
+                                         cgHS, cgHL, cgBal, cgBlen, statsDetail,
+                                         statsPin, statsComp]() {
     std::vector<uint32_t> r_bins(256, 0);
     std::vector<uint32_t> g_bins(256, 0);
     std::vector<uint32_t> b_bins(256, 0);
@@ -1837,28 +1996,25 @@ void RawEngine::requestHistogramUpdate() {
     float r_wb = (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f);
     float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
     float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
-    float exp_mult = std::pow(2.0f, exp);
+    float exp_mult = std::pow(2.0f, exp > 0.0f ? exp * 0.85f : exp);
 
     // HSL centers and widths matching shader
     float centers[8] = {358.0f, 25.0f,  60.0f,  115.0f,
                         180.0f, 225.0f, 280.0f, 330.0f};
     float widths[8] = {35.0f, 45.0f, 40.0f, 90.0f, 60.0f, 60.0f, 55.0f, 50.0f};
 
-    int step = std::max(1, totalPixels / 131072);
+    int k = 0;
+    for (int i = 0; i < totalPixels; i += step, ++k) {
+      float r = srgb_to_linear_hist(src[i * 3] / 65535.0f);
+      float g = srgb_to_linear_hist(src[i * 3 + 1] / 65535.0f);
+      float b = srgb_to_linear_hist(src[i * 3 + 2] / 65535.0f);
 
-    for (int i = 0; i < totalPixels; i += step) {
-      float r = src[i * 3] / 65535.0f;
-      float g = src[i * 3 + 1] / 65535.0f;
-      float b = src[i * 3 + 2] / 65535.0f;
-
-      const int x = i % imageWidth;
-      const int y = i / imageWidth;
-      const float u = (float(x) + 0.5f) / float(imageWidth);
-      const float v = (float(y) + 0.5f) / float(imageHeight);
-      Vec3fHist blurredFine =
-          compute_fine_blur_hist(src, imageWidth, imageHeight, u, v);
-      Vec3fHist blurredCoarse =
-          compute_coarse_blur_hist(src, imageWidth, imageHeight, u, v);
+      const size_t base = size_t(k) * 3;
+      Vec3fHist blurredFine{(*histFineCache)[base], (*histFineCache)[base + 1],
+                            (*histFineCache)[base + 2]};
+      Vec3fHist blurredCoarse{(*histCoarseCache)[base],
+                              (*histCoarseCache)[base + 1],
+                              (*histCoarseCache)[base + 2]};
 
       // 1. WB & Exposure
       r *= r_wb * exp_mult;
@@ -1867,15 +2023,21 @@ void RawEngine::requestHistogramUpdate() {
 
       Vec3fHist color{r, g, b};
 
-      float l_tone = 0.2126f * std::max(0.0f, color.r) +
-                     0.7152f * std::max(0.0f, color.g) +
-                     0.0722f * std::max(0.0f, color.b);
-      if (l_tone > sceneWhite && exp > 0.0f) {
-        float over = l_tone - sceneWhite;
-        float knee = sceneWhite * 0.7f;
-        float compress = over / (1.0f + over / knee);
-        float targetL = sceneWhite + compress;
-        apply_luma_target_hist(color.r, color.g, color.b, l_tone, targetL);
+      if (exp > 0.0f) {
+        float kneeStart =
+            sceneWhite * 0.65f *
+            (1.0f - 0.30f * std::clamp(exp / 2.5f, 0.0f, 1.0f));
+        const float l_tone =
+            0.2126f * std::max(0.0f, color.r) +
+            0.7152f * std::max(0.0f, color.g) +
+            0.0722f * std::max(0.0f, color.b);
+        if (l_tone > kneeStart) {
+          const float range = std::max(1.0f - kneeStart, 1e-4f);
+          const float over = l_tone - kneeStart;
+          const float target =
+              kneeStart + range * (1.0f - std::exp(-over / range));
+          apply_luma_target_hist(color.r, color.g, color.b, l_tone, target);
+        }
       }
 
       Vec3fHist blurredFineTone{blurredFine.r * r_wb * exp_mult,
@@ -1885,18 +2047,28 @@ void RawEngine::requestHistogramUpdate() {
                                   blurredCoarse.g * g_wb * exp_mult,
                                   blurredCoarse.b * b_wb * exp_mult};
       const float sceneWhiteNorm = std::max(sceneWhite * exp_mult, 1e-4f);
-      color = apply_photon0001_tone_ranges_hist(
+      color = apply_photon001_tone_ranges_hist(
           color, blurredFineTone, blurredCoarseTone, high / 100.0f,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
-          sceneWhiteNorm);
+          sceneWhiteNorm, statsDetail, statsPin, statsComp);
       r = color.r;
       g = color.g;
       b = color.b;
 
-      // 2. Contrast
-      r = std::pow(std::max(0.0f, r), con);
-      g = std::pow(std::max(0.0f, g), con);
-      b = std::pow(std::max(0.0f, b), con);
+      // 2. Contrast (perceptual S-curve on luma; 1.0 = identity)
+      r = std::max(0.0f, r);
+      g = std::max(0.0f, g);
+      b = std::max(0.0f, b);
+      if (std::abs(con - 1.0f) > 0.001f) {
+        const float lumaC =
+            0.2126f * r + 0.7152f * g + 0.0722f * b;
+        const float x = std::clamp(lumaC, 0.0f, 1.0f);
+        const float sCurve = x * x * (3.0f - 2.0f * x);
+        const float strength =
+            std::clamp((con - 1.0f) * 1.2f, -0.6f, 0.6f);
+        const float target = std::max(lerpF(x, sCurve, strength), 0.0f);
+        apply_luma_target_hist(r, g, b, lumaC, target);
+      }
 
       // 5. HSL PANEL
       HSV hsv = rgb_to_hsv_cpp(r, g, b);
@@ -1918,23 +2090,36 @@ void RawEngine::requestHistogramUpdate() {
       lum_adj /= norm;
       float chromaProtect = smoothstep(0.04f, 0.22f, hsv.s);
       hue_shift *= chromaProtect;
-      sat_mult = lerp(sat_mult * 0.35f, sat_mult, chromaProtect);
-      lum_adj *= lerp(0.4f, 1.0f, chromaProtect);
-      hsv.h = std::fmod(hsv.h + hue_shift + 360.0f, 360.0f);
-      float satScale = 1.0f + std::clamp(sat_mult, -0.85f, 1.25f);
-      hsv.s = std::clamp(hsv.s * satScale, 0.0f, 1.0f);
-      float r_hsl, g_hsl, b_hsl;
-      hsv_to_rgb_cpp(hsv.h, hsv.s, hsv.v, r_hsl, g_hsl, b_hsl);
-      r = r_hsl;
-      g = g_hsl;
-      b = b_hsl;
-      float l_hsl = 0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
-                    0.0722f * std::max(0.0f, b);
-      float lumStops = std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f;
-      float targetHsl = compute_target_luma_hist(l_hsl, lumStops);
-      apply_luma_target_hist(r, g, b, l_hsl, targetHsl);
+      sat_mult = lerpF(sat_mult * 0.35f, sat_mult, chromaProtect);
+      lum_adj *= lerpF(0.4f, 1.0f, chromaProtect);
+      if (std::abs(hue_shift) > 1e-5f || std::abs(sat_mult) > 1e-5f ||
+          std::abs(lum_adj) > 1e-5f) {
+        OklabHist lab = linear_srgb_to_oklab_hist(std::max(0.0f, r),
+                                                  std::max(0.0f, g),
+                                                  std::max(0.0f, b));
+        const float hueOk =
+            std::atan2(lab.b, lab.a) + hue_shift * 0.01745329252f;
+        const float srcL = lab.L;
+        float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+        chroma = std::max(
+            chroma * (1.0f + std::clamp(sat_mult, -0.85f, 1.25f)), 0.0f);
+        const float lumStops =
+            std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f / 3.0f;
+        const float targetL =
+            std::clamp(compute_target_luma_hist(srcL, lumStops), 0.0f, 1.0f);
+        const float lumRatio =
+            (srcL > 1e-4f) ? std::clamp(targetL / srcL, 0.0f, 4.0f) : 1.0f;
+        chroma *= lumRatio;
+        lab.L = targetL;
+        lab.a = chroma * std::cos(hueOk);
+        lab.b = chroma * std::sin(hueOk);
+        oklab_to_linear_srgb_gamut_hist(lab, r, g, b);
+        r = std::max(0.0f, r);
+        g = std::max(0.0f, g);
+        b = std::max(0.0f, b);
+      }
 
-      // 6. COLOR GRADING
+      // 6. COLOR GRADING (OKLab perceptual hue/chroma/lightness)
       float l_cg = 0.2126f * r + 0.7152f * g + 0.0722f * b;
       float s_end = 0.4f + cgBal * 0.3f;
       float h_start = 0.6f + cgBal * 0.3f;
@@ -1943,15 +2128,38 @@ void RawEngine::requestHistogramUpdate() {
       float w_h =
           smoothstep(h_start - cgBlen * 0.4f, h_start + cgBlen * 0.4f, l_cg);
       float w_m = 1.0f - w_s - w_h;
-      float r_s = r, g_s = g, b_s = b;
-      apply_region_tint_cpp(r_s, g_s, b_s, cgSH, cgSS, cgSL);
-      float r_m = r, g_m = g, b_m = b;
-      apply_region_tint_cpp(r_m, g_m, b_m, cgMH, cgMS, cgML);
-      float r_h = r, g_h = g, b_h = b;
-      apply_region_tint_cpp(r_h, g_h, b_h, cgHH, cgHS, cgHL);
-      r = r_s * w_s + r_m * w_m + r_h * w_h;
-      g = g_s * w_s + g_m * w_m + g_h * w_h;
-      b = b_s * w_s + b_m * w_m + b_h * w_h;
+
+      if (cgSS != 0.0f || cgMS != 0.0f || cgHS != 0.0f || cgSL != 0.0f ||
+          cgML != 0.0f || cgHL != 0.0f) {
+        auto tintOk = [](const OklabHist& lab, float hueDeg, float s, float l) {
+          float hueOk = std::atan2(lab.b, lab.a);
+          const float targetH = hueDeg * 0.01745329252f;
+          float dH = targetH - hueOk;
+          dH = std::fmod(dH + 3.14159265359f, 6.28318530718f) -
+               3.14159265359f;
+          const float amount = std::clamp(s / 100.0f, 0.0f, 1.0f);
+          hueOk += dH * amount;
+          float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+          chroma *= 1.0f + amount * 0.15f;
+          OklabHist out;
+          out.L =
+              std::clamp(lab.L * (1.0f + (l / 100.0f) * 0.25f), 0.0f, 1.0f);
+          out.a = chroma * std::cos(hueOk);
+          out.b = chroma * std::sin(hueOk);
+          return out;
+        };
+        const OklabHist base = linear_srgb_to_oklab_hist(r, g, b);
+        const OklabHist ts = tintOk(base, cgSH, cgSS, cgSL);
+        const OklabHist tm = tintOk(base, cgMH, cgMS, cgML);
+        const OklabHist th = tintOk(base, cgHH, cgHS, cgHL);
+        const OklabHist mixed{ts.L * w_s + tm.L * w_m + th.L * w_h,
+                              ts.a * w_s + tm.a * w_m + th.a * w_h,
+                              ts.b * w_s + tm.b * w_m + th.b * w_h};
+        oklab_to_linear_srgb_gamut_hist(mixed, r, g, b);
+        r = std::max(0.0f, r);
+        g = std::max(0.0f, g);
+        b = std::max(0.0f, b);
+      }
 
       uint8_t r8 = static_cast<uint8_t>(std::clamp(r * 255.0f, 0.0f, 255.0f));
       uint8_t g8 = static_cast<uint8_t>(std::clamp(g * 255.0f, 0.0f, 255.0f));
@@ -2023,6 +2231,10 @@ void RawEngine::clearProcessedImage() {
     m_histogramFuture.waitForFinished();
     m_histogramUpdatePending = false;
   }
+  m_histFineBlurCache.reset();
+  m_histCoarseBlurCache.reset();
+  m_histBlurSource = nullptr;
+  m_histBlurStep = 0;
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);
     m_processedImage = nullptr;
@@ -2088,6 +2300,64 @@ float RawEngine::computeSceneWhite(const libraw_processed_image_t* img,
   return 1.0f;
 }
 
+void RawEngine::computeSceneStats(const libraw_processed_image_t* img) {
+  if (!img || img->width <= 0 || img->height <= 0) return;
+
+  const size_t pixelCount = size_t(img->width) * size_t(img->height);
+  const size_t step = 16;
+  const int channels = img->colors;
+
+  const float toneMid =
+      photon001_encode_log_luma_hist(std::max(m_sceneWhite * 0.18f, 1e-4f));
+
+  double sum = 0.0;
+  double sumSq = 0.0;
+  float minLog = std::numeric_limits<float>::max();
+  float maxLog = std::numeric_limits<float>::lowest();
+  size_t sampled = 0;
+  size_t highlightSamples = 0;
+
+  for (size_t i = 0; i < pixelCount; i += step) {
+    float r, g, b;
+    if (img->bits == 16) {
+      const uint16_t* px =
+          reinterpret_cast<const uint16_t*>(img->data) + i * channels;
+      r = px[0] / 65535.0f;
+      g = px[1] / 65535.0f;
+      b = px[2] / 65535.0f;
+    } else {
+      const uint8_t* px = img->data + i * channels;
+      r = px[0] / 255.0f;
+      g = px[1] / 255.0f;
+      b = px[2] / 255.0f;
+    }
+
+    Vec3fHist linear{srgb_to_linear_hist(r), srgb_to_linear_hist(g),
+                     srgb_to_linear_hist(b)};
+    const float logL = photon001_log_luma_hist(linear);
+
+    sum += logL;
+    sumSq += double(logL) * double(logL);
+    minLog = std::min(minLog, logL);
+    maxLog = std::max(maxLog, logL);
+    if (logL > toneMid + 2.5f) ++highlightSamples;
+    ++sampled;
+  }
+
+  if (sampled == 0) return;
+
+  const double mean = sum / double(sampled);
+  const float stdDev =
+      float(std::sqrt(std::max(sumSq / double(sampled) - mean * mean, 0.0)));
+  const float rangeStops = std::clamp(maxLog - minLog, 0.0f, 20.0f);
+  const float highlightFrac = float(highlightSamples) / float(sampled);
+
+  m_sceneDetailScale = std::clamp(0.85f + stdDev * 0.35f, 0.85f, 1.25f);
+  m_sceneHighlightPin = std::clamp(highlightFrac * 3.0f, 0.0f, 1.0f);
+  m_sceneCompression = std::clamp(rangeStops / 12.0f, 0.5f, 1.2f);
+  emit sceneStatsChanged();
+}
+
 void RawEngine::loadRawFileAsync(const QString& path) {
   m_isLoading = true;
   emit isLoadingChanged();
@@ -2100,6 +2370,7 @@ void RawEngine::loadRawFileAsync(const QString& path) {
     m_processor->dcraw_process();
     libraw_processed_image_t* img = m_processor->dcraw_make_mem_image();
     setSceneWhite(computeSceneWhite(img));
+    computeSceneStats(img);
     LibRaw::dcraw_clear_mem(img);
     img = nullptr;
     return LoadResult{ok, loadId};

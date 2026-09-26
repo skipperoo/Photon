@@ -9,6 +9,7 @@
 #include <QTransform>
 #include <QtConcurrent>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <cstdio>
 #include <numeric>
@@ -142,6 +143,61 @@ static float get_luma_cpp(float r, float g, float b) {
   return 0.2126f * r + 0.7152f * g + 0.0722f * b;
 }
 
+struct OklabCpp {
+  float L;
+  float a;
+  float b;
+};
+
+static OklabCpp linear_srgb_to_oklab_cpp(float r, float g, float b) {
+  const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
+  const float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
+  const float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
+  const float l3 = std::cbrt(l);
+  const float m3 = std::cbrt(m);
+  const float s3 = std::cbrt(s);
+  return {0.2104542553f * l3 + 0.7936177850f * m3 - 0.0040720468f * s3,
+          1.9779984951f * l3 - 2.4285922050f * m3 + 0.4505937099f * s3,
+          0.0259040371f * l3 + 0.7827717662f * m3 - 0.8086757660f * s3};
+}
+
+static void oklab_to_linear_srgb_cpp(const OklabCpp& lab, float& r, float& g,
+                                     float& b) {
+  const float l = lab.L + 0.3963377774f * lab.a + 0.2158037573f * lab.b;
+  const float m = lab.L - 0.1055613458f * lab.a - 0.0638541728f * lab.b;
+  const float s = lab.L - 0.0894841775f * lab.a - 1.2914855480f * lab.b;
+  const float l3 = l * l * l;
+  const float m3 = m * m * m;
+  const float s3 = s * s * s;
+  r = 4.0767416621f * l3 - 3.3077115913f * m3 + 0.2309699292f * s3;
+  g = -1.2684380046f * l3 + 2.6097574011f * m3 - 0.3413193965f * s3;
+  b = -0.0041960863f * l3 - 0.7034186147f * m3 + 1.7076147010f * s3;
+}
+
+static void oklab_to_linear_srgb_gamut_cpp(const OklabCpp& lab, float& r,
+                                           float& g, float& b) {
+  oklab_to_linear_srgb_cpp(lab, r, g, b);
+  const float mn = std::min({r, g, b});
+  const float mx = std::max({r, g, b});
+  if (mn >= 0.0f && mx <= 1.0f) return;
+
+  float lo = 0.0f;
+  float hi = 1.0f;
+  for (int i = 0; i < 6; ++i) {
+    const float mid = 0.5f * (lo + hi);
+    float cr, cg, cb;
+    oklab_to_linear_srgb_cpp({lab.L, lab.a * mid, lab.b * mid}, cr, cg, cb);
+    const float cMn = std::min({cr, cg, cb});
+    const float cMx = std::max({cr, cg, cb});
+    if (cMn >= 0.0f && cMx <= 1.0f) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  oklab_to_linear_srgb_cpp({lab.L, lab.a * lo, lab.b * lo}, r, g, b);
+}
+
 static float smoothstep_local(float edge0, float edge1, float x) {
   float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
   return t * t * (3.0f - 2.0f * t);
@@ -155,18 +211,6 @@ static float compute_target_luma_cpp(float luma, float stops) {
   if (target > 1.0f) {
     float over = target - 1.0f;
     target = 1.0f + over / (1.0f + over * 1.25f);
-  }
-  return std::max(target, 0.0f);
-}
-
-static float compute_toe_target_cpp(float luma, float stops) {
-  if (stops == 0.0f) return luma;
-  float target = luma * std::pow(2.0f, stops);
-  if (stops > 0.0f) {
-    float liftGamma = 1.0f / (1.0f + stops * 0.5f);
-    float liftTarget = std::pow(std::max(luma, 1e-6f), liftGamma);
-    float toeMask = 1.0f - smoothstep_local(0.0f, 0.15f, luma);
-    target = mix_local(target, liftTarget, toeMask * 0.4f);
   }
   return std::max(target, 0.0f);
 }
@@ -285,95 +329,158 @@ static Vec3fCpp sample_source_linear_bilinear_cpp(const ushort* src, int width,
 #endif
 }
 
-static Vec3fCpp compute_fine_blur_cpp(const ushort* src, int width, int height,
-                                      float u, float v,
-                                      const float* srgb16ToLinear) {
-  Vec3fCpp blur{0.0f, 0.0f, 0.0f};
-  auto tap = [&](float dx, float dy, float w) {
-    Vec3fCpp s = sample_source_linear_bilinear_cpp(
-        src, width, height, u + dx / float(width), v + dy / float(height),
-        srgb16ToLinear);
-    blur.r += s.r * w;
-    blur.g += s.g * w;
-    blur.b += s.b * w;
+static Vec3fCpp photon001_gaussian_sigma1_axis_cpp(const ushort* src, int width,
+                                                    int height, float u,
+                                                    float v, float axisX,
+                                                    float axisY,
+                                                    const float* srgb16ToLinear) {
+  Vec3fCpp blur = sample_source_linear_bilinear_cpp(src, width, height, u, v,
+                                                    srgb16ToLinear);
+  blur.r *= 0.39894347f;
+  blur.g *= 0.39894347f;
+  blur.b *= 0.39894347f;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float du = axisX * offset / float(width);
+    const float dv = axisY * offset / float(height);
+    Vec3fCpp p = sample_source_linear_bilinear_cpp(src, width, height, u + du,
+                                                   v + dv, srgb16ToLinear);
+    Vec3fCpp n = sample_source_linear_bilinear_cpp(src, width, height, u - du,
+                                                   v - dv, srgb16ToLinear);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
   };
 
-  constexpr float r1 = 1.5f;
-  constexpr float r2 = 3.0f;
-
-  tap(0.0f, 0.0f, 0.18f);
-  tap(r1, 0.0f, 0.095f);
-  tap(-r1, 0.0f, 0.095f);
-  tap(0.0f, r1, 0.095f);
-  tap(0.0f, -r1, 0.095f);
-  tap(r1, r1, 0.055f);
-  tap(-r1, r1, 0.055f);
-  tap(r1, -r1, 0.055f);
-  tap(-r1, -r1, 0.055f);
-
-  tap(r2, 0.0f, 0.04f);
-  tap(-r2, 0.0f, 0.04f);
-  tap(0.0f, r2, 0.04f);
-  tap(0.0f, -r2, 0.04f);
-  tap(r2, r2, 0.015f);
-  tap(-r2, r2, 0.015f);
-  tap(r2, -r2, 0.015f);
-  tap(-r2, -r2, 0.015f);
-
+  tapPair(1.18242552f, 0.29596257f);
+  tapPair(3.02931223f, 0.00456569f);
   return blur;
 }
 
-static Vec3fCpp compute_coarse_blur_cpp(const ushort* src, int width,
-                                        int height, float u, float v,
-                                        const float* srgb16ToLinear) {
-  Vec3fCpp blur{0.0f, 0.0f, 0.0f};
-  auto tap = [&](float dx, float dy, float w) {
-    Vec3fCpp s = sample_source_linear_bilinear_cpp(
-        src, width, height, u + dx / float(width), v + dy / float(height),
-        srgb16ToLinear);
-    blur.r += s.r * w;
-    blur.g += s.g * w;
-    blur.b += s.b * w;
+static Vec3fCpp photon001_gaussian_sigma35_axis_cpp(
+    const ushort* src, int width, int height, float u, float v, float axisX,
+    float axisY, const float* srgb16ToLinear) {
+  Vec3fCpp blur = sample_source_linear_bilinear_cpp(src, width, height, u, v,
+                                                    srgb16ToLinear);
+  blur.r *= 0.11398719f;
+  blur.g *= 0.11398719f;
+  blur.b *= 0.11398719f;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float du = axisX * offset / float(width);
+    const float dv = axisY * offset / float(height);
+    Vec3fCpp p = sample_source_linear_bilinear_cpp(src, width, height, u + du,
+                                                   v + dv, srgb16ToLinear);
+    Vec3fCpp n = sample_source_linear_bilinear_cpp(src, width, height, u - du,
+                                                   v - dv, srgb16ToLinear);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
   };
 
-  constexpr float r1 = 4.5f;
-  constexpr float r2 = 7.0f;
-  constexpr float r3 = 9.5f;
-
-  tap(0.0f, 0.0f, 0.20f);
-  tap(r1, 0.0f, 0.055f);
-  tap(-r1, 0.0f, 0.055f);
-  tap(0.0f, r1, 0.055f);
-  tap(0.0f, -r1, 0.055f);
-  tap(r1, r1, 0.038f);
-  tap(-r1, r1, 0.038f);
-  tap(r1, -r1, 0.038f);
-  tap(-r1, -r1, 0.038f);
-
-  tap(r2, 0.0f, 0.04f);
-  tap(-r2, 0.0f, 0.04f);
-  tap(0.0f, r2, 0.04f);
-  tap(0.0f, -r2, 0.04f);
-  tap(r2, r2, 0.03f);
-  tap(-r2, r2, 0.03f);
-  tap(r2, -r2, 0.03f);
-  tap(-r2, -r2, 0.03f);
-
-  tap(r3, 0.0f, 0.022f);
-  tap(-r3, 0.0f, 0.022f);
-  tap(0.0f, r3, 0.022f);
-  tap(0.0f, -r3, 0.022f);
-  tap(r3, r3, 0.015f);
-  tap(-r3, r3, 0.015f);
-  tap(r3, -r3, 0.015f);
-  tap(-r3, -r3, 0.015f);
-
+  tapPair(1.46942595f, 0.20624514f);
+  tapPair(3.42905340f, 0.13826867f);
+  tapPair(5.38960340f, 0.06731104f);
+  tapPair(7.35154728f, 0.02378969f);
+  tapPair(9.31528835f, 0.00610264f);
+  tapPair(11.28114775f, 0.00113588f);
+  tapPair(13.24935770f, 0.00015335f);
   return blur;
 }
 
-constexpr float PV_FLARE_LINEAR_CPP = 0.000244140625f;  // 2^-12
-constexpr float PV_FLARE_LOG_CPP = -12.0f;
-constexpr float PV_EPS_CPP = 0.00000190734f;
+static Vec3fCpp sample_buffer_bilinear_cpp(const std::vector<Vec3fCpp>& buf,
+                                           int width, int height, float u,
+                                           float v) {
+  u = std::clamp(u, 0.0f, 1.0f);
+  v = std::clamp(v, 0.0f, 1.0f);
+
+  const float xf = u * float(width) - 0.5f;
+  const float yf = v * float(height) - 0.5f;
+  const int x0 = int(std::floor(xf));
+  const int y0 = int(std::floor(yf));
+  const int x1 = x0 + 1;
+  const int y1 = y0 + 1;
+  const float tx = xf - float(x0);
+  const float ty = yf - float(y0);
+
+  auto at = [&](int x, int y) -> const Vec3fCpp& {
+    x = std::clamp(x, 0, width - 1);
+    y = std::clamp(y, 0, height - 1);
+    return buf[size_t(y) * size_t(width) + size_t(x)];
+  };
+
+  const Vec3fCpp& c00 = at(x0, y0);
+  const Vec3fCpp& c10 = at(x1, y0);
+  const Vec3fCpp& c01 = at(x0, y1);
+  const Vec3fCpp& c11 = at(x1, y1);
+
+  Vec3fCpp out{};
+  out.r = mix_local(mix_local(c00.r, c10.r, tx), mix_local(c01.r, c11.r, tx),
+                    ty);
+  out.g = mix_local(mix_local(c00.g, c10.g, tx), mix_local(c01.g, c11.g, tx),
+                    ty);
+  out.b = mix_local(mix_local(c00.b, c10.b, tx), mix_local(c01.b, c11.b, tx),
+                    ty);
+  return out;
+}
+
+static void photon001_precompute_horizontal_blur_cpp(
+    const ushort* src, int width, int height, const float* srgb16ToLinear,
+    bool coarse, std::vector<Vec3fCpp>& out) {
+  out.resize(size_t(width) * size_t(height));
+  std::vector<int> rows(height);
+  std::iota(rows.begin(), rows.end(), 0);
+  QtConcurrent::blockingMap(rows, [&](int y) {
+    const float v = (float(y) + 0.5f) / float(height);
+    for (int x = 0; x < width; ++x) {
+      const float u = (float(x) + 0.5f) / float(width);
+      out[size_t(y) * size_t(width) + size_t(x)] =
+          coarse ? photon001_gaussian_sigma35_axis_cpp(src, width, height, u, v,
+                                                       1.0f, 0.0f,
+                                                       srgb16ToLinear)
+                 : photon001_gaussian_sigma1_axis_cpp(src, width, height, u, v,
+                                                      1.0f, 0.0f,
+                                                      srgb16ToLinear);
+    }
+  });
+}
+
+static Vec3fCpp photon001_vertical_blur_cpp(const std::vector<Vec3fCpp>& hbuf,
+                                            int width, int height, float u,
+                                            float v, bool coarse) {
+  const float centerWeight = coarse ? 0.11398719f : 0.39894347f;
+  Vec3fCpp blur = sample_buffer_bilinear_cpp(hbuf, width, height, u, v);
+  blur.r *= centerWeight;
+  blur.g *= centerWeight;
+  blur.b *= centerWeight;
+
+  auto tapPair = [&](float offset, float weight) {
+    const float dv = offset / float(height);
+    Vec3fCpp p = sample_buffer_bilinear_cpp(hbuf, width, height, u, v + dv);
+    Vec3fCpp n = sample_buffer_bilinear_cpp(hbuf, width, height, u, v - dv);
+    blur.r += (p.r + n.r) * weight;
+    blur.g += (p.g + n.g) * weight;
+    blur.b += (p.b + n.b) * weight;
+  };
+
+  if (coarse) {
+    tapPair(1.46942595f, 0.20624514f);
+    tapPair(3.42905340f, 0.13826867f);
+    tapPair(5.38960340f, 0.06731104f);
+    tapPair(7.35154728f, 0.02378969f);
+    tapPair(9.31528835f, 0.00610264f);
+    tapPair(11.28114775f, 0.00113588f);
+    tapPair(13.24935770f, 0.00015335f);
+  } else {
+    tapPair(1.18242552f, 0.29596257f);
+    tapPair(3.02931223f, 0.00456569f);
+  }
+  return blur;
+}
+
+constexpr float PHOTON001_FLARE_LINEAR_CPP = 0.000244140625f;  // 2^-12
+constexpr float PHOTON001_FLARE_LOG_CPP = -12.0f;
+constexpr float PHOTON001_EPS_CPP = 0.00000190734f;
 
 static Vec3fCpp eval_undo_render_curve_cpp(const Vec3fCpp& col) {
   constexpr float eps = 0.00001f;
@@ -392,24 +499,29 @@ static Vec3fCpp eval_undo_render_curve_cpp(const Vec3fCpp& col) {
           (col.b - fMin) * scale + nMin};
 }
 
-static float pv_working_luma_linear_cpp(const Vec3fCpp& c) {
+static float photon001_working_luma_linear_cpp(const Vec3fCpp& c) {
   Vec3fCpp clamped = clamp_vec3_cpp(c, 0.0001f, 0.999f);
   Vec3fCpp prophoto{
-      0.529285f * clamped.r + 0.330046f * clamped.g + 0.140669f * clamped.b,
-      0.098394f * clamped.r + 0.873493f * clamped.g + 0.028113f * clamped.b,
-      0.016823f * clamped.r + 0.117671f * clamped.g + 0.865506f * clamped.b};
+      0.52932379f * clamped.r + 0.33005506f * clamped.g +
+          0.14064019f * clamped.b,
+      0.09842654f * clamped.r + 0.87350873f * clamped.g +
+          0.02811156f * clamped.b,
+      0.01684577f * clamped.r + 0.11769549f * clamped.g +
+          0.86547399f * clamped.b};
   Vec3fCpp unmapped =
       clamp_vec3_cpp(eval_undo_render_curve_cpp(prophoto), 0.0f, 1.0f);
-  return std::max(unmapped.r * 0.25f + unmapped.g * 0.5f + unmapped.b * 0.25f,
-                  PV_EPS_CPP);
+  return std::max(unmapped.r * 0.30f + unmapped.g * 0.59f + unmapped.b * 0.11f,
+                  PHOTON001_EPS_CPP);
 }
 
-static float pv_encode_log_luma_cpp(float linearLuma) {
-  return std::log2(std::max(linearLuma + PV_FLARE_LINEAR_CPP, PV_EPS_CPP));
+static float photon001_encode_log_luma_cpp(float linearLuma) {
+  return std::log2(
+      std::max(linearLuma + PHOTON001_FLARE_LINEAR_CPP, PHOTON001_EPS_CPP));
 }
 
-static float pv_decode_log_luma_cpp(float logLuma) {
-  return std::max(std::exp2(logLuma) - PV_FLARE_LINEAR_CPP, PV_EPS_CPP);
+static float photon001_decode_log_luma_cpp(float logLuma) {
+  return std::max(std::exp2(logLuma) - PHOTON001_FLARE_LINEAR_CPP,
+                  PHOTON001_EPS_CPP);
 }
 
 static float endpoint_pin_mask_component_cpp(float x) {
@@ -424,49 +536,110 @@ static float endpoint_pin_mask_component_cpp(float x) {
   return mix_local(base, strong, smoothstep_local(0.35f, 1.0f, x));
 }
 
-static float pv_log_luma_cpp(const Vec3fCpp& c) {
-  return pv_encode_log_luma_cpp(pv_working_luma_linear_cpp(c));
+static float photon001_log_luma_cpp(const Vec3fCpp& c) {
+  return photon001_encode_log_luma_cpp(photon001_working_luma_linear_cpp(c));
 }
 
-static float pv_tent_weight_cpp(float value, float center, float halfWidth) {
+static float photon001_tent_weight_cpp(float value, float center,
+                                       float halfWidth) {
   return std::max(
-      1.0f - std::abs(value - center) / std::max(halfWidth, PV_EPS_CPP), 0.0f);
+      1.0f - std::abs(value - center) / std::max(halfWidth, PHOTON001_EPS_CPP),
+      0.0f);
 }
 
-static Vec3fCpp apply_photon0001_tone_ranges_cpp(
+struct Photon001SceneStatsCpp {
+  float detailScale;
+  float highlightPin;
+  float compression;
+};
+
+static Photon001SceneStatsCpp photon001_compute_scene_stats_cpp(
+    const ushort* src, int width, int height, const float* srgb16ToLinear,
+    float sceneWhite) {
+  const size_t pixelCount = size_t(width) * size_t(height);
+  const size_t step = 16;
+  const float toneMid =
+      photon001_encode_log_luma_cpp(std::max(sceneWhite * 0.18f, 1e-4f));
+
+  double sum = 0.0;
+  double sumSq = 0.0;
+  float minLog = std::numeric_limits<float>::max();
+  float maxLog = std::numeric_limits<float>::lowest();
+  size_t sampled = 0;
+  size_t highlightSamples = 0;
+
+  for (size_t i = 0; i < pixelCount; i += step) {
+    const Vec3fCpp linear{srgb16ToLinear[src[i * 3]],
+                          srgb16ToLinear[src[i * 3 + 1]],
+                          srgb16ToLinear[src[i * 3 + 2]]};
+    const float logL = photon001_log_luma_cpp(linear);
+    sum += logL;
+    sumSq += double(logL) * double(logL);
+    minLog = std::min(minLog, logL);
+    maxLog = std::max(maxLog, logL);
+    if (logL > toneMid + 2.5f) ++highlightSamples;
+    ++sampled;
+  }
+  if (sampled == 0) return {1.0f, 0.0f, 1.0f};
+
+  const double mean = sum / double(sampled);
+  const float stdDev =
+      float(std::sqrt(std::max(sumSq / double(sampled) - mean * mean, 0.0)));
+  const float rangeStops = std::clamp(maxLog - minLog, 0.0f, 20.0f);
+  const float highlightFrac = float(highlightSamples) / float(sampled);
+
+  return {std::clamp(0.85f + stdDev * 0.35f, 0.85f, 1.25f),
+          std::clamp(highlightFrac * 3.0f, 0.0f, 1.0f),
+          std::clamp(rangeStops / 12.0f, 0.5f, 1.2f)};
+}
+
+static float photon001_local_laplacian_mask_cpp(float srcLog, float blurFineLog,
+                                                 float blurCoarseLog) {
+  const float lapFine = srcLog - blurFineLog;
+  const float lapMid = blurFineLog - blurCoarseLog;
+  return std::clamp(lapFine + 0.6f * lapMid, -2.5f, 2.5f);
+}
+
+static Vec3fCpp apply_photon001_tone_ranges_cpp(
     const Vec3fCpp& color, const Vec3fCpp& blurredFine,
     const Vec3fCpp& blurredCoarse, float highlightsAmt, float shadowsAmt,
-    float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm) {
-  const float srcGrayLinear = pv_working_luma_linear_cpp(color);
-  const float srcGrayLog = pv_encode_log_luma_cpp(srcGrayLinear);
-  const float blurFineLog = pv_log_luma_cpp(blurredFine);
-  const float blurCoarseLog = pv_log_luma_cpp(blurredCoarse);
+    float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm,
+    const Photon001SceneStatsCpp& sceneStats) {
+  const float srcGrayLinear = photon001_working_luma_linear_cpp(color);
+  const float srcGrayLog = photon001_encode_log_luma_cpp(srcGrayLinear);
+  const float blurFineLog = photon001_log_luma_cpp(blurredFine);
+  const float blurCoarseLog = photon001_log_luma_cpp(blurredCoarse);
   const float toneMid =
-      pv_encode_log_luma_cpp(std::max(sceneWhiteNorm * 0.18f, PV_EPS_CPP));
+      photon001_encode_log_luma_cpp(
+          std::max(sceneWhiteNorm * 0.18f, PHOTON001_EPS_CPP));
 
-  const float wBlacks = pv_tent_weight_cpp(srcGrayLog, toneMid - 3.8f, 1.8f);
-  const float wShadows = pv_tent_weight_cpp(srcGrayLog, toneMid - 1.9f, 1.9f);
+  const float wShadows =
+      photon001_tent_weight_cpp(srcGrayLog, toneMid - 2.4f, 2.0f);
   const float wHighlights =
-      pv_tent_weight_cpp(srcGrayLog, toneMid + 1.0f, 1.9f);
-  const float wWhites = pv_tent_weight_cpp(srcGrayLog, toneMid + 3.1f, 2.2f);
+      photon001_tent_weight_cpp(srcGrayLog, toneMid + 1.0f, 1.9f);
+  const float wWhites =
+      photon001_tent_weight_cpp(srcGrayLog, toneMid + 3.1f, 2.2f);
+  const float wBlacks =
+      photon001_tent_weight_cpp(srcGrayLog, toneMid - 4.6f, 1.9f);
 
-  const float maskFine = std::clamp(srcGrayLog - blurFineLog, -2.0f, 2.0f);
-  const float maskCoarse = std::clamp(blurFineLog - blurCoarseLog, -2.0f, 2.0f);
-  const float mask =
-      std::clamp(maskFine * 0.70f + maskCoarse * 0.45f, -2.5f, 2.5f);
+  const float mask = photon001_local_laplacian_mask_cpp(
+      srcGrayLog, blurFineLog, blurCoarseLog);
+  const float deltaMask =
+      std::clamp(blurFineLog - blurCoarseLog, -1.0f, 1.0f);
 
   const float partSwitch = step_local(srcGrayLog, toneMid);
-  const float compressedLow = toneMid + (srcGrayLog - toneMid) * 0.78f;
-  const float compressedHigh = toneMid + (srcGrayLog - toneMid) * 0.58f;
+  const float compressedLow =
+      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.22f * sceneStats.compression);
+  const float compressedHigh =
+      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.42f * sceneStats.compression);
   const float baseCompressed =
       mix_local(compressedHigh, compressedLow, partSwitch);
 
   float localContrastSignal = srcGrayLog + mask - baseCompressed;
-  localContrastSignal *= std::max(clarityAmt, 0.0f);
+  localContrastSignal *= clarityAmt;
   localContrastSignal *=
       std::clamp(1.0f + 0.35f * (-highlightsAmt + shadowsAmt), 1.0f, 2.0f);
-  const float localSignalHigh = std::max(localContrastSignal, 0.0f);
-  const float localSignalLow = std::min(localContrastSignal, 0.0f);
+  localContrastSignal *= sceneStats.detailScale;
 
   const float lumWeightHigh =
       std::clamp(wHighlights + 0.6f * wWhites, 0.0f, 1.0f);
@@ -481,6 +654,7 @@ static Vec3fCpp apply_photon0001_tone_ranges_cpp(
   const float clarityPinLow =
       mix_local(endpoint_pin_mask_component_cpp(lumWeightLow), 1.0f,
                 endpointLow * endpointLow);
+  const float clarityPin = mix_local(clarityPinLow, clarityPinHigh, partSwitch);
 
   float hsPinY =
       mix_local(0.5f + 0.5f * std::max(1.0f - sign_local(shadowsAmt), 0.0f),
@@ -492,47 +666,54 @@ static Vec3fCpp apply_photon0001_tone_ranges_cpp(
       mix_local(1.0f, hsPinX, std::clamp(std::abs(highlightsAmt), 0.0f, 1.0f));
 
   const float maxAbsHS = std::max(
-      std::max(std::abs(highlightsAmt), std::abs(shadowsAmt)), PV_EPS_CPP);
+      std::max(std::abs(highlightsAmt), std::abs(shadowsAmt)),
+      PHOTON001_EPS_CPP);
   const float baseOffset = 0.85f * (highlightsAmt + shadowsAmt) / maxAbsHS;
   const float offsetHSHigh = wHighlights * std::abs(highlightsAmt) * baseOffset;
   const float offsetHSLow = wShadows * std::abs(shadowsAmt) * baseOffset;
 
   float deltaHSHigh = std::clamp(-highlightsAmt, -1.0f, 1.0f);
   float deltaHSLow = std::clamp(shadowsAmt, -1.0f, 1.0f);
-  deltaHSHigh *= std::min(mask, 0.0f);
-  deltaHSLow *= std::max(mask, 0.0f);
+  deltaHSHigh *= std::min(deltaMask, 0.0f) * wHighlights;
+  deltaHSLow *= std::max(deltaMask, 0.0f) * wShadows;
   deltaHSHigh += offsetHSHigh;
   deltaHSLow += offsetHSLow;
 
-  float deltaStops = deltaHSHigh * hsPinX + deltaHSLow * hsPinY;
-  deltaStops += whitesAmt * wWhites * hsPinX;
-  deltaStops += blacksAmt * wBlacks * hsPinY;
-  deltaStops +=
-      localSignalHigh * clarityPinHigh + localSignalLow * clarityPinLow;
+  const float whitesStops = whitesAmt * wWhites * hsPinX;
+  float recoveryStops = deltaHSHigh * hsPinX + deltaHSLow * hsPinY;
+  recoveryStops += blacksAmt * wBlacks * hsPinY;
+  recoveryStops += localContrastSignal * clarityPin;
 
-  const float deltaSign = sign_local(deltaStops);
+  const float fadeStrength =
+      0.6f + 0.2f * std::clamp(sceneStats.highlightPin, 0.0f, 1.0f);
+  const float positiveFade =
+      1.0f -
+      fadeStrength * smoothstep_local(toneMid + 1.0f, toneMid + 4.0f, srcGrayLog);
+  if (recoveryStops > 0.0f) recoveryStops *= positiveFade;
+
+  const float deltaSign = sign_local(recoveryStops);
   const float flareSwitch = 1.0f - std::max(deltaSign, 0.0f);
   const float zeroSwitch = 1.0f - std::abs(deltaSign);
-  const float flare = flareSwitch * PV_FLARE_LOG_CPP;
-  const float startpoint = flare - (deltaStops + deltaStops);
+  const float flare = flareSwitch * PHOTON001_FLARE_LOG_CPP;
+  const float startpoint = flare - (recoveryStops + recoveryStops);
   const float t1 = step_local(startpoint, srcGrayLog);
   const float t2 = step_local(srcGrayLog, startpoint);
   float t =
       std::clamp((srcGrayLog - startpoint) / (flare - startpoint + zeroSwitch),
                  0.0f, 1.0f);
   t *= t * (1.0f - mix_local(t2, t1, flareSwitch));
-  deltaStops = mix_local(deltaStops, 0.0f, t);
+  recoveryStops = mix_local(recoveryStops, 0.0f, t);
+  recoveryStops = std::min(recoveryStops, 4.0f);
 
-  deltaStops = std::min(deltaStops, 4.0f);
-  const float targetLog = srcGrayLog + deltaStops;
-  float targetLuma = pv_decode_log_luma_cpp(targetLog);
-
-  if (targetLuma > sceneWhiteNorm && deltaStops > 0.0f) {
-    const float over = targetLuma - sceneWhiteNorm;
-    const float knee = std::max(sceneWhiteNorm * 0.7f, PV_EPS_CPP);
+  float recoveryTarget =
+      photon001_decode_log_luma_cpp(srcGrayLog + recoveryStops);
+  if (recoveryTarget > sceneWhiteNorm && recoveryStops > 0.0f) {
+    const float over = recoveryTarget - sceneWhiteNorm;
+    const float knee = std::max(sceneWhiteNorm * 0.7f, PHOTON001_EPS_CPP);
     const float compress = over / (1.0f + over / knee);
-    targetLuma = sceneWhiteNorm + compress;
+    recoveryTarget = sceneWhiteNorm + compress;
   }
+  const float targetLuma = recoveryTarget * std::exp2(whitesStops);
 
   Vec3fCpp out = color;
   apply_luma_target_cpp(out.r, out.g, out.b, srcGrayLinear, targetLuma);
@@ -711,7 +892,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float r_wb = (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f);
   float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
   float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
-  float exp_mult = std::pow(2.0f, exp);
+  float exp_mult = std::pow(2.0f, exp > 0.0f ? exp * 0.85f : exp);
 
   // Precompute Tone Curve LUTs
   auto jsonArrayToVariantList = [](const QJsonArray& arr) -> QVariantList {
@@ -781,6 +962,16 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                      90.0f / 360.0f, 60.0f / 360.0f, 60.0f / 360.0f,
                      55.0f / 360.0f, 50.0f / 360.0f};
   const auto& linearLut = srgb16_to_linear_lut_cpp();
+  const Photon001SceneStatsCpp sceneStats =
+      photon001_compute_scene_stats_cpp(src, width, height, linearLut.data(),
+                                        sceneWhite);
+
+  std::vector<Vec3fCpp> fineBlurH;
+  std::vector<Vec3fCpp> coarseBlurH;
+  photon001_precompute_horizontal_blur_cpp(src, width, height, linearLut.data(),
+                                           false, fineBlurH);
+  photon001_precompute_horizontal_blur_cpp(src, width, height, linearLut.data(),
+                                           true, coarseBlurH);
 
   QImage output(width, height, QImage::Format_RGB888);
 
@@ -799,10 +990,10 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
 
       const float u = (float(x) + 0.5f) / float(width);
       const float v = (float(y) + 0.5f) / float(height);
-      Vec3fCpp blurredFine =
-          compute_fine_blur_cpp(src, width, height, u, v, linearLut.data());
-      Vec3fCpp blurredCoarse =
-          compute_coarse_blur_cpp(src, width, height, u, v, linearLut.data());
+      Vec3fCpp blurredFine = photon001_vertical_blur_cpp(
+          fineBlurH, width, height, u, v, false);
+      Vec3fCpp blurredCoarse = photon001_vertical_blur_cpp(
+          coarseBlurH, width, height, u, v, true);
 
       // 1. WB & Exposure
       r *= r_wb * exp_mult;
@@ -810,15 +1001,20 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       b *= b_wb * exp_mult;
       Vec3fCpp color{r, g, b};
 
-      float luma =
-          get_luma_cpp(std::max(0.0f, color.r), std::max(0.0f, color.g),
-                       std::max(0.0f, color.b));
-      if (luma > sceneWhite && exp > 0.0f) {
-        float over = luma - sceneWhite;
-        float knee = sceneWhite * 0.7f;
-        float compress = over / (1.0f + over / knee);
-        float targetL = sceneWhite + compress;
-        apply_luma_target_cpp(color.r, color.g, color.b, luma, targetL);
+      if (exp > 0.0f) {
+        float kneeStart =
+            sceneWhite * 0.65f *
+            (1.0f - 0.30f * std::clamp(exp / 2.5f, 0.0f, 1.0f));
+        const float luma =
+            get_luma_cpp(std::max(0.0f, color.r), std::max(0.0f, color.g),
+                         std::max(0.0f, color.b));
+        if (luma > kneeStart) {
+          const float range = std::max(1.0f - kneeStart, 1e-4f);
+          const float over = luma - kneeStart;
+          const float target =
+              kneeStart + range * (1.0f - std::exp(-over / range));
+          apply_luma_target_cpp(color.r, color.g, color.b, luma, target);
+        }
       }
 
       Vec3fCpp blurredFineTone{blurredFine.r * r_wb * exp_mult,
@@ -828,15 +1024,24 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                  blurredCoarse.g * g_wb * exp_mult,
                                  blurredCoarse.b * b_wb * exp_mult};
       const float sceneWhiteNorm = std::max(sceneWhite * exp_mult, 1e-4f);
-      color = apply_photon0001_tone_ranges_cpp(
+      color = apply_photon001_tone_ranges_cpp(
           color, blurredFineTone, blurredCoarseTone, high / 100.0f,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
-          sceneWhiteNorm);
+          sceneWhiteNorm, sceneStats);
 
-      // 2. Contrast
-      r = std::pow(std::max(0.0f, color.r), con);
-      g = std::pow(std::max(0.0f, color.g), con);
-      b = std::pow(std::max(0.0f, color.b), con);
+      // 2. Contrast (perceptual S-curve on luma; 1.0 = identity)
+      r = std::max(0.0f, color.r);
+      g = std::max(0.0f, color.g);
+      b = std::max(0.0f, color.b);
+      if (std::abs(con - 1.0f) > 0.001f) {
+        const float lumaC = get_luma_cpp(r, g, b);
+        const float x = std::clamp(lumaC, 0.0f, 1.0f);
+        const float sCurve = x * x * (3.0f - 2.0f * x);
+        const float strength =
+            std::clamp((con - 1.0f) * 1.2f, -0.6f, 0.6f);
+        const float target = std::max(mix_local(x, sCurve, strength), 0.0f);
+        apply_luma_target_cpp(r, g, b, lumaC, target);
+      }
 
       // 3. HSL
       HSV hsv_struct = rgb_to_hsv(r, g, b);
@@ -866,17 +1071,34 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       sat_mult = mix(sat_mult * 0.35f, sat_mult, chromaProtect);
       lum_adj *= mix(0.4f, 1.0f, chromaProtect);
 
-      float final_h = std::fmod(hue + hue_shift * 360.0f + 360.0f, 360.0f);
-      float satScale = 1.0f + std::clamp(sat_mult, -0.85f, 1.25f);
-      float final_s = std::clamp(hsv_struct.s * satScale, 0.0f, 1.0f);
-      hsv_to_rgb(final_h, final_s, hsv_struct.v, r, g, b);
-      float lumaAfterHueSat =
-          get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
-      float lumStops = std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f;
-      float targetHslLuma = compute_target_luma_cpp(lumaAfterHueSat, lumStops);
-      apply_luma_target_cpp(r, g, b, lumaAfterHueSat, targetHslLuma);
+      if (std::abs(hue_shift) > 1e-5f || std::abs(sat_mult) > 1e-5f ||
+          std::abs(lum_adj) > 1e-5f) {
+        OklabCpp lab = linear_srgb_to_oklab_cpp(std::max(0.0f, r),
+                                                std::max(0.0f, g),
+                                                std::max(0.0f, b));
+        const float hueOk =
+            std::atan2(lab.b, lab.a) + hue_shift * 6.28318530718f;
+        const float srcL = lab.L;
+        float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+        chroma = std::max(
+            chroma * (1.0f + std::clamp(sat_mult, -0.85f, 1.25f)), 0.0f);
+        const float lumStops =
+            std::clamp(lum_adj, -0.75f, 0.75f) * 0.70f / 3.0f;
+        const float targetL =
+            std::clamp(compute_target_luma_cpp(srcL, lumStops), 0.0f, 1.0f);
+        const float lumRatio =
+            (srcL > 1e-4f) ? std::clamp(targetL / srcL, 0.0f, 4.0f) : 1.0f;
+        chroma *= lumRatio;
+        lab.L = targetL;
+        lab.a = chroma * std::cos(hueOk);
+        lab.b = chroma * std::sin(hueOk);
+        oklab_to_linear_srgb_gamut_cpp(lab, r, g, b);
+        r = std::max(0.0f, r);
+        g = std::max(0.0f, g);
+        b = std::max(0.0f, b);
+      }
 
-      // 6. Color Grading
+      // 6. Color Grading (OKLab perceptual hue/chroma/lightness)
       float l_cg =
           get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
       float s_end = 0.4f + cgBal * 0.3f;
@@ -887,36 +1109,57 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       float w_h = smoothstep(h_start - cg_feather, h_start + cg_feather, l_cg);
       float w_m = std::max(0.0f, 1.0f - w_s - w_h);
 
-      auto apply_cg_tint = [&](float& pr, float& pg, float& pb, float h,
-                               float s, float l, float weight) {
-        if (weight <= 0.001f) return;
-        float tr, tg, tb;
-        hsv_to_rgb(h, s / 100.0f, 1.0f, tr, tg, tb);
-        pr = mix(pr, pr * tr, (s / 100.0f) * weight) *
-             (1.0f + (l / 100.0f) * weight);
-        pg = mix(pg, pg * tg, (s / 100.0f) * weight) *
-             (1.0f + (l / 100.0f) * weight);
-        pb = mix(pb, pb * tb, (s / 100.0f) * weight) *
-             (1.0f + (l / 100.0f) * weight);
-      };
-      apply_cg_tint(r, g, b, cg[0].h, cg[0].s, cg[0].l, w_s);
-      apply_cg_tint(r, g, b, cg[1].h, cg[1].s, cg[1].l, w_m);
-      apply_cg_tint(r, g, b, cg[2].h, cg[2].s, cg[2].l, w_h);
+      if (cg[0].s != 0.0f || cg[1].s != 0.0f || cg[2].s != 0.0f ||
+          cg[0].l != 0.0f || cg[1].l != 0.0f || cg[2].l != 0.0f) {
+        auto tintOk = [](const OklabCpp& lab, float hueDeg, float s, float l) {
+          float hueOk = std::atan2(lab.b, lab.a);
+          const float targetH = hueDeg * 0.01745329252f;
+          float dH = targetH - hueOk;
+          dH = std::fmod(dH + 3.14159265359f, 6.28318530718f) -
+               3.14159265359f;
+          const float amount = std::clamp(s / 100.0f, 0.0f, 1.0f);
+          hueOk += dH * amount;
+          float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+          chroma *= 1.0f + amount * 0.15f;
+          OklabCpp out;
+          out.L =
+              std::clamp(lab.L * (1.0f + (l / 100.0f) * 0.25f), 0.0f, 1.0f);
+          out.a = chroma * std::cos(hueOk);
+          out.b = chroma * std::sin(hueOk);
+          return out;
+        };
+        const OklabCpp base = linear_srgb_to_oklab_cpp(r, g, b);
+        const OklabCpp ts = tintOk(base, cg[0].h, cg[0].s, cg[0].l);
+        const OklabCpp tm = tintOk(base, cg[1].h, cg[1].s, cg[1].l);
+        const OklabCpp th = tintOk(base, cg[2].h, cg[2].s, cg[2].l);
+        const OklabCpp mixed{ts.L * w_s + tm.L * w_m + th.L * w_h,
+                             ts.a * w_s + tm.a * w_m + th.a * w_h,
+                             ts.b * w_s + tm.b * w_m + th.b * w_h};
+        oklab_to_linear_srgb_gamut_cpp(mixed, r, g, b);
+        r = std::max(0.0f, r);
+        g = std::max(0.0f, g);
+        b = std::max(0.0f, b);
+      }
 
-      // 7. Saturation & Vibrance (Global)
-      float gray =
-          get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b));
-      float s_factor = 1.0f + (sat_global / 100.0f);
-      r = mix(gray, r, s_factor);
-      g = mix(gray, g, s_factor);
-      b = mix(gray, b, s_factor);
+      // 7. Saturation & Vibrance (Global) — perceptual chroma scaling in OKLab
+      if (std::abs(sat_global) > 0.001f || std::abs(vib_global) > 0.001f) {
+        OklabCpp lab = linear_srgb_to_oklab_cpp(std::max(0.0f, r),
+                                                std::max(0.0f, g),
+                                                std::max(0.0f, b));
+        const float hueOk = std::atan2(lab.b, lab.a);
+        float chroma = std::sqrt(lab.a * lab.a + lab.b * lab.b);
+        chroma *= std::max(1.0f + (sat_global / 100.0f), 0.0f);
+        const float satNorm = std::clamp(chroma / 0.32f, 0.0f, 1.0f);
+        chroma *=
+            std::max(1.0f + (vib_global / 100.0f) * (1.0f - satNorm), 0.0f);
+        lab.a = chroma * std::cos(hueOk);
+        lab.b = chroma * std::sin(hueOk);
+        oklab_to_linear_srgb_gamut_cpp(lab, r, g, b);
+      }
 
-      float c_max = std::max({r, g, b});
-      float c_avg = (r + g + b) / 3.0f;
-      float v_amt = (c_max - c_avg) * (-vib_global / 100.0f) * 3.0f;
-      r = mix(r, c_max, v_amt);
-      g = mix(g, c_max, v_amt);
-      b = mix(b, c_max, v_amt);
+      r = std::max(0.0f, r);
+      g = std::max(0.0f, g);
+      b = std::max(0.0f, b);
 
       // 8. Tonemapping
       if (agx_enabled) {
@@ -928,38 +1171,37 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         float cr = std::clamp(r, 0.0f, 1.0f);
         float cg = std::clamp(g, 0.0f, 1.0f);
         float cb = std::clamp(b, 0.0f, 1.0f);
-        float lumaIn = get_luma_cpp(cr, cg, cb);
-        int idxL = std::clamp(int(lumaIn * kToneLutMaxIndex + 0.5f), 0,
-                              kToneLutEntries - 1);
-        float lumaOut = lutLuma[idxL];
-        float lumaDelta = lumaOut - lumaIn;
-        if (lumaDelta > 0.0f) {
-          // Soften black-point lift sensitivity near absolute black.
-          float blackLiftAtten =
-              mix(0.60f, 1.0f, smoothstep(0.0f, 0.20f, lumaIn));
-          lumaDelta *= blackLiftAtten;
-        }
-        float lumaRatio = (lumaIn > 0.001f) ? lumaOut / lumaIn : 1.0f;
-        // Additive in shadows, multiplicative in mids/highs
-        float t = std::clamp((lumaIn - 0.0f) / (0.36f - 0.0f), 0.0f, 1.0f);
-        float blendShadow = t * t * (3.0f - 2.0f * t);  // smoothstep
-        int idxR = std::clamp(int(cr * kToneLutMaxIndex + 0.5f), 0,
-                              kToneLutEntries - 1);
-        int idxG = std::clamp(int(cg * kToneLutMaxIndex + 0.5f), 0,
-                              kToneLutEntries - 1);
-        int idxB = std::clamp(int(cb * kToneLutMaxIndex + 0.5f), 0,
-                              kToneLutEntries - 1);
+
+        // Reference-style luma curve: remap min/max through the same curve,
+        // then reproject channels between those new bounds.
+        float fMin = std::min({cr, cg, cb});
+        float fMax = std::max({cr, cg, cb});
+        int idxMin = std::clamp(int(fMin * kToneLutMaxIndex + 0.5f), 0,
+                                kToneLutEntries - 1);
+        int idxMax = std::clamp(int(fMax * kToneLutMaxIndex + 0.5f), 0,
+                                kToneLutEntries - 1);
+        float nMin = lutLuma[idxMin];
+        float nMax = lutLuma[idxMax];
+        float scale = (nMax - nMin) / (fMax - fMin + 0.00001f);
+        cr = (cr - fMin) * scale + nMin;
+        cg = (cg - fMin) * scale + nMin;
+        cb = (cb - fMin) * scale + nMin;
+
+        // Apply RGB channel curves after luma remap.
+        int idxR = std::clamp(int(std::clamp(cr, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
+        int idxG = std::clamp(int(std::clamp(cg, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
+        int idxB = std::clamp(int(std::clamp(cb, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
         cr = lutRed[idxR];
         cg = lutGreen[idxG];
         cb = lutBlue[idxB];
-        float arCr = cr + lumaDelta, arCg = cg + lumaDelta,
-              arCb = cb + lumaDelta;
-        float mrCr = cr * lumaRatio, mrCg = cg * lumaRatio,
-              mrCb = cb * lumaRatio;
-        cr = mix(arCr, mrCr, blendShadow);
-        cg = mix(arCg, mrCg, blendShadow);
-        cb = mix(arCb, mrCb, blendShadow);
-        // Blend: bypass for values > 1.0
+
+        // Blend: bypass for values > 1.0 in the unclamped working color.
         float maxC = std::max({r, g, b});
         float blendClip = (maxC > 1.001f) ? 1.0f : 0.0f;
         r = mix(cr, r, blendClip);
@@ -968,6 +1210,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       }
 
       // 9. Linear to sRGB
+      r = std::max(0.0f, r);
+      g = std::max(0.0f, g);
+      b = std::max(0.0f, b);
       r = linear_to_srgb_f(r);
       g = linear_to_srgb_f(g);
       b = linear_to_srgb_f(b);

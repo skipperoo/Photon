@@ -85,3 +85,8 @@ CMakeLists.txt.user*
 testphoton
 tmp
 Testing
+
+# Local tooling and runtime sidecars
+.opencode/
+opencode.json
+.PhotonData/

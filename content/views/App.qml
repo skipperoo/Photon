@@ -517,6 +517,184 @@ Window {
                             clip: true
 
                             ShaderEffect {
+                                id: photon001LogPass
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: rawViewport
+                                    hideSource: true
+                                    live: true
+                                }
+                                property real exposure: rawViewport.exposure
+                                property real temperature: rawViewport.temperature
+                                property real tint: rawViewport.tint
+                                property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
+                                property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
+                                fragmentShader: "qrc:/Main/shaders/Photon001Log.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001GaussianSmallH
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: photon001LogPass
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property vector2d axis: Qt.vector2d(1.0, 0.0)
+                                fragmentShader: "qrc:/Main/shaders/Photon001GaussianSmall.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001GaussianSmallV
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: photon001GaussianSmallH
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property vector2d axis: Qt.vector2d(0.0, 1.0)
+                                fragmentShader: "qrc:/Main/shaders/Photon001GaussianSmall.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001GaussianBigH
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: photon001LogPass
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property vector2d axis: Qt.vector2d(1.0, 0.0)
+                                fragmentShader: "qrc:/Main/shaders/Photon001GaussianBig.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001GaussianBigV
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: photon001GaussianBigH
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property vector2d axis: Qt.vector2d(0.0, 1.0)
+                                fragmentShader: "qrc:/Main/shaders/Photon001GaussianBig.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001ColorFineH
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: rawViewport
+                                    hideSource: true
+                                    live: true
+                                }
+                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property vector2d axis: Qt.vector2d(1.0, 0.0)
+                                property real coarse: 0.0
+                                property real inputIsLinear: 0.0
+                                fragmentShader: "qrc:/Main/shaders/Photon001ColorGaussian.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001ColorFineV
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: photon001ColorFineH
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property vector2d axis: Qt.vector2d(0.0, 1.0)
+                                property real coarse: 0.0
+                                property real inputIsLinear: 1.0
+                                fragmentShader: "qrc:/Main/shaders/Photon001ColorGaussian.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001ColorCoarseH
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: rawViewport
+                                    hideSource: true
+                                    live: true
+                                }
+                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property vector2d axis: Qt.vector2d(1.0, 0.0)
+                                property real coarse: 1.0
+                                property real inputIsLinear: 0.0
+                                fragmentShader: "qrc:/Main/shaders/Photon001ColorGaussian.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001ColorCoarseV
+                                anchors.fill: parent
+                                visible: false
+                                property variant source: ShaderEffectSource {
+                                    sourceItem: photon001ColorCoarseH
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property vector2d axis: Qt.vector2d(0.0, 1.0)
+                                property real coarse: 1.0
+                                property real inputIsLinear: 1.0
+                                fragmentShader: "qrc:/Main/shaders/Photon001ColorGaussian.frag.qsb"
+                            }
+
+                            ShaderEffect {
+                                id: photon001DeltaPass
+                                anchors.fill: parent
+                                visible: false
+                                property variant logSource: ShaderEffectSource {
+                                    sourceItem: photon001LogPass
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property variant gaussSmall: ShaderEffectSource {
+                                    sourceItem: photon001GaussianSmallV
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property variant gaussBig: ShaderEffectSource {
+                                    sourceItem: photon001GaussianBigV
+                                    format: ShaderEffectSource.RGBA16F
+                                    hideSource: true
+                                    live: true
+                                }
+                                property real highlights: rawViewport.highlights
+                                property real shadows: rawViewport.shadows
+                                property real whites: rawViewport.whites
+                                property real blacks: rawViewport.blacks
+                                property real clarity: rawViewport.clarity
+                                property real sceneWhite: rawViewport.sceneWhite
+                                property real exposure: rawViewport.exposure
+                                property real sceneDetailScale: rawViewport.sceneDetailScale
+                                property real sceneHighlightPin: rawViewport.sceneHighlightPin
+                                property real sceneCompression: rawViewport.sceneCompression
+                                fragmentShader: "qrc:/Main/shaders/Photon001Delta.frag.qsb"
+                            }
+
+                            ShaderEffect {
                                 id: shaderFx
                                 anchors.fill: parent
 
@@ -543,6 +721,24 @@ Window {
                             property variant toneLUT: ShaderEffectSource {
                                 sourceItem: toneLutImage
                                 textureSize: Qt.size(256, 1024)
+                                live: true
+                                hideSource: true
+                            }
+                            property variant photon001Delta: ShaderEffectSource {
+                                sourceItem: photon001DeltaPass
+                                format: ShaderEffectSource.RGBA16F
+                                live: true
+                                hideSource: true
+                            }
+                            property variant colorBlurFine: ShaderEffectSource {
+                                sourceItem: photon001ColorFineV
+                                format: ShaderEffectSource.RGBA16F
+                                live: true
+                                hideSource: true
+                            }
+                            property variant colorBlurCoarse: ShaderEffectSource {
+                                sourceItem: photon001ColorCoarseV
+                                format: ShaderEffectSource.RGBA16F
                                 live: true
                                 hideSource: true
                             }

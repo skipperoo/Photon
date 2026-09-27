@@ -18,9 +18,13 @@ LogManager::LogManager(QObject* parent) : QObject(parent) {
   m_logLocation = QDir::toNativeSeparators(defaultDir + "/photon.log");
   // If we get to 100MB log file we truncate it before the session starts
   // so that we do not lose the current session logs.
-  // Would be better to rotate the logs, but this is quick and good for now
-  if (std::filesystem::file_size(m_logLocation.toStdString()) / (1024 * 1024) > 100)
-    clearLog();
+  // Would be better to rotate the logs, but this is quick and good for now.
+  // The non-throwing file_size overload is used because the log file does not
+  // exist yet on a fresh profile.
+  std::error_code sizeError;
+  const auto logSize = std::filesystem::file_size(
+      m_logLocation.toStdString(), sizeError);
+  if (!sizeError && logSize / (1024 * 1024) > 100) clearLog();
   openLogFile();
 }
 

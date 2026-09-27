@@ -23,6 +23,6 @@ class FileScanner : public QObject {
   Q_INVOKABLE QVariantList scanForRawFiles(const QString& folderPath) const;
 
  private:
-  bool isRawFile(const QFileInfo& fileInfo) const;
+  bool isSupportedFile(const QFileInfo& fileInfo) const;
   QStringList m_supportedExtensions;
 };

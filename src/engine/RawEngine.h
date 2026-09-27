@@ -632,13 +632,17 @@ class RawEngine : public QObject {
                                 int step, int sampleCount);
 
   void recomputeSceneWhite();
-  void computeSceneStats(const libraw_processed_image_t* img);
-  float computeSceneWhite(const libraw_processed_image_t* img, float percentile = 0.97f);
+  void computeSceneStats(const ushort* rgb, int width, int height,
+                         int channels);
+  float computeSceneWhite(const ushort* rgb, int width, int height,
+                          int channels, float percentile = 0.97f);
   void updateProcessingParams();
   void rebuildToneLut();
   static std::vector<float> evalMonotonicSpline(const QVariantList& pts,
                                                  int lutSize = 256);
   bool loadRawFileSync(const QString& path, int loadId);
+  bool loadBitmapFileSync(const QString& path, int loadId);
+  const ushort* activeRgbSource(int& width, int& height) const;
 
   QString m_source;
   QString m_previewPath;
@@ -773,7 +777,12 @@ class RawEngine : public QObject {
   std::unique_ptr<LibRaw> m_processor;
   std::unique_ptr<photon::GpuSearcher> m_gpuSearcher;
   libraw_processed_image_t* m_processedImage = nullptr;
-  std::vector<uint8_t> m_customBuffer;
+  // Decoded RGB16 base buffer for rendered formats (JPEG/TIFF); kept in memory
+  // so denoise, geometry bake and histogram reuse it instead of LibRaw.
+  std::vector<uint16_t> m_customPixels;
+  int m_customWidth = 0;
+  int m_customHeight = 0;
+  bool m_isBitmap = false;
   std::vector<uint8_t> m_denoisedBuffer;
   int m_denoisedWidth = 0;
   int m_denoisedHeight = 0;

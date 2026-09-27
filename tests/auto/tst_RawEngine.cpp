@@ -7,7 +7,11 @@
 #include <QtTest>
 #include <vector>
 
+#include "BitmapTestUtils.h"
+#include "ExportManager.h"
+#include "FileScanner.h"
 #include "ImageDeveloper.h"
+#include "PreviewManager.h"
 #include "RawEngine.h"
 
 class TestRawEngine : public QObject {
@@ -25,6 +29,11 @@ class TestRawEngine : public QObject {
   void testApplyGeometryTransformsStraightenKeepsFullFrame();
   void testApplyGeometryTransformsCropRectOnRotatedFrame();
   void testApplyGeometryTransformsCropPreservesAspectAndFocus();
+  void testBitmapJpegLoad();
+  void testBitmapTiffLoadAndGeometryBake();
+  void testFileScannerIncludesBitmaps();
+  void testBitmapExport();
+  void testBitmapPreview();
 };
 
 namespace {
@@ -654,6 +663,188 @@ void TestRawEngine::testApplyGeometryTransformsCropPreservesAspectAndFocus() {
       static_cast<double>(right - left) / static_cast<double>(bottom - top);
   const double actualAspect = static_cast<double>(cropped.width()) / cropped.height();
   QVERIFY(std::abs(actualAspect - expectedAspect) < 0.0001);
+}
+
+void TestRawEngine::testBitmapJpegLoad() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath("photo.jpg");
+
+  const int width = 8;
+  const int height = 4;
+  std::vector<uint8_t> pixels(size_t(width) * size_t(height) * 3);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const size_t base = (size_t(y) * size_t(width) + size_t(x)) * 3;
+      pixels[base + 0] = uint8_t(20 * x);
+      pixels[base + 1] = uint8_t(40 * y);
+      pixels[base + 2] = 128;
+    }
+  }
+  QVERIFY(BitmapTestUtils::writeJpegFile(path, width, height, pixels));
+
+  RawEngine engine;
+  QSignalSpy loadedSpy(&engine, &RawEngine::imageLoaded);
+  QSignalSpy errorSpy(&engine, &RawEngine::errorOccurred);
+  engine.setSource(path);
+  QTRY_VERIFY_WITH_TIMEOUT(loadedSpy.count() > 0 || errorSpy.count() > 0, 30000);
+  QCOMPARE(errorSpy.count(), 0);
+  QVERIFY(!engine.isLoading());
+
+  int decodedWidth = 0;
+  int decodedHeight = 0;
+  int colors = 0;
+  const uchar* data =
+      engine.getProcessedData(decodedWidth, decodedHeight, colors);
+  QVERIFY(data != nullptr);
+  QCOMPARE(decodedWidth, width);
+  QCOMPARE(decodedHeight, height);
+  QCOMPARE(colors, 3);
+
+  QTRY_COMPARE(engine.metadata().value("lensModel").toString(),
+               QString("Unknown Lens"));
+  QVERIFY(engine.metadata().contains("make"));
+}
+
+void TestRawEngine::testBitmapTiffLoadAndGeometryBake() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath("photo.tif");
+
+  const int width = 6;
+  const int height = 4;
+  std::vector<uint16_t> pixels(size_t(width) * size_t(height) * 3);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const size_t base = (size_t(y) * size_t(width) + size_t(x)) * 3;
+      const uint16_t value = uint16_t(1000 * (y * width + x) + 1);
+      pixels[base + 0] = value;
+      pixels[base + 1] = value;
+      pixels[base + 2] = value;
+    }
+  }
+  QVERIFY(BitmapTestUtils::writeTiff16File(path, width, height, pixels));
+
+  RawEngine engine;
+  QSignalSpy loadedSpy(&engine, &RawEngine::imageLoaded);
+  engine.setSource(path);
+  QTRY_VERIFY_WITH_TIMEOUT(loadedSpy.count() > 0, 30000);
+
+  int decodedWidth = 0;
+  int decodedHeight = 0;
+  int colors = 0;
+  const uchar* data =
+      engine.getProcessedData(decodedWidth, decodedHeight, colors);
+  QVERIFY(data != nullptr);
+  QCOMPARE(decodedWidth, width);
+  QCOMPARE(decodedHeight, height);
+  QCOMPARE(colors, 3);
+  const ushort* firstPixel = reinterpret_cast<const ushort*>(data);
+  QCOMPARE(firstPixel[0], uint16_t(1));
+  QCOMPARE(firstPixel[1], uint16_t(1));
+
+  // Crop mode must keep the decoded buffer alive for rendered formats.
+  engine.enterCropMode();
+  data = engine.getProcessedData(decodedWidth, decodedHeight, colors);
+  QVERIFY(data != nullptr);
+  QCOMPARE(decodedWidth, width);
+  QCOMPARE(decodedHeight, height);
+
+  // Bake a 90 degree rotation through the bitmap geometry path.
+  engine.setOrientationSteps(1);
+  engine.exitCropMode();
+  QTRY_VERIFY_WITH_TIMEOUT(engine.geometryBaked(), 30000);
+
+  data = engine.getProcessedData(decodedWidth, decodedHeight, colors);
+  QVERIFY(data != nullptr);
+  QCOMPARE(decodedWidth, height);
+  QCOMPARE(decodedHeight, width);
+  QCOMPARE(colors, 4);
+}
+
+void TestRawEngine::testFileScannerIncludesBitmaps() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  std::vector<uint8_t> jpegPixels(3 * 3 * 3, 100);
+  QVERIFY(BitmapTestUtils::writeJpegFile(dir.filePath("a.JPG"), 3, 3,
+                                         jpegPixels));
+  std::vector<uint16_t> tiffPixels(3 * 3 * 3, 4000);
+  QVERIFY(
+      BitmapTestUtils::writeTiff16File(dir.filePath("b.tiff"), 3, 3,
+                                       tiffPixels));
+
+  QFile textFile(dir.filePath("c.txt"));
+  QVERIFY(textFile.open(QIODevice::WriteOnly));
+  textFile.write("not an image");
+  textFile.close();
+
+  FileScanner scanner;
+  const QVariantList files = scanner.scanForRawFiles(dir.path());
+  QStringList names;
+  for (const QVariant& file : files) {
+    names << file.toMap().value("name").toString();
+  }
+  QVERIFY(names.contains("a.JPG"));
+  QVERIFY(names.contains("b.tiff"));
+  QVERIFY(!names.contains("c.txt"));
+}
+
+void TestRawEngine::testBitmapExport() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sourcePath = dir.filePath("export_me.jpg");
+
+  const int width = 16;
+  const int height = 8;
+  std::vector<uint8_t> pixels(size_t(width) * size_t(height) * 3);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const size_t base = (size_t(y) * size_t(width) + size_t(x)) * 3;
+      pixels[base + 0] = uint8_t(15 * x);
+      pixels[base + 1] = uint8_t(30 * y);
+      pixels[base + 2] = 90;
+    }
+  }
+  QVERIFY(BitmapTestUtils::writeJpegFile(sourcePath, width, height, pixels));
+
+  const QString outputFolder = dir.filePath("out");
+  photon::ExportManager exportManager;
+  QSignalSpy finishedSpy(&exportManager,
+                         &photon::ExportManager::exportFinished);
+  exportManager.startExport({sourcePath}, outputFolder, "JPG", 90);
+  QTRY_VERIFY_WITH_TIMEOUT(finishedSpy.count() > 0, 60000);
+
+  const QString outputPath = outputFolder + "/export_me.jpg";
+  QVERIFY(QFile::exists(outputPath));
+  const QImage exported(outputPath);
+  QVERIFY(!exported.isNull());
+  QCOMPARE(exported.width(), width);
+  QCOMPARE(exported.height(), height);
+}
+
+void TestRawEngine::testBitmapPreview() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sourcePath = dir.filePath("preview_me.jpg");
+
+  const int width = 12;
+  const int height = 6;
+  std::vector<uint8_t> pixels(size_t(width) * size_t(height) * 3, 64);
+  QVERIFY(BitmapTestUtils::writeJpegFile(sourcePath, width, height, pixels));
+
+  photon::PreviewManager previewManager;
+  QSignalSpy readySpy(&previewManager,
+                      &photon::PreviewManager::previewReady);
+  previewManager.refreshPreview(sourcePath);
+  QTRY_VERIFY_WITH_TIMEOUT(readySpy.count() > 0, 60000);
+
+  const QString cachePath = readySpy.first().at(1).toString();
+  QVERIFY(QFile::exists(cachePath));
+  const QImage cached(cachePath);
+  QVERIFY(!cached.isNull());
+  QCOMPARE(cached.width(), width);
+  QCOMPARE(cached.height(), height);
 }
 
 QTEST_MAIN(TestRawEngine)

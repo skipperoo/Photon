@@ -17,12 +17,15 @@ configure_file(
 
 find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent GuiPrivate)
 find_package(Vulkan REQUIRED)
+find_package(JPEG REQUIRED)
 
 if(WIN32)
     # Use find_package for vcpkg compatibility on Windows
     find_package(LibRaw REQUIRED)
     find_package(OpenCV REQUIRED)
     find_package(TIFF REQUIRED)
+    find_package(lcms2 CONFIG REQUIRED)
+    set(PHOTON_LCMS2_LIBRARIES lcms2::lcms2)
     add_compile_definitions(WIN32_LEAN_AND_MEAN)
     add_compile_definitions(NOMINMAX)
 else()
@@ -30,6 +33,8 @@ else()
     pkg_check_modules(LIBRAW REQUIRED libraw)
     pkg_check_modules(OPENCV REQUIRED opencv4)
     pkg_check_modules(TIFF REQUIRED libtiff-4)
+    pkg_check_modules(LCMS2 REQUIRED lcms2)
+    set(PHOTON_LCMS2_LIBRARIES ${LCMS2_LIBRARIES})
 endif()
 
 qt_standard_project_setup(REQUIRES 6.10)
@@ -46,6 +51,8 @@ qt_add_executable(Photon
     src/engine/GpuChromaFilter.h
     src/engine/ImageDeveloper.cpp
     src/engine/ImageDeveloper.h
+    src/engine/ImageDecoder.cpp
+    src/engine/ImageDecoder.h
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
     src/engine/patch_search.comp
@@ -125,6 +132,8 @@ qt_add_qml_module(Photon
         src/engine/GpuChromaFilter.h
         src/engine/ImageDeveloper.cpp
         src/engine/ImageDeveloper.h
+        src/engine/ImageDecoder.cpp
+        src/engine/ImageDecoder.h
         src/engine/Panorama.cpp
         src/engine/Panorama.h
         src/engine/VulkanComputeContext.cpp
@@ -225,6 +234,8 @@ if(WIN32)
         PRIVATE ${LibRaw_LIBRARIES}
         PRIVATE ${OpenCV_LIBRARIES}
         PRIVATE ${TIFF_LIBRARIES}
+        PRIVATE JPEG::JPEG
+        PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 else()
@@ -233,6 +244,8 @@ else()
         PRIVATE ${LIBRAW_LIBRARIES}
         PRIVATE ${OPENCV_LIBRARIES}
         PRIVATE ${TIFF_LIBRARIES}
+        PRIVATE JPEG::JPEG
+        PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 endif()

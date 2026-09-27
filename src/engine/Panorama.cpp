@@ -1,8 +1,71 @@
 #include "Panorama.h"
 #include "../managers/LogManager.h"
+#include "ImageDecoder.h"
 
 using namespace photon;
 
+
+static ColorInfo defaultSrgbColorInfo() {
+  ColorInfo info;
+  // Linear sRGB -> XYZ D50 (Bradford adapted); same direction/convention as
+  // the cam_xyz matrix written for RAW inputs.
+  static const float srgbToXyzD50[9] = {
+      0.4360747f, 0.3850649f, 0.1430804f,
+      0.2225045f, 0.7168786f, 0.0606169f,
+      0.0139322f, 0.0971045f, 0.7141733f};
+  for (int i = 0; i < 9; ++i) info.matrix[i] = srgbToXyzD50[i];
+  info.asShotNeutral[0] = 1.0f;
+  info.asShotNeutral[1] = 1.0f;
+  info.asShotNeutral[2] = 1.0f;
+  return info;
+}
+
+static cv::Mat bitmap_to_linear(const QString& file,
+                                std::unique_ptr<ColorInfo>& colorInfo) {
+  BitmapImage decoded = ImageDecoder::decode(file);
+  if (decoded.pixels.empty() || decoded.width <= 0 || decoded.height <= 0) {
+    LogManager::instance()->log(
+        QString("[ Panorama.cpp ] - Cannot decode %1").arg(file), PHOTON_ERROR);
+    return cv::Mat();
+  }
+
+  if (!colorInfo) {
+    colorInfo = std::make_unique<ColorInfo>(defaultSrgbColorInfo());
+    LogManager::instance()->log(
+        QString("[ Panorama.cpp ] - Initialized sRGB ColorInfo on %1")
+            .arg(file),
+        PHOTON_DEBUG);
+  }
+
+  static uint16_t linearLut[65536];
+  static bool lutInitialized = false;
+  if (!lutInitialized) {
+    for (int i = 0; i < 65536; ++i) {
+      const float c = float(i) / 65535.0f;
+      const float linear = (c <= 0.04045f)
+                               ? (c / 12.92f)
+                               : std::pow((c + 0.055f) / 1.055f, 2.4f);
+      linearLut[i] = uint16_t(std::clamp(linear, 0.0f, 1.0f) * 65535.0f + 0.5f);
+    }
+    lutInitialized = true;
+  }
+
+  cv::Mat rgb16(decoded.height, decoded.width, CV_16UC3);
+  const uint16_t* source = decoded.pixels.data();
+  for (int y = 0; y < decoded.height; ++y) {
+    uint16_t* row = rgb16.ptr<uint16_t>(y);
+    for (int x = 0; x < decoded.width; ++x) {
+      const size_t base = (size_t(y) * size_t(decoded.width) + size_t(x)) * 3;
+      row[x * 3 + 0] = linearLut[source[base + 0]];
+      row[x * 3 + 1] = linearLut[source[base + 1]];
+      row[x * 3 + 2] = linearLut[source[base + 2]];
+    }
+  }
+
+  cv::Mat bgr16;
+  cv::cvtColor(rgb16, bgr16, cv::COLOR_RGB2BGR);
+  return bgr16;
+}
 
 static ColorInfo extractColorInfo(LibRaw *processor) {
   ColorInfo info;
@@ -47,6 +110,10 @@ void Panorama::stitchAsync(const QStringList& inputFiles,
 }
 
 cv::Mat Panorama::raw_to_linear(const QString& file, std::unique_ptr<ColorInfo>& colorInfo) {
+  if (ImageDecoder::isBitmap(file)) {
+    return bitmap_to_linear(file, colorInfo);
+  }
+
   LibRaw processor;
   processor.imgdata.params.output_bps = 16;
   processor.imgdata.params.no_auto_bright = 1;

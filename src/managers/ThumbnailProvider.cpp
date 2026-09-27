@@ -12,6 +12,7 @@
 #include <QtConcurrent>
 
 #include "RawEngine.h"
+#include "../engine/ImageDecoder.h"
 
 ThumbnailProvider::ThumbnailProvider(QObject* parent)
     : QObject(parent), m_threadPool(new QThreadPool(this)) {
@@ -78,6 +79,9 @@ QImage ThumbnailProvider::loadThumbnailFromCache(
 }
 
 QImage ThumbnailProvider::generateThumbnail(const QString& imagePath) const {
+  if (photon::ImageDecoder::isBitmap(imagePath)) {
+    return photon::ImageDecoder::extractThumbnail(imagePath);
+  }
   return RawEngine::extractThumbnail(imagePath);
 }
 

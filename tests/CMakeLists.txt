@@ -19,10 +19,14 @@ add_executable(tst_RawEngine
  ../src/engine/GpuChromaFilter.h
  ../src/engine/ImageDeveloper.cpp
  ../src/engine/ImageDeveloper.h
+ ../src/engine/ImageDecoder.cpp
+ ../src/engine/ImageDecoder.h
  ../src/engine/VulkanComputeContext.cpp
  ../src/engine/VulkanComputeContext.h
     ../src/managers/PreviewManager.cpp
     ../src/managers/PreviewManager.h
+    ../src/managers/ExportManager.cpp
+    ../src/managers/ExportManager.h
     ../src/managers/FileScanner.cpp
     ../src/managers/FileScanner.h
     ../src/managers/LogManager.cpp
@@ -35,12 +39,18 @@ if(WIN32)
     target_link_libraries(tst_RawEngine
         PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate Qt6::Quick
         PRIVATE ${LibRaw_LIBRARIES}
+        PRIVATE ${TIFF_LIBRARIES}
+        PRIVATE JPEG::JPEG
+        PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 else()
     target_link_libraries(tst_RawEngine
         PRIVATE Qt6::Test Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate Qt6::Quick
         PRIVATE ${LIBRAW_LIBRARIES}
+        PRIVATE ${TIFF_LIBRARIES}
+        PRIVATE JPEG::JPEG
+        PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 endif()
@@ -60,6 +70,8 @@ target_include_directories(tst_RawEngine PRIVATE
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtGui/6.10.1/QtGui>
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtCore/6.10.1>
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtCore/6.10.1/QtCore>
+    ${TIFF_INCLUDE_DIR}
+    ${JPEG_INCLUDE_DIRS}
 )
 
 if(WIN32)
@@ -78,6 +90,8 @@ add_executable(tst_AppStateManager
     ../src/managers/PreviewManager.h
     ../src/engine/ImageDeveloper.cpp
     ../src/engine/ImageDeveloper.h
+    ../src/engine/ImageDecoder.cpp
+    ../src/engine/ImageDecoder.h
     ../src/managers/FileScanner.cpp
     ../src/managers/FileScanner.h
  ../src/engine/Denoiser.cpp
@@ -94,12 +108,18 @@ if(WIN32)
     target_link_libraries(tst_AppStateManager
         PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate Qt6::Quick
         PRIVATE ${LibRaw_LIBRARIES}
+        PRIVATE ${TIFF_LIBRARIES}
+        PRIVATE JPEG::JPEG
+        PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 else()
     target_link_libraries(tst_AppStateManager
         PRIVATE Qt6::Test Qt6::Qml Qt6::Concurrent Qt6::Gui Qt6::GuiPrivate Qt6::Quick
         PRIVATE ${LIBRAW_LIBRARIES}
+        PRIVATE ${TIFF_LIBRARIES}
+        PRIVATE JPEG::JPEG
+        PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
 endif()
@@ -124,8 +144,36 @@ else()
         ../src/engine
         ${CMAKE_BINARY_DIR}
         ${LIBRAW_INCLUDE_DIRS}
+        ${TIFF_INCLUDE_DIR}
+        ${JPEG_INCLUDE_DIRS}
     )
 endif()
 
+add_executable(tst_ImageDecoder
+    auto/tst_ImageDecoder.cpp
+    ../src/engine/ImageDecoder.cpp
+    ../src/engine/ImageDecoder.h
+    ../src/managers/LogManager.cpp
+    ../src/managers/LogManager.h
+)
+
+target_link_libraries(tst_ImageDecoder
+    PRIVATE Qt6::Test Qt6::Gui
+    PRIVATE ${TIFF_LIBRARIES}
+    PRIVATE JPEG::JPEG
+    PRIVATE ${PHOTON_LCMS2_LIBRARIES}
+)
+
+target_include_directories(tst_ImageDecoder PRIVATE
+    ../src
+    ../src/engine
+    ../src/managers
+    ${CMAKE_BINARY_DIR}
+    ${TIFF_INCLUDE_DIR}
+    ${JPEG_INCLUDE_DIRS}
+    ${LCMS2_INCLUDE_DIRS}
+)
+
 add_test(NAME tst_RawEngine COMMAND tst_RawEngine)
 add_test(NAME tst_AppStateManager COMMAND tst_AppStateManager)
+add_test(NAME tst_ImageDecoder COMMAND tst_ImageDecoder)

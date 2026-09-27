@@ -18,11 +18,9 @@ jobs:
         include:
           - os: ubuntu-22.04
             qt_ver: 6.10.2
-            qt_extra: ""
           - os: windows-latest
             qt_ver: 6.10.2
             qt_arch: win64_msvc2022_64
-            qt_extra: "--external 7z"
 
     steps:
       - name: Checkout Code
@@ -36,7 +34,6 @@ jobs:
           version: ${{ matrix.qt_ver }}
           arch: ${{ matrix.qt_arch }}
           modules: "qtshadertools"
-          extra: ${{ matrix.qt_extra }}
           cache: true
 
       - name: Cache vcpkg packages (Windows)

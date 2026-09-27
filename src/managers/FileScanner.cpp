@@ -9,12 +9,12 @@
 #include <QJsonObject>
 
 #include "LogManager.h"
+#include "../engine/ImageDecoder.h"
 
 FileScanner::FileScanner(QObject* parent) : QObject(parent) {
-  // Initialize supported RAW file extensions
-  m_supportedExtensions << "arw" << "cr2" << "cr3" << "nef" << "dng"
-                        << "orf" << "raf" << "rw2" << "pef" << "srw"
-                        << "x3f" << "iiq" << "nrw" << "kdc" << "dcr";
+  // Initialize supported RAW and rendered (JPEG/TIFF) file extensions
+  m_supportedExtensions = photon::ImageDecoder::rawExtensions();
+  m_supportedExtensions += photon::ImageDecoder::bitmapExtensions();
 }
 
 QVariantList FileScanner::scanForRawFiles(const QString& folderPath) const {
@@ -34,7 +34,7 @@ QVariantList FileScanner::scanForRawFiles(const QString& folderPath) const {
                         QDir::Time);  // Sort by modification time
 
   for (const QFileInfo& fileInfo : fileInfoList) {
-    if (isRawFile(fileInfo)) {
+    if (isSupportedFile(fileInfo)) {
       QVariantMap fileMap;
       fileMap["path"] = fileInfo.absoluteFilePath();
       fileMap["name"] = fileInfo.fileName();
@@ -67,7 +67,7 @@ QVariantList FileScanner::scanForRawFiles(const QString& folderPath) const {
   return rawFiles;
 }
 
-bool FileScanner::isRawFile(const QFileInfo& fileInfo) const {
+bool FileScanner::isSupportedFile(const QFileInfo& fileInfo) const {
   QString extension = fileInfo.suffix().toLower();
   return m_supportedExtensions.contains(extension);
 }

@@ -27,6 +27,7 @@
 #include "../managers/PreviewManager.h"
 #include "Denoiser.h"
 #include "GpuSearcher.h"
+#include "ImageDecoder.h"
 
 using namespace photon;
 
@@ -778,6 +779,12 @@ void RawEngine::updateProcessingParams() {
 void RawEngine::setHalfSize(bool half) {
   if (m_halfSize == half) return;
   m_halfSize = half;
+  if (m_isBitmap) {
+    // Rendered formats are decoded at full resolution; half size only
+    // applies to LibRaw processing.
+    emit halfSizeChanged();
+    return;
+  }
   {
     QMutexLocker locker(&m_processorMutex);
     clearProcessedImage();
@@ -1222,34 +1229,50 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   QImage img;
   {
     QMutexLocker locker(&m_processorMutex);
-    int ret = m_processor->dcraw_process();
-    if (ret != LIBRAW_SUCCESS) {
-      m_isDenoising = false;
-      emit isDenoisingChanged();
-      return;
-    }
-    libraw_processed_image_t* img_data =
-        m_processor->dcraw_make_mem_image(&ret);
-    if (!img_data) {
-      m_isDenoising = false;
-      emit isDenoisingChanged();
-      return;
-    }
-
-    if (img_data->colors == 3) {
-      img = QImage(img_data->width, img_data->height, QImage::Format_RGBX64);
-      const ushort* src = reinterpret_cast<const ushort*>(img_data->data);
+    if (m_isBitmap) {
+      if (m_customPixels.empty() || m_customWidth <= 0 ||
+          m_customHeight <= 0) {
+        m_isDenoising = false;
+        emit isDenoisingChanged();
+        return;
+      }
+      img = QImage(m_customWidth, m_customHeight, QImage::Format_RGBX64);
+      const ushort* src = m_customPixels.data();
       QRgba64* dst = reinterpret_cast<QRgba64*>(img.bits());
-      for (int i = 0; i < img_data->width * img_data->height; ++i) {
+      for (int i = 0; i < m_customWidth * m_customHeight; ++i) {
         dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1], src[i * 3 + 2],
                                      65535);
       }
     } else {
-      img = QImage(img_data->data, img_data->width, img_data->height,
-                   QImage::Format_RGBA64)
-                .copy();
+      int ret = m_processor->dcraw_process();
+      if (ret != LIBRAW_SUCCESS) {
+        m_isDenoising = false;
+        emit isDenoisingChanged();
+        return;
+      }
+      libraw_processed_image_t* img_data =
+          m_processor->dcraw_make_mem_image(&ret);
+      if (!img_data) {
+        m_isDenoising = false;
+        emit isDenoisingChanged();
+        return;
+      }
+
+      if (img_data->colors == 3) {
+        img = QImage(img_data->width, img_data->height, QImage::Format_RGBX64);
+        const ushort* src = reinterpret_cast<const ushort*>(img_data->data);
+        QRgba64* dst = reinterpret_cast<QRgba64*>(img.bits());
+        for (int i = 0; i < img_data->width * img_data->height; ++i) {
+          dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1],
+                                       src[i * 3 + 2], 65535);
+        }
+      } else {
+        img = QImage(img_data->data, img_data->width, img_data->height,
+                     QImage::Format_RGBA64)
+                  .copy();
+      }
+      LibRaw::dcraw_clear_mem(img_data);
     }
-    LibRaw::dcraw_clear_mem(img_data);
   }
 
   // --- ROI Logic ---
@@ -1918,8 +1941,13 @@ void RawEngine::requestHistogramUpdate() {
     return;
   }
 
-  if (!m_processedImage) return;
+  // Capture image data pointer and dimensions
+  int imageWidth = 0;
+  int imageHeight = 0;
+  const ushort* src = activeRgbSource(imageWidth, imageHeight);
+  int totalPixels = imageWidth * imageHeight;
 
+  if (!src || totalPixels <= 0) return;
   // Capture current edit parameters for the computation
   float exp = m_exposure;
   float con = m_contrast;
@@ -1957,14 +1985,6 @@ void RawEngine::requestHistogramUpdate() {
   float cgHL = m_cgHighlightsLuminance;
   float cgBal = m_cgBalance / 100.0f;
   float cgBlen = m_cgBlending / 100.0f;
-
-  // Capture image data pointer and dimensions
-  const ushort* src = reinterpret_cast<const ushort*>(m_processedImage->data);
-  int imageWidth = m_processedImage->width;
-  int imageHeight = m_processedImage->height;
-  int totalPixels = imageWidth * imageHeight;
-
-  if (!src || totalPixels <= 0) return;
 
   const int step = std::max(1, totalPixels / 131072);
   const int sampleCount = (totalPixels + step - 1) / step;
@@ -2239,6 +2259,9 @@ void RawEngine::clearProcessedImage() {
     LibRaw::dcraw_clear_mem(m_processedImage);
     m_processedImage = nullptr;
   }
+  m_customPixels.clear();
+  m_customWidth = 0;
+  m_customHeight = 0;
 }
 
 static constexpr float LUMA_R = 0.2126f;
@@ -2248,32 +2271,25 @@ static float srgb_to_linear(float c) {
   return (c <= 0.04045f) ? (c / 12.92f) : std::pow((c + 0.055f) / 1.055f, 2.4f);
 }
 
-float RawEngine::computeSceneWhite(const libraw_processed_image_t* img,
-                                   float percentile) {
+float RawEngine::computeSceneWhite(const ushort* rgb, int width, int height,
+                                   int channels, float percentile) {
   constexpr int BINS = 2048;
   constexpr float BIN_SCALE = BINS - 1;
 
+  if (!rgb || width <= 0 || height <= 0 || channels <= 0) return 1.0f;
+
+  const bool monochrome = channels < 3;
+  const int stride = channels;
+
   uint32_t hist[BINS] = {};
 
-  size_t pixelCount = img->width * img->height;
-  size_t step = 4;             // subsample every 4th pixel
-  int channels = img->colors;  // 3 for RGB
+  size_t pixelCount = size_t(width) * size_t(height);
+  size_t step = 4;  // subsample every 4th pixel
 
   for (size_t i = 0; i < pixelCount; i += step) {
-    float r, g, b;
-
-    if (img->bits == 16) {
-      const uint16_t* px =
-          reinterpret_cast<const uint16_t*>(img->data) + i * channels;
-      r = px[0] / 65535.0f;
-      g = px[1] / 65535.0f;
-      b = px[2] / 65535.0f;
-    } else {
-      const uint8_t* px = img->data + i * channels;
-      r = px[0] / 255.0f;
-      g = px[1] / 255.0f;
-      b = px[2] / 255.0f;
-    }
+    float r = rgb[i * stride] / 65535.0f;
+    float g = monochrome ? r : rgb[i * stride + 1] / 65535.0f;
+    float b = monochrome ? r : rgb[i * stride + 2] / 65535.0f;
 
     // sRGB -> linear, matches your shader's srgb_to_linear()
     auto decode = [](float x) -> float {
@@ -2300,12 +2316,14 @@ float RawEngine::computeSceneWhite(const libraw_processed_image_t* img,
   return 1.0f;
 }
 
-void RawEngine::computeSceneStats(const libraw_processed_image_t* img) {
-  if (!img || img->width <= 0 || img->height <= 0) return;
+void RawEngine::computeSceneStats(const ushort* rgb, int width, int height,
+                                  int channels) {
+  if (!rgb || width <= 0 || height <= 0 || channels <= 0) return;
 
-  const size_t pixelCount = size_t(img->width) * size_t(img->height);
+  const size_t pixelCount = size_t(width) * size_t(height);
   const size_t step = 16;
-  const int channels = img->colors;
+  const bool monochrome = channels < 3;
+  const int stride = channels;
 
   const float toneMid =
       photon001_encode_log_luma_hist(std::max(m_sceneWhite * 0.18f, 1e-4f));
@@ -2318,19 +2336,9 @@ void RawEngine::computeSceneStats(const libraw_processed_image_t* img) {
   size_t highlightSamples = 0;
 
   for (size_t i = 0; i < pixelCount; i += step) {
-    float r, g, b;
-    if (img->bits == 16) {
-      const uint16_t* px =
-          reinterpret_cast<const uint16_t*>(img->data) + i * channels;
-      r = px[0] / 65535.0f;
-      g = px[1] / 65535.0f;
-      b = px[2] / 65535.0f;
-    } else {
-      const uint8_t* px = img->data + i * channels;
-      r = px[0] / 255.0f;
-      g = px[1] / 255.0f;
-      b = px[2] / 255.0f;
-    }
+    float r = rgb[i * stride] / 65535.0f;
+    float g = monochrome ? r : rgb[i * stride + 1] / 65535.0f;
+    float b = monochrome ? r : rgb[i * stride + 2] / 65535.0f;
 
     Vec3fHist linear{srgb_to_linear_hist(r), srgb_to_linear_hist(g),
                      srgb_to_linear_hist(b)};
@@ -2362,20 +2370,86 @@ void RawEngine::loadRawFileAsync(const QString& path) {
   m_isLoading = true;
   emit isLoadingChanged();
 
+  const bool isBitmap = ImageDecoder::isBitmap(path);
+  m_isBitmap = isBitmap;
+
   int loadId = m_currentLoadId;
-  QFuture<LoadResult> future = QtConcurrent::run([this, path, loadId]() {
-    QMutexLocker locker(&m_processorMutex);
-    if (loadId != m_currentLoadId) return LoadResult{false, loadId};
-    bool ok = loadRawFileSync(path, loadId);
-    m_processor->dcraw_process();
-    libraw_processed_image_t* img = m_processor->dcraw_make_mem_image();
-    setSceneWhite(computeSceneWhite(img));
-    computeSceneStats(img);
-    LibRaw::dcraw_clear_mem(img);
-    img = nullptr;
-    return LoadResult{ok, loadId};
-  });
+  QFuture<LoadResult> future =
+      QtConcurrent::run([this, path, loadId, isBitmap]() {
+        QMutexLocker locker(&m_processorMutex);
+        if (loadId != m_currentLoadId) return LoadResult{false, loadId};
+
+        if (isBitmap) {
+          bool ok = loadBitmapFileSync(path, loadId);
+          if (!ok || loadId != m_currentLoadId) return LoadResult{false, loadId};
+          setSceneWhite(computeSceneWhite(m_customPixels.data(), m_customWidth,
+                                          m_customHeight, 3));
+          computeSceneStats(m_customPixels.data(), m_customWidth,
+                            m_customHeight, 3);
+          return LoadResult{ok, loadId};
+        }
+
+        bool ok = loadRawFileSync(path, loadId);
+        if (!ok || loadId != m_currentLoadId) return LoadResult{false, loadId};
+        m_processor->dcraw_process();
+        libraw_processed_image_t* img = m_processor->dcraw_make_mem_image();
+        if (img) {
+          const ushort* rgb = reinterpret_cast<const ushort*>(img->data);
+          setSceneWhite(
+              computeSceneWhite(rgb, img->width, img->height, img->colors));
+          computeSceneStats(rgb, img->width, img->height, img->colors);
+          LibRaw::dcraw_clear_mem(img);
+          img = nullptr;
+        }
+        return LoadResult{ok, loadId};
+      });
   m_loadWatcher.setFuture(future);
+}
+
+bool RawEngine::loadBitmapFileSync(const QString& path, int loadId) {
+  m_isLoaded = false;
+  clearProcessedImage();
+
+  photon::BitmapImage decoded = photon::ImageDecoder::decode(path);
+  if (decoded.pixels.empty() || decoded.width <= 0 || decoded.height <= 0) {
+    emit errorOccurred(QString("Failed to decode image: %1").arg(path));
+    return false;
+  }
+
+  if (loadId != m_currentLoadId) return false;
+
+  m_customPixels = std::move(decoded.pixels);
+  m_customWidth = decoded.width;
+  m_customHeight = decoded.height;
+
+  const QVariantMap meta = decoded.metadata;
+  const int orient = decoded.orientation;
+  QMetaObject::invokeMethod(
+      this,
+      [this, meta, orient, loadId]() {
+        if (loadId != m_currentLoadId) return;
+        m_metadata = meta;
+        m_orientation = orient;
+        emit metadataChanged();
+        emit orientationChanged();
+      },
+      Qt::QueuedConnection);
+
+  return true;
+}
+
+const ushort* RawEngine::activeRgbSource(int& width, int& height) const {
+  if (m_isBitmap && !m_customPixels.empty()) {
+    width = m_customWidth;
+    height = m_customHeight;
+    return m_customPixels.data();
+  }
+  if (m_processedImage) {
+    width = m_processedImage->width;
+    height = m_processedImage->height;
+    return reinterpret_cast<const ushort*>(m_processedImage->data);
+  }
+  return nullptr;
 }
 
 bool RawEngine::loadRawFileSync(const QString& path, int loadId) {
@@ -2489,6 +2563,10 @@ static QImage rotateImage(const QImage& img, int orient) {
 QImage RawEngine::getThumbnail() {
   if (!m_isLoaded) return QImage();
 
+  if (m_isBitmap) {
+    return ImageDecoder::extractThumbnail(m_source);
+  }
+
   int ret = m_processor->unpack_thumb();
   if (ret != LIBRAW_SUCCESS) return QImage();
 
@@ -2509,6 +2587,10 @@ QImage RawEngine::getThumbnail() {
 }
 
 QImage RawEngine::extractThumbnail(const QString& path) {
+  if (ImageDecoder::isBitmap(path)) {
+    return ImageDecoder::extractThumbnail(path);
+  }
+
   LibRaw processor;
   int ret = processor.open_file(path.toLocal8Bit().data());
   if (ret != LIBRAW_SUCCESS) return QImage();
@@ -2570,6 +2652,16 @@ const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
     height = m_denoisedHeight;
     colors = 4;
     return m_denoisedBuffer.data();
+  }
+
+  if (m_isBitmap) {
+    if (m_customPixels.empty() || m_customWidth <= 0 || m_customHeight <= 0) {
+      return nullptr;
+    }
+    width = m_customWidth;
+    height = m_customHeight;
+    colors = 3;  // RGB16
+    return reinterpret_cast<const uchar*>(m_customPixels.data());
   }
 
   if (!m_processedImage) {
@@ -3138,8 +3230,10 @@ void RawEngine::resetToOriginal() {
   // Force re-process to show clean original
   {
     QMutexLocker locker(&m_processorMutex);
-    clearProcessedImage();
-    updateProcessingParams();
+    if (!m_isBitmap) {
+      clearProcessedImage();
+      updateProcessingParams();
+    }
   }
   emit imageLoaded();
 }
@@ -3373,44 +3467,64 @@ void RawEngine::reloadWithGeometry() {
     QMutexLocker locker(&m_processorMutex);
     if (loadId != m_currentLoadId) return LoadResult{false, loadId};
 
-    // Re-decode from RAW file
-    bool ok = loadRawFileSync(path, loadId);
-    if (!ok || loadId != m_currentLoadId) return LoadResult{false, loadId};
-
-    if (!hasGeom) {
-      m_geometryBuffer.clear();
-      m_geometryWidth = 0;
-      m_geometryHeight = 0;
-      return LoadResult{true, loadId};
-    }
-
-    // Get processed image from LibRaw
-    if (!m_processedImage) {
-      int ret = m_processor->dcraw_process();
-      if (ret != LIBRAW_SUCCESS) return LoadResult{false, loadId};
-      m_processedImage = m_processor->dcraw_make_mem_image(&ret);
-      if (!m_processedImage) return LoadResult{false, loadId};
-    }
-
-    int w = m_processedImage->width;
-    int h = m_processedImage->height;
-    int colors = m_processedImage->colors;
-
-    // Convert LibRaw buffer to QImage
     QImage srcImg;
-    if (colors == 3) {
-      srcImg = QImage(w, h, QImage::Format_RGBX64);
-      const ushort* src =
-          reinterpret_cast<const ushort*>(m_processedImage->data);
+    if (m_isBitmap) {
+      if (m_customPixels.empty() || m_customWidth <= 0 ||
+          m_customHeight <= 0) {
+        return LoadResult{false, loadId};
+      }
+      if (!hasGeom) {
+        m_geometryBuffer.clear();
+        m_geometryWidth = 0;
+        m_geometryHeight = 0;
+        return LoadResult{true, loadId};
+      }
+      srcImg = QImage(m_customWidth, m_customHeight, QImage::Format_RGBX64);
+      const ushort* src = m_customPixels.data();
       QRgba64* dst = reinterpret_cast<QRgba64*>(srcImg.bits());
-      for (int i = 0; i < w * h; ++i) {
+      for (int i = 0; i < m_customWidth * m_customHeight; ++i) {
         dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1], src[i * 3 + 2],
                                      65535);
       }
     } else {
-      srcImg = QImage(reinterpret_cast<const uchar*>(m_processedImage->data), w,
-                      h, QImage::Format_RGBA64)
-                   .copy();
+      // Re-decode from RAW file
+      bool ok = loadRawFileSync(path, loadId);
+      if (!ok || loadId != m_currentLoadId) return LoadResult{false, loadId};
+
+      if (!hasGeom) {
+        m_geometryBuffer.clear();
+        m_geometryWidth = 0;
+        m_geometryHeight = 0;
+        return LoadResult{true, loadId};
+      }
+
+      // Get processed image from LibRaw
+      if (!m_processedImage) {
+        int ret = m_processor->dcraw_process();
+        if (ret != LIBRAW_SUCCESS) return LoadResult{false, loadId};
+        m_processedImage = m_processor->dcraw_make_mem_image(&ret);
+        if (!m_processedImage) return LoadResult{false, loadId};
+      }
+
+      int w = m_processedImage->width;
+      int h = m_processedImage->height;
+      int colors = m_processedImage->colors;
+
+      // Convert LibRaw buffer to QImage
+      if (colors == 3) {
+        srcImg = QImage(w, h, QImage::Format_RGBX64);
+        const ushort* src =
+            reinterpret_cast<const ushort*>(m_processedImage->data);
+        QRgba64* dst = reinterpret_cast<QRgba64*>(srcImg.bits());
+        for (int i = 0; i < w * h; ++i) {
+          dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1],
+                                       src[i * 3 + 2], 65535);
+        }
+      } else {
+        srcImg = QImage(reinterpret_cast<const uchar*>(m_processedImage->data),
+                        w, h, QImage::Format_RGBA64)
+                     .copy();
+      }
     }
 
     // Apply geometry transforms
@@ -3455,8 +3569,9 @@ void RawEngine::enterCropMode() {
   m_hasDenoisedResult = false;
   emit denoisingFinished();
 
-  // Force re-process from LibRaw (clear cached processed image)
-  {
+  // Force re-process from LibRaw (clear cached processed image).
+  // Rendered formats keep their decoded buffer as the source of truth.
+  if (!m_isBitmap) {
     QMutexLocker locker(&m_processorMutex);
     clearProcessedImage();
     updateProcessingParams();

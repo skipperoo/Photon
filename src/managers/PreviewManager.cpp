@@ -28,7 +28,10 @@ PreviewManager::PreviewManager(QObject* parent)
   m_threadPool->setMaxThreadCount(std::max(1, QThread::idealThreadCount() / 2));
 }
 
-PreviewManager::~PreviewManager() { cancelAll(); }
+PreviewManager::~PreviewManager() {
+  cancelAll();
+  if (s_instance == this) s_instance = nullptr;
+}
 
 PreviewManager* PreviewManager::instance() { return s_instance; }
 

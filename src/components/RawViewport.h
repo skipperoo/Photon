@@ -34,8 +34,26 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
                  temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
-  Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE
-                 setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
+  Q_PROPERTY(QString profile READ profile WRITE setProfile NOTIFY
+                 profileChanged)
+  Q_PROPERTY(int profileIndex READ profileIndex NOTIFY profileChanged)
+  Q_PROPERTY(QVariantList profileOptions READ profileOptions CONSTANT)
+  Q_PROPERTY(float bwMixRed READ bwMixRed WRITE setBwMixRed NOTIFY
+                 bwMixRedChanged)
+  Q_PROPERTY(float bwMixOrange READ bwMixOrange WRITE setBwMixOrange NOTIFY
+                 bwMixOrangeChanged)
+  Q_PROPERTY(float bwMixYellow READ bwMixYellow WRITE setBwMixYellow NOTIFY
+                 bwMixYellowChanged)
+  Q_PROPERTY(float bwMixGreen READ bwMixGreen WRITE setBwMixGreen NOTIFY
+                 bwMixGreenChanged)
+  Q_PROPERTY(float bwMixAqua READ bwMixAqua WRITE setBwMixAqua NOTIFY
+                 bwMixAquaChanged)
+  Q_PROPERTY(float bwMixBlue READ bwMixBlue WRITE setBwMixBlue NOTIFY
+                 bwMixBlueChanged)
+  Q_PROPERTY(float bwMixPurple READ bwMixPurple WRITE setBwMixPurple NOTIFY
+                 bwMixPurpleChanged)
+  Q_PROPERTY(float bwMixMagenta READ bwMixMagenta WRITE setBwMixMagenta NOTIFY
+                 bwMixMagentaChanged)
   Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY
                  grainAmountChanged)
   Q_PROPERTY(
@@ -259,8 +277,27 @@ class RawViewport : public QQuickItem {
   float tint() const { return m_engine.tint(); }
   void setTint(float val);
 
-  bool tonemappingEnabled() const { return m_engine.tonemappingEnabled(); }
-  void setTonemappingEnabled(bool enabled);
+  QString profile() const { return m_engine.profile(); }
+  void setProfile(const QString& profile);
+  int profileIndex() const { return m_engine.profileIndex(); }
+  QVariantList profileOptions() const { return m_engine.profileOptions(); }
+
+  float bwMixRed() const { return m_engine.bwMixRed(); }
+  void setBwMixRed(float val);
+  float bwMixOrange() const { return m_engine.bwMixOrange(); }
+  void setBwMixOrange(float val);
+  float bwMixYellow() const { return m_engine.bwMixYellow(); }
+  void setBwMixYellow(float val);
+  float bwMixGreen() const { return m_engine.bwMixGreen(); }
+  void setBwMixGreen(float val);
+  float bwMixAqua() const { return m_engine.bwMixAqua(); }
+  void setBwMixAqua(float val);
+  float bwMixBlue() const { return m_engine.bwMixBlue(); }
+  void setBwMixBlue(float val);
+  float bwMixPurple() const { return m_engine.bwMixPurple(); }
+  void setBwMixPurple(float val);
+  float bwMixMagenta() const { return m_engine.bwMixMagenta(); }
+  void setBwMixMagenta(float val);
 
   float grainAmount() const { return m_engine.grainAmount(); }
   void setGrainAmount(float val);
@@ -505,7 +542,15 @@ class RawViewport : public QQuickItem {
   void saturationChanged();
   void temperatureChanged();
   void tintChanged();
-  void tonemappingEnabledChanged();
+  void profileChanged();
+  void bwMixRedChanged();
+  void bwMixOrangeChanged();
+  void bwMixYellowChanged();
+  void bwMixGreenChanged();
+  void bwMixAquaChanged();
+  void bwMixBlueChanged();
+  void bwMixPurpleChanged();
+  void bwMixMagentaChanged();
   void grainAmountChanged();
   void grainSizeChanged();
   void grainRoughnessChanged();

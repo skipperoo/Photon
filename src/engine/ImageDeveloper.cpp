@@ -16,6 +16,7 @@
 
 #include "../managers/LogManager.h"
 #include "Denoiser.h"
+#include "DevelopProfile.h"
 #include "GpuSearcher.h"
 
 #if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86_FP)
@@ -835,7 +836,22 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float tint = obj["tint"].toDouble() / 100.0f;
   float sat_global = obj["saturation"].toDouble();
   float vib_global = obj["vibrance"].toDouble();
-  bool agx_enabled = obj["tonemappingEnabled"].toBool();
+  const QString profile =
+      obj.contains("profile")
+          ? develop::normalizeProfile(obj["profile"].toString())
+          : develop::legacyTonemappingToProfile(
+                obj["tonemappingEnabled"].toBool());
+  const int profileIndex = develop::profileToIndex(profile);
+  const bool bw_enabled = profileIndex == 2;
+  const bool agx_enabled = profileIndex == 1;
+  float bw_mix[8] = {float(obj["bwMixRed"].toDouble()),
+                     float(obj["bwMixOrange"].toDouble()),
+                     float(obj["bwMixYellow"].toDouble()),
+                     float(obj["bwMixGreen"].toDouble()),
+                     float(obj["bwMixAqua"].toDouble()),
+                     float(obj["bwMixBlue"].toDouble()),
+                     float(obj["bwMixPurple"].toDouble()),
+                     float(obj["bwMixMagenta"].toDouble())};
   float denoiseAmount = obj["denoiseAmount"].toDouble();
   bool denoiseEnabled = obj["denoiseEnabled"].toBool();
   bool denoiseSecondPass = obj["denoiseSecondPass"].toBool();
@@ -1071,8 +1087,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       sat_mult = mix(sat_mult * 0.35f, sat_mult, chromaProtect);
       lum_adj *= mix(0.4f, 1.0f, chromaProtect);
 
-      if (std::abs(hue_shift) > 1e-5f || std::abs(sat_mult) > 1e-5f ||
-          std::abs(lum_adj) > 1e-5f) {
+      if (!bw_enabled && (std::abs(hue_shift) > 1e-5f ||
+                          std::abs(sat_mult) > 1e-5f ||
+                          std::abs(lum_adj) > 1e-5f)) {
         OklabCpp lab = linear_srgb_to_oklab_cpp(std::max(0.0f, r),
                                                 std::max(0.0f, g),
                                                 std::max(0.0f, b));
@@ -1109,8 +1126,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       float w_h = smoothstep(h_start - cg_feather, h_start + cg_feather, l_cg);
       float w_m = std::max(0.0f, 1.0f - w_s - w_h);
 
-      if (cg[0].s != 0.0f || cg[1].s != 0.0f || cg[2].s != 0.0f ||
-          cg[0].l != 0.0f || cg[1].l != 0.0f || cg[2].l != 0.0f) {
+      if (!bw_enabled &&
+          (cg[0].s != 0.0f || cg[1].s != 0.0f || cg[2].s != 0.0f ||
+           cg[0].l != 0.0f || cg[1].l != 0.0f || cg[2].l != 0.0f)) {
         auto tintOk = [](const OklabCpp& lab, float hueDeg, float s, float l) {
           float hueOk = std::atan2(lab.b, lab.a);
           const float targetH = hueDeg * 0.01745329252f;
@@ -1142,7 +1160,8 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       }
 
       // 7. Saturation & Vibrance (Global) — perceptual chroma scaling in OKLab
-      if (std::abs(sat_global) > 0.001f || std::abs(vib_global) > 0.001f) {
+      if (!bw_enabled &&
+          (std::abs(sat_global) > 0.001f || std::abs(vib_global) > 0.001f)) {
         OklabCpp lab = linear_srgb_to_oklab_cpp(std::max(0.0f, r),
                                                 std::max(0.0f, g),
                                                 std::max(0.0f, b));
@@ -1207,6 +1226,29 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         r = mix(cr, r, blendClip);
         g = mix(cg, g, blendClip);
         b = mix(cb, b, blendClip);
+      }
+
+      // 8.7. Black & White conversion with per-band luminance mix
+      if (bw_enabled) {
+        HSV bw_hsv = rgb_to_hsv(std::max(0.0f, r), std::max(0.0f, g),
+                                std::max(0.0f, b));
+        float bwDelta = 0.0f;
+        for (int b_idx = 0; b_idx < 8; b_idx++) {
+          float dist = std::abs(bw_hsv.h / 360.0f - centers[b_idx]);
+          if (dist > 0.5f) dist = 1.0f - dist;
+          float effectiveWidth = widths[b_idx] * 1.25f;
+          float falloff = dist / (effectiveWidth * 0.5f);
+          float influence = std::exp(-0.85f * falloff * falloff);
+          bwDelta += (bw_mix[b_idx] / 100.0f) * influence;
+        }
+        bwDelta *= smoothstep(0.04f, 0.22f, bw_hsv.s);
+        const float gray =
+            get_luma_cpp(std::max(0.0f, r), std::max(0.0f, g),
+                         std::max(0.0f, b)) *
+            std::exp2(bwDelta);
+        r = std::max(0.0f, gray);
+        g = r;
+        b = r;
       }
 
       // 9. Linear to sRGB

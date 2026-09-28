@@ -26,6 +26,7 @@
 #include "../managers/LogManager.h"
 #include "../managers/PreviewManager.h"
 #include "Denoiser.h"
+#include "DevelopProfile.h"
 #include "GpuSearcher.h"
 #include "ImageDecoder.h"
 
@@ -978,10 +979,67 @@ void RawEngine::setTint(float val) {
   emit isDefaultChanged();
 }
 
-void RawEngine::setTonemappingEnabled(bool enabled) {
-  if (m_tonemappingEnabled == enabled) return;
-  m_tonemappingEnabled = enabled;
-  emit tonemappingEnabledChanged();
+void RawEngine::setProfile(const QString& profile) {
+  const QString normalized = develop::normalizeProfile(profile);
+  if (m_profile == normalized) return;
+  m_profile = normalized;
+  emit profileChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setBwMixRed(float val) {
+  if (qFuzzyCompare(m_bwMixRed, val)) return;
+  m_bwMixRed = val;
+  emit bwMixRedChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setBwMixOrange(float val) {
+  if (qFuzzyCompare(m_bwMixOrange, val)) return;
+  m_bwMixOrange = val;
+  emit bwMixOrangeChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setBwMixYellow(float val) {
+  if (qFuzzyCompare(m_bwMixYellow, val)) return;
+  m_bwMixYellow = val;
+  emit bwMixYellowChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setBwMixGreen(float val) {
+  if (qFuzzyCompare(m_bwMixGreen, val)) return;
+  m_bwMixGreen = val;
+  emit bwMixGreenChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setBwMixAqua(float val) {
+  if (qFuzzyCompare(m_bwMixAqua, val)) return;
+  m_bwMixAqua = val;
+  emit bwMixAquaChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setBwMixBlue(float val) {
+  if (qFuzzyCompare(m_bwMixBlue, val)) return;
+  m_bwMixBlue = val;
+  emit bwMixBlueChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setBwMixPurple(float val) {
+  if (qFuzzyCompare(m_bwMixPurple, val)) return;
+  m_bwMixPurple = val;
+  emit bwMixPurpleChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setBwMixMagenta(float val) {
+  if (qFuzzyCompare(m_bwMixMagenta, val)) return;
+  m_bwMixMagenta = val;
+  emit bwMixMagentaChanged();
   emit isDefaultChanged();
 }
 
@@ -1999,6 +2057,10 @@ void RawEngine::requestHistogramUpdate() {
   const float statsDetail = m_sceneDetailScale;
   const float statsPin = m_sceneHighlightPin;
   const float statsComp = m_sceneCompression;
+  const int profileIndex = develop::profileToIndex(m_profile);
+  std::vector<float> bw_mix = {m_bwMixRed,    m_bwMixOrange, m_bwMixYellow,
+                               m_bwMixGreen,  m_bwMixAqua,   m_bwMixBlue,
+                               m_bwMixPurple, m_bwMixMagenta};
 
   m_histogramFuture = QtConcurrent::run([this, src, imageWidth, imageHeight,
                                          totalPixels, step, histFineCache,
@@ -2007,7 +2069,8 @@ void RawEngine::requestHistogramUpdate() {
                                          temp, tint, hsl_h, hsl_s, hsl_l, cgSH,
                                          cgSS, cgSL, cgMH, cgMS, cgML, cgHH,
                                          cgHS, cgHL, cgBal, cgBlen, statsDetail,
-                                         statsPin, statsComp]() {
+                                         statsPin, statsComp, profileIndex,
+                                         bw_mix]() {
     std::vector<uint32_t> r_bins(256, 0);
     std::vector<uint32_t> g_bins(256, 0);
     std::vector<uint32_t> b_bins(256, 0);
@@ -2090,6 +2153,25 @@ void RawEngine::requestHistogramUpdate() {
         apply_luma_target_hist(r, g, b, lumaC, target);
       }
 
+      const bool blackAndWhite = (profileIndex == 2);
+      if (blackAndWhite) {
+        HSV bwHsv = rgb_to_hsv_cpp(r, g, b);
+        float mixDelta = 0.0f;
+        for (int b_idx = 0; b_idx < 8; b_idx++) {
+          float influence =
+              get_hsl_influence_cpp(bwHsv.h, centers[b_idx], widths[b_idx]);
+          mixDelta += (bw_mix[b_idx] / 100.0f) * influence;
+        }
+        mixDelta *= smoothstep(0.04f, 0.22f, bwHsv.s);
+        const float gray =
+            (0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
+             0.0722f * std::max(0.0f, b)) *
+            std::exp2(mixDelta);
+        r = std::max(0.0f, gray);
+        g = r;
+        b = r;
+      }
+
       // 5. HSL PANEL
       HSV hsv = rgb_to_hsv_cpp(r, g, b);
       float hue_shift = 0.0f;
@@ -2112,8 +2194,9 @@ void RawEngine::requestHistogramUpdate() {
       hue_shift *= chromaProtect;
       sat_mult = lerpF(sat_mult * 0.35f, sat_mult, chromaProtect);
       lum_adj *= lerpF(0.4f, 1.0f, chromaProtect);
-      if (std::abs(hue_shift) > 1e-5f || std::abs(sat_mult) > 1e-5f ||
-          std::abs(lum_adj) > 1e-5f) {
+      if (!blackAndWhite && (std::abs(hue_shift) > 1e-5f ||
+                             std::abs(sat_mult) > 1e-5f ||
+                             std::abs(lum_adj) > 1e-5f)) {
         OklabHist lab = linear_srgb_to_oklab_hist(std::max(0.0f, r),
                                                   std::max(0.0f, g),
                                                   std::max(0.0f, b));
@@ -2149,8 +2232,9 @@ void RawEngine::requestHistogramUpdate() {
           smoothstep(h_start - cgBlen * 0.4f, h_start + cgBlen * 0.4f, l_cg);
       float w_m = 1.0f - w_s - w_h;
 
-      if (cgSS != 0.0f || cgMS != 0.0f || cgHS != 0.0f || cgSL != 0.0f ||
-          cgML != 0.0f || cgHL != 0.0f) {
+      if (!blackAndWhite &&
+          (cgSS != 0.0f || cgMS != 0.0f || cgHS != 0.0f || cgSL != 0.0f ||
+           cgML != 0.0f || cgHL != 0.0f)) {
         auto tintOk = [](const OklabHist& lab, float hueDeg, float s, float l) {
           float hueOk = std::atan2(lab.b, lab.a);
           const float targetH = hueDeg * 0.01745329252f;
@@ -2692,7 +2776,15 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["saturation"] = e->saturation();
   obj["temperature"] = e->temperature();
   obj["tint"] = e->tint();
-  obj["tonemappingEnabled"] = e->tonemappingEnabled();
+  obj["profile"] = e->profile();
+  obj["bwMixRed"] = e->bwMixRed();
+  obj["bwMixOrange"] = e->bwMixOrange();
+  obj["bwMixYellow"] = e->bwMixYellow();
+  obj["bwMixGreen"] = e->bwMixGreen();
+  obj["bwMixAqua"] = e->bwMixAqua();
+  obj["bwMixBlue"] = e->bwMixBlue();
+  obj["bwMixPurple"] = e->bwMixPurple();
+  obj["bwMixMagenta"] = e->bwMixMagenta();
   obj["grainAmount"] = e->grainAmount();
   obj["grainSize"] = e->grainSize();
   obj["grainRoughness"] = e->grainRoughness();
@@ -2803,8 +2895,25 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("temperature"))
     e->setTemperature(obj["temperature"].toDouble());
   if (obj.contains("tint")) e->setTint(obj["tint"].toDouble());
-  if (obj.contains("tonemappingEnabled"))
-    e->setTonemappingEnabled(obj["tonemappingEnabled"].toBool());
+  if (obj.contains("profile")) {
+    e->setProfile(obj["profile"].toString());
+  } else if (obj.contains("tonemappingEnabled")) {
+    e->setProfile(develop::legacyTonemappingToProfile(
+        obj["tonemappingEnabled"].toBool()));
+  }
+  if (obj.contains("bwMixRed")) e->setBwMixRed(obj["bwMixRed"].toDouble());
+  if (obj.contains("bwMixOrange"))
+    e->setBwMixOrange(obj["bwMixOrange"].toDouble());
+  if (obj.contains("bwMixYellow"))
+    e->setBwMixYellow(obj["bwMixYellow"].toDouble());
+  if (obj.contains("bwMixGreen"))
+    e->setBwMixGreen(obj["bwMixGreen"].toDouble());
+  if (obj.contains("bwMixAqua")) e->setBwMixAqua(obj["bwMixAqua"].toDouble());
+  if (obj.contains("bwMixBlue")) e->setBwMixBlue(obj["bwMixBlue"].toDouble());
+  if (obj.contains("bwMixPurple"))
+    e->setBwMixPurple(obj["bwMixPurple"].toDouble());
+  if (obj.contains("bwMixMagenta"))
+    e->setBwMixMagenta(obj["bwMixMagenta"].toDouble());
   if (obj.contains("grainAmount"))
     e->setGrainAmount(obj["grainAmount"].toDouble());
   if (obj.contains("grainSize")) e->setGrainSize(obj["grainSize"].toDouble());
@@ -2965,7 +3074,15 @@ static void resetToDefaults(RawEngine* e) {
   e->setSaturation(0.0f);
   e->setTemperature(0.0f);
   e->setTint(0.0f);
-  e->setTonemappingEnabled(false);
+  e->setProfile(QString::fromLatin1(develop::kProfileNormal));
+  e->setBwMixRed(0.0f);
+  e->setBwMixOrange(0.0f);
+  e->setBwMixYellow(0.0f);
+  e->setBwMixGreen(0.0f);
+  e->setBwMixAqua(0.0f);
+  e->setBwMixBlue(0.0f);
+  e->setBwMixPurple(0.0f);
+  e->setBwMixMagenta(0.0f);
   e->setGrainAmount(0.0f);
   e->setGrainSize(1.0f);
   e->setGrainRoughness(0.5f);
@@ -3250,7 +3367,12 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_saturation)) return false;
   if (!qFuzzyIsNull(m_temperature)) return false;
   if (!qFuzzyIsNull(m_tint)) return false;
-  if (m_tonemappingEnabled) return false;
+  if (m_profile != QLatin1String(develop::kProfileNormal)) return false;
+  if (!qFuzzyIsNull(m_bwMixRed) || !qFuzzyIsNull(m_bwMixOrange) ||
+      !qFuzzyIsNull(m_bwMixYellow) || !qFuzzyIsNull(m_bwMixGreen) ||
+      !qFuzzyIsNull(m_bwMixAqua) || !qFuzzyIsNull(m_bwMixBlue) ||
+      !qFuzzyIsNull(m_bwMixPurple) || !qFuzzyIsNull(m_bwMixMagenta))
+    return false;
   if (!qFuzzyIsNull(m_grainAmount)) return false;
   if (!qFuzzyIsNull(m_vignetteAmount)) return false;
   if (!qFuzzyCompare(m_vignetteMidpoint, 50.0f)) return false;

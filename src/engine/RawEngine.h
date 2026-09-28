@@ -13,6 +13,8 @@
 #include <memory>
 #include <vector>
 
+#include "DevelopProfile.h"
+
 class QRhi;
 namespace photon {
 class GpuSearcher;
@@ -43,8 +45,24 @@ class RawEngine : public QObject {
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
                  temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
-  Q_PROPERTY(bool tonemappingEnabled READ tonemappingEnabled WRITE
-                 setTonemappingEnabled NOTIFY tonemappingEnabledChanged)
+  Q_PROPERTY(
+      QString profile READ profile WRITE setProfile NOTIFY profileChanged)
+  Q_PROPERTY(float bwMixRed READ bwMixRed WRITE setBwMixRed NOTIFY
+                 bwMixRedChanged)
+  Q_PROPERTY(float bwMixOrange READ bwMixOrange WRITE setBwMixOrange NOTIFY
+                 bwMixOrangeChanged)
+  Q_PROPERTY(float bwMixYellow READ bwMixYellow WRITE setBwMixYellow NOTIFY
+                 bwMixYellowChanged)
+  Q_PROPERTY(float bwMixGreen READ bwMixGreen WRITE setBwMixGreen NOTIFY
+                 bwMixGreenChanged)
+  Q_PROPERTY(float bwMixAqua READ bwMixAqua WRITE setBwMixAqua NOTIFY
+                 bwMixAquaChanged)
+  Q_PROPERTY(float bwMixBlue READ bwMixBlue WRITE setBwMixBlue NOTIFY
+                 bwMixBlueChanged)
+  Q_PROPERTY(float bwMixPurple READ bwMixPurple WRITE setBwMixPurple NOTIFY
+                 bwMixPurpleChanged)
+  Q_PROPERTY(float bwMixMagenta READ bwMixMagenta WRITE setBwMixMagenta NOTIFY
+                 bwMixMagentaChanged)
   Q_PROPERTY(float grainAmount READ grainAmount WRITE setGrainAmount NOTIFY
                  grainAmountChanged)
   Q_PROPERTY(
@@ -275,8 +293,29 @@ class RawEngine : public QObject {
   float tint() const { return m_tint; }
   void setTint(float val);
 
-  bool tonemappingEnabled() const { return m_tonemappingEnabled; }
-  void setTonemappingEnabled(bool enabled);
+  QString profile() const { return m_profile; }
+  void setProfile(const QString& profile);
+  int profileIndex() const { return photon::develop::profileToIndex(m_profile); }
+  QVariantList profileOptions() const {
+    return photon::develop::profileOptions();
+  }
+
+  float bwMixRed() const { return m_bwMixRed; }
+  void setBwMixRed(float val);
+  float bwMixOrange() const { return m_bwMixOrange; }
+  void setBwMixOrange(float val);
+  float bwMixYellow() const { return m_bwMixYellow; }
+  void setBwMixYellow(float val);
+  float bwMixGreen() const { return m_bwMixGreen; }
+  void setBwMixGreen(float val);
+  float bwMixAqua() const { return m_bwMixAqua; }
+  void setBwMixAqua(float val);
+  float bwMixBlue() const { return m_bwMixBlue; }
+  void setBwMixBlue(float val);
+  float bwMixPurple() const { return m_bwMixPurple; }
+  void setBwMixPurple(float val);
+  float bwMixMagenta() const { return m_bwMixMagenta; }
+  void setBwMixMagenta(float val);
 
   float grainAmount() const { return m_grainAmount; }
   void setGrainAmount(float val);
@@ -526,7 +565,15 @@ class RawEngine : public QObject {
   void saturationChanged();
   void temperatureChanged();
   void tintChanged();
-  void tonemappingEnabledChanged();
+  void profileChanged();
+  void bwMixRedChanged();
+  void bwMixOrangeChanged();
+  void bwMixYellowChanged();
+  void bwMixGreenChanged();
+  void bwMixAquaChanged();
+  void bwMixBlueChanged();
+  void bwMixPurpleChanged();
+  void bwMixMagentaChanged();
   void grainAmountChanged();
   void grainSizeChanged();
   void grainRoughnessChanged();
@@ -666,7 +713,15 @@ class RawEngine : public QObject {
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;
   float m_tint = 0.0f;
-  bool m_tonemappingEnabled = false;
+  QString m_profile = QStringLiteral("normal");
+  float m_bwMixRed = 0.0f;
+  float m_bwMixOrange = 0.0f;
+  float m_bwMixYellow = 0.0f;
+  float m_bwMixGreen = 0.0f;
+  float m_bwMixAqua = 0.0f;
+  float m_bwMixBlue = 0.0f;
+  float m_bwMixPurple = 0.0f;
+  float m_bwMixMagenta = 0.0f;
   float m_grainAmount = 0.0f;
   float m_grainSize = 1.0f;
   float m_grainRoughness = 0.5f;

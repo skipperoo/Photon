@@ -31,7 +31,7 @@ T.Dialog {
                 { "key": "whites", "label": "Whites" },
                 { "key": "blacks", "label": "Blacks" },
                 { "key": "adaptation", "label": "Adaptation" },
-                { "key": "tonemappingEnabled", "label": "AgX Tonemapping" }
+                { "key": "profile", "label": "Profile" }
             ]
         },
         {
@@ -65,6 +65,19 @@ T.Dialog {
                         "hslMagentaHue", "hslMagentaSaturation", "hslMagentaLuminance"
                     ]
                 }
+            ]
+        },
+        {
+            "label": "Black & White Mix",
+            "items": [
+                { "key": "bwMixRed", "label": "Red" },
+                { "key": "bwMixOrange", "label": "Orange" },
+                { "key": "bwMixYellow", "label": "Yellow" },
+                { "key": "bwMixGreen", "label": "Green" },
+                { "key": "bwMixAqua", "label": "Aqua" },
+                { "key": "bwMixBlue", "label": "Blue" },
+                { "key": "bwMixPurple", "label": "Purple" },
+                { "key": "bwMixMagenta", "label": "Magenta" }
             ]
         },
         {

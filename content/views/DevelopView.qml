@@ -12,6 +12,10 @@ Control {
     property real viewTopPadding: 0
     property bool maskAltPressed: false
 
+    readonly property string profileValue: (root.viewport && root.viewport.profile) ? root.viewport.profile : "normal"
+    readonly property int profileIndex: root.viewport ? root.viewport.profileIndex : 0
+    readonly property bool isBlackAndWhite: root.profileIndex === 2
+
     background: Rectangle {
         color: Theme.background
         border.color: Theme.border
@@ -79,6 +83,45 @@ Control {
                 }
             }
           }
+
+        // --- Profile Section ---
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            Layout.bottomMargin: 12
+            spacing: 12
+
+            Text {
+                text: "Profile"
+                font: Theme.fontRegular
+                color: Theme.foreground
+                Layout.fillWidth: true
+            }
+
+            PhotonComboBox {
+                id: profileCombo
+                Layout.preferredWidth: 180
+                model: root.viewport ? root.viewport.profileOptions : []
+                textRole: "label"
+                valueRole: "value"
+                Binding on currentIndex {
+                    value: {
+                        var options = root.viewport ? root.viewport.profileOptions : []
+                        for (var i = 0; i < options.length; ++i) {
+                            if (options[i].value === root.profileValue)
+                                return i
+                        }
+                        return 0
+                    }
+                }
+                onActivated: (index) => {
+                    if (!root.viewport) return
+                    root.viewport.profile = profileCombo.valueAt(index)
+                    root.viewport.commitEdit()
+                }
+            }
+        }
           
           // Background Loading & Denoise Indicators
         RowLayout {
@@ -200,22 +243,6 @@ Control {
                         ControlGroup { title: "Whites"; value: root.viewport ? root.viewport.whites : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.whites = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         ControlGroup { title: "Blacks"; value: root.viewport ? root.viewport.blacks : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.blacks = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         //ControlGroup { title: "Adaptation"; value: root.viewport ? root.viewport.adaptation : 9.0; from: 0; to: 100; defaultValue: 9.0; onMoved: (v) => { if(root.viewport) root.viewport.adaptation = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Text { 
-                                text: "AgX Tonemapping"
-                                font: Theme.fontRegular
-                                color: Theme.foreground
-                                Layout.fillWidth: true
-                            }
-                            PhotonSwitch { 
-                                checked: root.viewport ? root.viewport.tonemappingEnabled : false
-                                onClicked: if(root.viewport) { root.viewport.tonemappingEnabled = checked; root.viewport.commitEdit(); }
-                            }
-                        }
                     }
                 }
 
@@ -240,6 +267,7 @@ Control {
                 Collapsible {
                     title: "Presence"
                     expanded: false
+                    visible: !root.isBlackAndWhite
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -254,6 +282,7 @@ Control {
                 Collapsible {
                     title: "Color"
                     expanded: false
+                    visible: !root.isBlackAndWhite
 
                     ColumnLayout {
                         id: colorSection
@@ -321,10 +350,61 @@ Control {
                     }
                 }
 
+                // --- Black & White Mix Section ---
+                Collapsible {
+                    title: "Black & White Mix"
+                    expanded: false
+                    visible: root.isBlackAndWhite
+
+                    ColumnLayout {
+                        id: bwMixSection
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        readonly property var bands: [
+                            { "name": "Red", "color": "#ef4444", "key": "bwMixRed" },
+                            { "name": "Orange", "color": "#f97316", "key": "bwMixOrange" },
+                            { "name": "Yellow", "color": "#eab308", "key": "bwMixYellow" },
+                            { "name": "Green", "color": "#22c55e", "key": "bwMixGreen" },
+                            { "name": "Aqua", "color": "#06b6d4", "key": "bwMixAqua" },
+                            { "name": "Blue", "color": "#3b82f6", "key": "bwMixBlue" },
+                            { "name": "Purple", "color": "#a855f7", "key": "bwMixPurple" },
+                            { "name": "Magenta", "color": "#d946ef", "key": "bwMixMagenta" }
+                        ]
+
+                        Repeater {
+                            model: bwMixSection.bands
+
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 12
+
+                                Rectangle {
+                                    width: 24; height: 24; radius: 12
+                                    color: modelData.color
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
+
+                                ControlGroup {
+                                    Layout.fillWidth: true
+                                    title: modelData.name
+                                    value: root.viewport ? root.viewport[modelData.key] : 0
+                                    from: -100; to: 100
+                                    defaultValue: 0.0
+                                    onMoved: (v) => { if(root.viewport) root.viewport[modelData.key] = v }
+                                    onReleased: if(root.viewport) root.viewport.commitEdit()
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // --- Color Grading Section ---
                 Collapsible {
                     title: "Color Grading"
                     expanded: false
+                    visible: !root.isBlackAndWhite
 
                     ColumnLayout {
                         id: gradingSection

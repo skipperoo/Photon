@@ -24,7 +24,15 @@ layout(std140, binding = 0) uniform buf {
     float saturation;
     float temperature;
     float tint;
-    float tonemappingEnabled;
+    float profileIndex;
+    float bwMixRed;
+    float bwMixOrange;
+    float bwMixYellow;
+    float bwMixGreen;
+    float bwMixAqua;
+    float bwMixBlue;
+    float bwMixPurple;
+    float bwMixMagenta;
     float grainAmount;
     float grainSize;
     float grainRoughness;
@@ -778,6 +786,7 @@ void main()
     }
 
     // --- HSL PANEL ---
+    bool isBW = ubuf.profileIndex > 1.5;
     vec3 hsv = rgb_to_hsv(color);
     float hue = hsv.x;
     float sat = hsv.y;
@@ -810,7 +819,7 @@ void main()
     sat_mult = mix(sat_mult * 0.35, sat_mult, chromaProtect);
     lum_adj *= mix(0.4, 1.0, chromaProtect);
 
-    if (abs(hue_shift) > 1e-5 || abs(sat_mult) > 1e-5 || abs(lum_adj) > 1e-5) {
+    if (!isBW && (abs(hue_shift) > 1e-5 || abs(sat_mult) > 1e-5 || abs(lum_adj) > 1e-5)) {
         vec3 lab = linear_srgb_to_oklab(max(color, 0.0));
         float hueOk = atan(lab.z, lab.y) + hue_shift * 6.28318530718;
         float srcL = lab.x;
@@ -829,10 +838,12 @@ void main()
     }
 
     // --- COLOR GRADING --- (Applied before global saturation/vibrance)
-    color = color_grade(color, get_luma(max(color, 0.0)));
+    if (!isBW) {
+        color = color_grade(color, get_luma(max(color, 0.0)));
+    }
 
     // 6. Saturation & Vibrance (Global) — perceptual chroma scaling in OKLab
-    if (abs(ubuf.saturation) > 0.001 || abs(ubuf.vibrance) > 0.001) {
+    if (!isBW && (abs(ubuf.saturation) > 0.001 || abs(ubuf.vibrance) > 0.001)) {
         vec3 lab = linear_srgb_to_oklab(max(color, 0.0));
         float hueOk = atan(lab.z, lab.y);
         float chroma = length(lab.yz);
@@ -845,7 +856,7 @@ void main()
     }
 
     // 7. Tonemapping
-    if (ubuf.tonemappingEnabled > 0.5) {
+    if (ubuf.profileIndex > 0.5 && ubuf.profileIndex < 1.5) {
         color = agx_tonemap(color);
     }
 
@@ -871,6 +882,21 @@ void main()
 
         // Keep highlight data above 1.0 from the unclamped working color.
         color = mix(c, color, step(1.001, max(color.r, max(color.g, color.b))));
+    }
+
+    // 8.5. Black & White conversion with per-band luminance mix
+    if (ubuf.profileIndex > 1.5) {
+        vec3 bwHsv = rgb_to_hsv(max(color, 0.0));
+        float bwDelta = 0.0;
+        float bwCenters[8] = { 358.0/360.0, 25.0/360.0, 60.0/360.0, 115.0/360.0, 180.0/360.0, 225.0/360.0, 280.0/360.0, 330.0/360.0 };
+        float bwWidths[8] = { 35.0/360.0, 45.0/360.0, 40.0/360.0, 90.0/360.0, 60.0/360.0, 60.0/360.0, 55.0/360.0, 50.0/360.0 };
+        float bwAdjs[8] = { ubuf.bwMixRed, ubuf.bwMixOrange, ubuf.bwMixYellow, ubuf.bwMixGreen, ubuf.bwMixAqua, ubuf.bwMixBlue, ubuf.bwMixPurple, ubuf.bwMixMagenta };
+        for (int i = 0; i < 8; i++) {
+            bwDelta += (bwAdjs[i] / 100.0) * get_hsl_influence(bwHsv.x, bwCenters[i], bwWidths[i]);
+        }
+        bwDelta *= smoothstep(0.04, 0.22, bwHsv.y);
+        float bwGray = get_luma(max(color, 0.0)) * exp2(bwDelta);
+        color = vec3(max(bwGray, 0.0));
     }
 
     color = max(color, 0.0);

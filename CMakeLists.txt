@@ -53,6 +53,7 @@ qt_add_executable(Photon
     src/engine/ImageDeveloper.h
     src/engine/ImageDecoder.cpp
     src/engine/ImageDecoder.h
+    src/engine/DevelopProfile.h
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
     src/engine/patch_search.comp
@@ -166,6 +167,7 @@ qt_add_qml_module(Photon
         content/components/PhotonCheckbox.qml
         content/components/PhotonInput.qml
         content/components/PhotonSlider.qml
+        content/components/PhotonComboBox.qml
         content/components/PhotonScrollBar.qml
         content/components/PhotonToast.qml
         content/components/PhotonToastManager.qml

@@ -34,6 +34,8 @@ class TestRawEngine : public QObject {
   void testFileScannerIncludesBitmaps();
   void testBitmapExport();
   void testBitmapPreview();
+  void testProfileAndLegacyMigration();
+  void testBlackAndWhiteCpuDevelop();
 };
 
 namespace {
@@ -86,10 +88,32 @@ void TestRawEngine::testProperties() {
   QCOMPARE(engine.tint(), -10.0f);
   QCOMPARE(tintSpy.count(), 1);
 
-  QSignalSpy toneSpy(&engine, &RawEngine::tonemappingEnabledChanged);
-  engine.setTonemappingEnabled(true);
-  QCOMPARE(engine.tonemappingEnabled(), true);
-  QCOMPARE(toneSpy.count(), 1);
+  QSignalSpy profileSpy(&engine, &RawEngine::profileChanged);
+  engine.setProfile("agx");
+  QCOMPARE(engine.profile(), QString("agx"));
+  QCOMPARE(profileSpy.count(), 1);
+  engine.setProfile("blackAndWhite");
+  QCOMPARE(engine.profile(), QString("black_and_white"));
+  QCOMPARE(profileSpy.count(), 2);
+  engine.setProfile("black_and_white");
+  QCOMPARE(profileSpy.count(), 2);
+  QCOMPARE(engine.profileIndex(), 2);
+
+  const QVariantList profileOptions = engine.profileOptions();
+  QCOMPARE(profileOptions.size(), 3);
+  QCOMPARE(profileOptions.at(0).toMap().value("value").toString(),
+           QString("normal"));
+  QCOMPARE(profileOptions.at(0).toMap().value("label").toString(),
+           QString("Normal"));
+  QCOMPARE(profileOptions.at(2).toMap().value("value").toString(),
+           QString("black_and_white"));
+  QCOMPARE(profileOptions.at(2).toMap().value("label").toString(),
+           QString("Black & White"));
+
+  QSignalSpy mixSpy(&engine, &RawEngine::bwMixRedChanged);
+  engine.setBwMixRed(40.0f);
+  QCOMPARE(engine.bwMixRed(), 40.0f);
+  QCOMPARE(mixSpy.count(), 1);
 
   QSignalSpy grainSpy(&engine, &RawEngine::grainAmountChanged);
   engine.setGrainAmount(25.0f);
@@ -177,7 +201,7 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
 
   QJsonObject base;
   base["contrast"] = 1.0;
-  base["tonemappingEnabled"] = false;
+  base["profile"] = "normal";
   base["denoiseEnabled"] = false;
   base["sceneWhite"] = 1.0;
 
@@ -380,7 +404,7 @@ void TestRawEngine::testOklabCreativeOps() {
 
   QJsonObject base;
   base["contrast"] = 1.0;
-  base["tonemappingEnabled"] = false;
+  base["profile"] = "normal";
   base["denoiseEnabled"] = false;
   base["sceneWhite"] = 1.0;
 
@@ -543,7 +567,7 @@ void TestRawEngine::testToneCurveLumaMatchesReferenceMapping() {
 
   QJsonObject settings;
   settings["contrast"] = 1.0;
-  settings["tonemappingEnabled"] = false;
+  settings["profile"] = "normal";
   settings["denoiseEnabled"] = false;
   settings["toneCurveLuma"] = makeCurve({{0.0, 0.1}, {1.0, 1.0}});
   settings["toneCurveRed"] = makeCurve({{0.0, 0.0}, {1.0, 1.0}});
@@ -845,6 +869,126 @@ void TestRawEngine::testBitmapPreview() {
   QVERIFY(!cached.isNull());
   QCOMPARE(cached.width(), width);
   QCOMPARE(cached.height(), height);
+}
+
+void TestRawEngine::testProfileAndLegacyMigration() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath("legacy.jpg");
+  std::vector<uint8_t> jpegPixels(3 * 3 * 3, 120);
+  QVERIFY(BitmapTestUtils::writeJpegFile(path, 3, 3, jpegPixels));
+
+  const QString editsDir = dir.filePath(".PhotonData/edits");
+  QVERIFY(QDir().mkpath(editsDir));
+  QFile sidecar(editsDir + "/legacy.jpg.json");
+  QVERIFY(sidecar.open(QIODevice::WriteOnly));
+  sidecar.write(R"([{"exposure": 0.0, "tonemappingEnabled": true}])");
+  sidecar.close();
+
+  RawEngine engine;
+  QSignalSpy loadedSpy(&engine, &RawEngine::imageLoaded);
+  engine.setSource(path);
+  QTRY_VERIFY_WITH_TIMEOUT(loadedSpy.count() > 0, 30000);
+  QCOMPARE(engine.profile(), QString("agx"));
+
+  constexpr int w = 2;
+  constexpr int h = 1;
+  std::vector<ushort> src = {65535, 0, 0, 0, 0, 65535};
+
+  QJsonObject legacy;
+  legacy["tonemappingEnabled"] = true;
+  legacy["sceneWhite"] = 1.0;
+  legacy["denoiseEnabled"] = false;
+
+  QJsonObject modern;
+  modern["profile"] = "agx";
+  modern["sceneWhite"] = 1.0;
+  modern["denoiseEnabled"] = false;
+
+  const QImage legacyOut =
+      photon::ImageDeveloper::develop(src.data(), w, h, legacy);
+  const QImage modernOut =
+      photon::ImageDeveloper::develop(src.data(), w, h, modern);
+  QVERIFY(!legacyOut.isNull());
+  QCOMPARE(legacyOut, modernOut);
+}
+
+void TestRawEngine::testBlackAndWhiteCpuDevelop() {
+  constexpr int w = 4;
+  constexpr int h = 4;
+  std::vector<ushort> src(size_t(w) * size_t(h) * 3);
+  auto setPixel = [&](int px, ushort r, ushort g, ushort b) {
+    const size_t base = size_t(px) * 3;
+    src[base + 0] = r;
+    src[base + 1] = g;
+    src[base + 2] = b;
+  };
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const int px = y * w + x;
+      if (x < 2 && y < 2)
+        setPixel(px, 65535, 0, 0);
+      else if (x >= 2 && y < 2)
+        setPixel(px, 0, 0, 65535);
+      else if (x < 2 && y >= 2)
+        setPixel(px, 21845, 21845, 21845);
+      else
+        setPixel(px, 0, 65535, 0);
+    }
+  }
+
+  QJsonObject base;
+  base["profile"] = "black_and_white";
+  base["sceneWhite"] = 1.0;
+  base["denoiseEnabled"] = false;
+
+  const QImage out = photon::ImageDeveloper::develop(src.data(), w, h, base);
+  QVERIFY(!out.isNull());
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const QRgb pixel = out.pixel(x, y);
+      QCOMPARE(qRed(pixel), qGreen(pixel));
+      QCOMPARE(qGreen(pixel), qBlue(pixel));
+    }
+  }
+
+  auto averageLuma = [&](const QImage& image, int x0, int y0) {
+    double sum = 0.0;
+    for (int y = y0; y < y0 + 2; ++y) {
+      for (int x = x0; x < x0 + 2; ++x) {
+        sum += qGray(image.pixel(x, y));
+      }
+    }
+    return sum / 4.0;
+  };
+
+  const double redBase = averageLuma(out, 0, 0);
+  const double neutralBase = averageLuma(out, 0, 2);
+
+  QJsonObject redUp = base;
+  redUp["bwMixRed"] = 100.0;
+  QJsonObject redDown = base;
+  redDown["bwMixRed"] = -100.0;
+  QJsonObject blueUp = base;
+  blueUp["bwMixBlue"] = 100.0;
+
+  const QImage up = photon::ImageDeveloper::develop(src.data(), w, h, redUp);
+  const QImage down = photon::ImageDeveloper::develop(src.data(), w, h, redDown);
+  const QImage blue = photon::ImageDeveloper::develop(src.data(), w, h, blueUp);
+  QVERIFY(!up.isNull());
+  QVERIFY(!down.isNull());
+  QVERIFY(!blue.isNull());
+
+  QVERIFY(averageLuma(up, 0, 0) > redBase + 5.0);
+  QVERIFY(averageLuma(down, 0, 0) < redBase - 5.0);
+  QVERIFY(std::abs(averageLuma(up, 0, 2) - neutralBase) < 1.0);
+  QVERIFY(std::abs(averageLuma(blue, 0, 0) - redBase) < 2.0);
+
+  QJsonObject legacyToken = base;
+  legacyToken["profile"] = "blackAndWhite";
+  const QImage legacyImage =
+      photon::ImageDeveloper::develop(src.data(), w, h, legacyToken);
+  QCOMPARE(legacyImage, out);
 }
 
 QTEST_MAIN(TestRawEngine)

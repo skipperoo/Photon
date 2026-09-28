@@ -94,8 +94,40 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit tintChanged();
     update();
   });
-  connect(&m_engine, &RawEngine::tonemappingEnabledChanged, this, [this]() {
-    emit tonemappingEnabledChanged();
+  connect(&m_engine, &RawEngine::profileChanged, this, [this]() {
+    emit profileChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::bwMixRedChanged, this, [this]() {
+    emit bwMixRedChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::bwMixOrangeChanged, this, [this]() {
+    emit bwMixOrangeChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::bwMixYellowChanged, this, [this]() {
+    emit bwMixYellowChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::bwMixGreenChanged, this, [this]() {
+    emit bwMixGreenChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::bwMixAquaChanged, this, [this]() {
+    emit bwMixAquaChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::bwMixBlueChanged, this, [this]() {
+    emit bwMixBlueChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::bwMixPurpleChanged, this, [this]() {
+    emit bwMixPurpleChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::bwMixMagentaChanged, this, [this]() {
+    emit bwMixMagentaChanged();
     update();
   });
   connect(&m_engine, &RawEngine::isDefaultChanged, this,
@@ -512,10 +544,66 @@ void RawViewport::setTint(float val) {
   m_engine.requestHistogramUpdate();
 }
 
-void RawViewport::setTonemappingEnabled(bool enabled) {
-  if (m_engine.tonemappingEnabled() == enabled) return;
-  m_engine.setTonemappingEnabled(enabled);
-  emit tonemappingEnabledChanged();
+void RawViewport::setProfile(const QString& profile) {
+  if (m_engine.profile() == profile) return;
+  m_engine.setProfile(profile);
+  emit profileChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setBwMixRed(float val) {
+  if (qFuzzyCompare(m_engine.bwMixRed(), val)) return;
+  m_engine.setBwMixRed(val);
+  emit bwMixRedChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setBwMixOrange(float val) {
+  if (qFuzzyCompare(m_engine.bwMixOrange(), val)) return;
+  m_engine.setBwMixOrange(val);
+  emit bwMixOrangeChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setBwMixYellow(float val) {
+  if (qFuzzyCompare(m_engine.bwMixYellow(), val)) return;
+  m_engine.setBwMixYellow(val);
+  emit bwMixYellowChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setBwMixGreen(float val) {
+  if (qFuzzyCompare(m_engine.bwMixGreen(), val)) return;
+  m_engine.setBwMixGreen(val);
+  emit bwMixGreenChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setBwMixAqua(float val) {
+  if (qFuzzyCompare(m_engine.bwMixAqua(), val)) return;
+  m_engine.setBwMixAqua(val);
+  emit bwMixAquaChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setBwMixBlue(float val) {
+  if (qFuzzyCompare(m_engine.bwMixBlue(), val)) return;
+  m_engine.setBwMixBlue(val);
+  emit bwMixBlueChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setBwMixPurple(float val) {
+  if (qFuzzyCompare(m_engine.bwMixPurple(), val)) return;
+  m_engine.setBwMixPurple(val);
+  emit bwMixPurpleChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setBwMixMagenta(float val) {
+  if (qFuzzyCompare(m_engine.bwMixMagenta(), val)) return;
+  m_engine.setBwMixMagenta(val);
+  emit bwMixMagentaChanged();
   m_engine.requestHistogramUpdate();
 }
 

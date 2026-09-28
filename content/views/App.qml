@@ -756,7 +756,15 @@ Window {
                             property real saturation: rawViewport.saturation
                             property real temperature: rawViewport.temperature
                             property real tint: rawViewport.tint
-                            property real tonemappingEnabled: rawViewport.tonemappingEnabled ? 1.0 : 0.0
+                            property real profileIndex: rawViewport.profileIndex
+                            property real bwMixRed: rawViewport.bwMixRed
+                            property real bwMixOrange: rawViewport.bwMixOrange
+                            property real bwMixYellow: rawViewport.bwMixYellow
+                            property real bwMixGreen: rawViewport.bwMixGreen
+                            property real bwMixAqua: rawViewport.bwMixAqua
+                            property real bwMixBlue: rawViewport.bwMixBlue
+                            property real bwMixPurple: rawViewport.bwMixPurple
+                            property real bwMixMagenta: rawViewport.bwMixMagenta
                             property real grainAmount: rawViewport.grainAmount
                             property real grainSize: rawViewport.grainSize
                             property real grainRoughness: rawViewport.grainRoughness

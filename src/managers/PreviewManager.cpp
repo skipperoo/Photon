@@ -99,7 +99,7 @@ void PreviewManager::startFolderScan(const QString& folderPath) {
       }
 
       if (!isPreviewValid(path)) {
-        processItem(path);
+        processItem(path, true);
       }
 
       QMetaObject::invokeMethod(this, [this]() {

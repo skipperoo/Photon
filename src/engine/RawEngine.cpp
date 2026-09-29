@@ -727,7 +727,10 @@ RawEngine::RawEngine(QObject* parent)
             .arg(result.width())
             .arg(result.height()),
         PHOTON_DEBUG);
-    m_previewImage = result;
+    {
+      QMutexLocker locker(&m_previewImageMutex);
+      m_previewImage = result;
+    }
     emit previewImageChanged();
     LogManager::instance()->log("[ RawEngine ] - previewWatcher callback END",
                                 PHOTON_DEBUG);
@@ -760,7 +763,10 @@ RawEngine::~RawEngine() {
   m_histogramFuture.waitForFinished();
 
   releaseGpuResources();
-  clearProcessedImage();
+  {
+    QMutexLocker locker(&m_processorMutex);
+    clearProcessedImage();
+  }
 }
 
 void RawEngine::releaseGpuResources() {
@@ -811,13 +817,19 @@ void RawEngine::setSource(const QString& source) {
   }
 
   if (m_isLoaded) {
+    QMutexLocker locker(&m_processorMutex);
     clearProcessedImage();
   }
 
   // Clear preview image from previous photo to prevent showing it
   // while the new photo's preview loads
-  if (!m_previewImage.isNull()) {
-    m_previewImage = QImage();
+  bool hadPreview = false;
+  {
+    QMutexLocker locker(&m_previewImageMutex);
+    hadPreview = !m_previewImage.isNull();
+    if (hadPreview) m_previewImage = QImage();
+  }
+  if (hadPreview) {
     emit previewImageChanged();
   }
 
@@ -1999,6 +2011,8 @@ void RawEngine::requestHistogramUpdate() {
     return;
   }
 
+  QMutexLocker locker(&m_processorMutex);
+
   // Capture image data pointer and dimensions
   int imageWidth = 0;
   int imageHeight = 0;
@@ -2708,59 +2722,78 @@ QImage RawEngine::extractThumbnail(const QString& path) {
   return rotateImage(img, orient);
 }
 
-const uchar* RawEngine::getProcessedData(int& width, int& height, int& colors) {
-  if (!m_isLoaded) return nullptr;
-
+QImage RawEngine::getProcessedImage() {
   QMutexLocker locker(&m_processorMutex);
 
-  // If geometry is baked, return the transformed buffer
+  if (!m_isLoaded) return QImage();
+
+  // If geometry is baked, use the transformed buffer
   if (m_geometryBaked && !m_geometryBuffer.empty()) {
-    // Check for denoised result on the geometry buffer first
     if (!m_isPanning && m_denoiseEnabled && m_hasDenoisedResult &&
-        m_denoiseAmount > 0.0f) {
-      width = m_denoisedWidth;
-      height = m_denoisedHeight;
-      colors = 4;
-      return m_denoisedBuffer.data();
+        m_denoiseAmount > 0.0f && !m_denoisedBuffer.empty()) {
+      return QImage(m_denoisedBuffer.data(), m_denoisedWidth, m_denoisedHeight,
+                    QImage::Format_RGBA64)
+          .copy();
     }
-    width = m_geometryWidth;
-    height = m_geometryHeight;
-    colors = 4;  // RGBA64
-    return m_geometryBuffer.data();
+    if (m_geometryWidth <= 0 || m_geometryHeight <= 0) return QImage();
+    return QImage(m_geometryBuffer.data(), m_geometryWidth, m_geometryHeight,
+                  QImage::Format_RGBA64)
+        .copy();
   }
 
   // If panning, always show the noisy developed image (or a proxy)
   if (!m_isPanning && m_denoiseEnabled && m_hasDenoisedResult &&
-      m_denoiseAmount > 0.0f) {
-    width = m_denoisedWidth;
-    height = m_denoisedHeight;
-    colors = 4;
-    return m_denoisedBuffer.data();
+      m_denoiseAmount > 0.0f && !m_denoisedBuffer.empty()) {
+    return QImage(m_denoisedBuffer.data(), m_denoisedWidth, m_denoisedHeight,
+                  QImage::Format_RGBA64)
+        .copy();
   }
 
   if (m_isBitmap) {
     if (m_customPixels.empty() || m_customWidth <= 0 || m_customHeight <= 0) {
-      return nullptr;
+      return QImage();
     }
-    width = m_customWidth;
-    height = m_customHeight;
-    colors = 3;  // RGB16
-    return reinterpret_cast<const uchar*>(m_customPixels.data());
+    QImage image(m_customWidth, m_customHeight, QImage::Format_RGBX64);
+    const ushort* src = m_customPixels.data();
+    QRgba64* dst = reinterpret_cast<QRgba64*>(image.bits());
+    for (int i = 0; i < m_customWidth * m_customHeight; ++i) {
+      dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1], src[i * 3 + 2],
+                                   65535);
+    }
+    return image;
   }
 
   if (!m_processedImage) {
     int ret = m_processor->dcraw_process();
-    if (ret != LIBRAW_SUCCESS) return nullptr;
+    if (ret != LIBRAW_SUCCESS) return QImage();
 
     m_processedImage = m_processor->dcraw_make_mem_image(&ret);
-    if (!m_processedImage) return nullptr;
+    if (!m_processedImage) return QImage();
   }
 
-  width = m_processedImage->width;
-  height = m_processedImage->height;
-  colors = m_processedImage->colors;
+  const int width = m_processedImage->width;
+  const int height = m_processedImage->height;
+  if (width <= 0 || height <= 0) return QImage();
 
-  return m_processedImage->data;
+  if (m_processedImage->colors == 3) {
+    QImage image(width, height, QImage::Format_RGBX64);
+    const ushort* src = reinterpret_cast<const ushort*>(m_processedImage->data);
+    QRgba64* dst = reinterpret_cast<QRgba64*>(image.bits());
+    for (int i = 0; i < width * height; ++i) {
+      dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1], src[i * 3 + 2],
+                                   65535);
+    }
+    return image;
+  }
+
+  return QImage(reinterpret_cast<const uchar*>(m_processedImage->data), width,
+                height, QImage::Format_RGBA64)
+      .copy();
+}
+
+QImage RawEngine::previewImage() const {
+  QMutexLocker locker(&m_previewImageMutex);
+  return m_previewImage;
 }
 
 static QJsonObject stateToJson(const RawEngine* e) {
@@ -3653,7 +3686,7 @@ void RawEngine::reloadWithGeometry() {
     QImage transformed = applyGeometryTransforms(srcImg, orientSteps, flipH,
                                                  flipV, straighten, crop);
 
-    // Convert back to RGBA64 buffer for getProcessedData
+    // Convert back to RGBA64 buffer for getProcessedImage
     transformed = transformed.convertToFormat(QImage::Format_RGBA64);
     int tw = transformed.width();
     int th = transformed.height();

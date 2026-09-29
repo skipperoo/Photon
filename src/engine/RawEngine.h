@@ -249,7 +249,7 @@ class RawEngine : public QObject {
   void setSource(const QString& source);
 
   QString previewPath() const { return m_previewPath; }
-  QImage previewImage() const { return m_previewImage; }
+  QImage previewImage() const;
 
   QSize viewportSize() const { return m_viewportSize; }
   void setViewportSize(const QSize& size);
@@ -520,7 +520,10 @@ class RawEngine : public QObject {
 
   static QImage extractThumbnail(const QString& path);
 
-  const uchar* getProcessedData(int& width, int& height, int& colors);
+  // Returns a fully owned, display-ready copy of the current processed image.
+  // The copy is made while holding the processor mutex so the underlying
+  // buffers can never be freed or resized underneath the caller.
+  QImage getProcessedImage();
 
   QVariantMap currentSettings() const;
 
@@ -694,6 +697,7 @@ class RawEngine : public QObject {
   QString m_source;
   QString m_previewPath;
   QImage m_previewImage;
+  mutable QMutex m_previewImageMutex;
   QRhi* m_rhi = nullptr;
   class QQuickWindow* m_window = nullptr;
 
@@ -846,7 +850,7 @@ class RawEngine : public QObject {
   std::atomic<bool> m_abortDenoise{false};
   std::atomic<int> m_currentLoadId{0};
   bool m_hasDenoisedResult = false;
-  bool m_isLoaded = false;
+  std::atomic<bool> m_isLoaded{false};
 
   QFutureWatcher<LoadResult> m_loadWatcher;
   QFutureWatcher<QImage> m_denoiseWatcher;

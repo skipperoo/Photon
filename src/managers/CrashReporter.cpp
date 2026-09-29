@@ -32,6 +32,7 @@ namespace {
 
 constexpr int kBreadcrumbSize = 256;
 constexpr int kCrashDirSize = 1024;
+constexpr int kCrashPathSize = kCrashDirSize + 512;
 
 char s_crashDirUtf8[kCrashDirSize] = {};
 QString s_crashDir;
@@ -45,7 +46,7 @@ const char* currentBreadcrumb() {
 }
 
 void writeMarker(const char* reportPath) {
-  char marker[kCrashDirSize + 32];
+  char marker[kCrashPathSize];
   std::snprintf(marker, sizeof(marker), "%s/last-crash.txt", s_crashDirUtf8);
   FILE* file = std::fopen(marker, "w");
   if (!file) return;
@@ -66,7 +67,7 @@ void writeTerminateReport() {
                 PHOTON_VERSION_STRING, tmNow.tm_year + 1900, tmNow.tm_mon + 1,
                 tmNow.tm_mday, tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec);
 
-  char path[kCrashDirSize + 256];
+  char path[kCrashPathSize];
   std::snprintf(path, sizeof(path), "%s/%s.txt", s_crashDirUtf8, base);
   FILE* file = std::fopen(path, "w");
   if (file) {
@@ -82,10 +83,10 @@ void writeTerminateReport() {
 #ifdef _WIN32
 
 void appendWindowsTextReport(EXCEPTION_POINTERS* info, const char* base) {
-  char path[kCrashDirSize + 256];
+  char path[kCrashPathSize];
   std::snprintf(path, sizeof(path), "%s\\%s.txt", s_crashDirUtf8, base);
 
-  wchar_t widePath[kCrashDirSize + 256];
+  wchar_t widePath[kCrashPathSize];
   MultiByteToWideChar(CP_UTF8, 0, path, -1, widePath,
                       static_cast<int>(std::size(widePath)));
   FILE* file = _wfopen(widePath, L"w");
@@ -155,9 +156,9 @@ void writeWindowsCrashReport(EXCEPTION_POINTERS* info) {
                 PHOTON_VERSION_STRING, now.wYear, now.wMonth, now.wDay,
                 now.wHour, now.wMinute, now.wSecond);
 
-  char dumpPath[kCrashDirSize + 256];
+  char dumpPath[kCrashPathSize];
   std::snprintf(dumpPath, sizeof(dumpPath), "%s\\%s.dmp", s_crashDirUtf8, base);
-  wchar_t wideDumpPath[kCrashDirSize + 256];
+  wchar_t wideDumpPath[kCrashPathSize];
   MultiByteToWideChar(CP_UTF8, 0, dumpPath, -1, wideDumpPath,
                       static_cast<int>(std::size(wideDumpPath)));
 
@@ -196,7 +197,7 @@ void writePosixCrashReport(int signalNumber, siginfo_t* info) {
                 PHOTON_VERSION_STRING, tmNow.tm_year + 1900, tmNow.tm_mon + 1,
                 tmNow.tm_mday, tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec);
 
-  char path[kCrashDirSize + 256];
+  char path[kCrashPathSize];
   std::snprintf(path, sizeof(path), "%s/%s.txt", s_crashDirUtf8, base);
   const int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd >= 0) {

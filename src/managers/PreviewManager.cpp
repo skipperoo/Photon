@@ -27,6 +27,7 @@ PreviewManager::PreviewManager(QObject* parent)
     : QObject(parent), m_threadPool(new QThreadPool(this)) {
   s_instance = this;
   m_threadPool->setMaxThreadCount(std::max(1, QThread::idealThreadCount() / 2));
+  m_threadPool->setStackSize(4 * 1024 * 1024);
 }
 
 PreviewManager::~PreviewManager() {

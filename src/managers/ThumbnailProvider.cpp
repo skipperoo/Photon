@@ -19,6 +19,7 @@ ThumbnailProvider::ThumbnailProvider(QObject* parent)
     : QObject(parent), m_threadPool(new QThreadPool(this)) {
   // Set maximum thread count to limit resource usage
   m_threadPool->setMaxThreadCount(4);
+  m_threadPool->setStackSize(4 * 1024 * 1024);
 }
 
 ThumbnailProvider::~ThumbnailProvider() { m_threadPool->waitForDone(); }

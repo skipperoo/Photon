@@ -237,14 +237,16 @@ struct Vec3fCpp {
 };
 
 static const std::array<float, 65536>& srgb16_to_linear_lut_cpp() {
-  static const std::array<float, 65536> lut = [] {
-    std::array<float, 65536> v{};
-    for (size_t i = 0; i < v.size(); ++i) {
-      v[i] = srgb_to_linear_f(static_cast<float>(i) / 65535.0f);
+  struct Srgb16ToLinearLut {
+    std::array<float, 65536> values{};
+    Srgb16ToLinearLut() {
+      for (size_t i = 0; i < values.size(); ++i) {
+        values[i] = srgb_to_linear_f(static_cast<float>(i) / 65535.0f);
+      }
     }
-    return v;
-  }();
-  return lut;
+  };
+  static const Srgb16ToLinearLut lut;
+  return lut.values;
 }
 
 static float step_local(float edge, float x) { return x < edge ? 0.0f : 1.0f; }

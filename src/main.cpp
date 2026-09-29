@@ -10,6 +10,7 @@
 
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QThreadPool>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
@@ -216,6 +217,7 @@ int main(int argc, char* argv[]) {
   }
 
   QGuiApplication app(argc, argv);
+  QThreadPool::globalInstance()->setStackSize(4 * 1024 * 1024);
   photon::CrashReporter::install();
 
   // Needed by OpenCL during panorama stitching!!

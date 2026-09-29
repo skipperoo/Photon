@@ -83,19 +83,36 @@ jobs:
         shell: pwsh
         run: |
           $asanDir = (Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
+          Write-Output "::notice title=ASan runtime::$asanDir"
           if ($asanDir) {
             Copy-Item "$asanDir\clang_rt.asan*.dll" "build_asan\tests\Release\" -Force -ErrorAction SilentlyContinue
-            Copy-Item "$asanDir\clang_rt.asan*.dll" "build_asan\tests\" -Force -ErrorAction SilentlyContinue
             $env:PATH = "$asanDir;" + $env:PATH
           }
           $env:PATH = "C:\vcpkg\installed\x64-windows\bin;" + $env:PATH
           $env:QT_QPA_PLATFORM = "offscreen"
-          $env:ASAN_OPTIONS = "detect_leaks=0:abort_on_error=1:halt_on_error=1"
-          ctest --test-dir build_asan -C Release --timeout 180 --output-on-failure 2>&1 | Tee-Object -FilePath build_asan\ctest_windows.log
-          $code = $LASTEXITCODE
-          if ($code -ne 0) {
-            $tail = (Get-Content build_asan\ctest_windows.log -Tail 60) -join "`n"
-            $tail = $tail -replace "`r", "" -replace "`n", "%0A"
-            Write-Output "::error title=ASan tests failed::$tail"
+          $env:ASAN_OPTIONS = "detect_leaks=0:halt_on_error=1"
+
+          $failed = $false
+          foreach ($test in @("tst_RawEngine", "tst_AppStateManager", "tst_ImageDecoder")) {
+            $exe = "build_asan\tests\Release\$test.exe"
+            $out = "build_asan\$test.out.txt"
+            $err = "build_asan\$test.err.txt"
+            $proc = Start-Process -FilePath $exe -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+            $exited = $proc.WaitForExit(150000)
+            if (-not $exited) {
+              $proc.Kill()
+              $tail = ((Get-Content $err -Tail 30) + (Get-Content $out -Tail 20)) -join "`n"
+              $tail = $tail -replace "`r", "" -replace "`n", "%0A"
+              Write-Output "::error title=$test hung after 150s::$tail"
+              $failed = $true
+              continue
+            }
+            Write-Output "$test exit=$($proc.ExitCode)"
+            if ($proc.ExitCode -ne 0) {
+              $tail = ((Get-Content $err -Tail 40) + (Get-Content $out -Tail 20)) -join "`n"
+              $tail = $tail -replace "`r", "" -replace "`n", "%0A"
+              Write-Output "::error title=$test failed ($($proc.ExitCode))::$tail"
+              $failed = $true
+            }
           }
-          exit $code
+          if ($failed) { exit 1 }

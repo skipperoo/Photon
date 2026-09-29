@@ -1,5 +1,9 @@
 name: Build and Release
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [master, develop]
@@ -11,6 +15,7 @@ jobs:
   build:
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -47,13 +52,6 @@ jobs:
           key: vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
-
-      - name: Cache CMake build
-        uses: actions/cache@v4
-        with:
-          path: build_dir
-          key: cmake-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'src/**', 'content/**') }}
-          restore-keys: cmake-${{ runner.os }}-
 
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -163,6 +161,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       actions: read

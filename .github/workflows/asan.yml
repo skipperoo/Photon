@@ -40,6 +40,17 @@ jobs:
           sudo apt-get install -y libraw-dev libvulkan-dev libgl1-mesa-dev \
             libopencv-dev libtiff-dev liblcms2-dev libjpeg-turbo8-dev
 
+      - name: Cache vcpkg packages (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\downloads
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
@@ -60,7 +71,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:halt_on_error=1
-        run: ctest --test-dir build_asan --output-on-failure
+        run: ctest --test-dir build_asan --timeout 300 --output-on-failure
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
@@ -70,6 +81,7 @@ jobs:
           if ($asan) {
             $env:PATH = ($asan | Select-Object -First 1 -ExpandProperty DirectoryName) + ";" + $env:PATH
           }
+          $env:PATH = "C:\vcpkg\installed\x64-windows\bin;" + $env:PATH
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:ASAN_OPTIONS = "detect_leaks=0:abort_on_error=1:halt_on_error=1"
-          ctest --test-dir build_asan -C Release --output-on-failure
+          ctest --test-dir build_asan -C Release --timeout 300 --output-on-failure

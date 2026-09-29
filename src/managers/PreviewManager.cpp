@@ -15,6 +15,7 @@
 #include "../engine/ImageDeveloper.h"
 #include "../engine/ImageDecoder.h"
 #include "AppStateManager.h"
+#include "CrashReporter.h"
 #include "FileScanner.h"
 #include "LogManager.h"
 
@@ -181,6 +182,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
     }
   }
 
+  CrashReporter::setBreadcrumb(QString("preview %1").arg(rawPath));
   QFileInfo fileInfo(rawPath);
   QString cachePath = getCachePath(rawPath);
 

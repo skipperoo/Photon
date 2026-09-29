@@ -144,6 +144,20 @@ jobs:
           name: Photon-Linux
           path: Photon-x86_64.AppImage
 
+      - name: Upload Symbols (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Photon-Windows-Symbols
+          path: build_dir/Release/*.pdb
+
+      - name: Upload Symbols (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Photon-Linux-Symbols
+          path: build_dir/Photon
+
   release:
     name: Create Release
     needs: build
@@ -164,6 +178,8 @@ jobs:
           files: |
             artifacts/Photon-Windows/*.msi
             artifacts/Photon-Linux/*.AppImage
+            artifacts/Photon-Windows-Symbols/*.pdb
+            artifacts/Photon-Linux-Symbols/Photon
           fail_on_unmatched_files: true
           draft: false
           prerelease: ${{ github.ref == 'refs/heads/develop' }}

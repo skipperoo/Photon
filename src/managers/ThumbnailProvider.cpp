@@ -11,6 +11,7 @@
 #include <QThread>
 #include <QtConcurrent>
 
+#include "CrashReporter.h"
 #include "RawEngine.h"
 #include "../engine/ImageDecoder.h"
 
@@ -79,6 +80,8 @@ QImage ThumbnailProvider::loadThumbnailFromCache(
 }
 
 QImage ThumbnailProvider::generateThumbnail(const QString& imagePath) const {
+  photon::CrashReporter::setBreadcrumb(
+      QString("thumbnail %1").arg(imagePath));
   if (photon::ImageDecoder::isBitmap(imagePath)) {
     return photon::ImageDecoder::extractThumbnail(imagePath);
   }

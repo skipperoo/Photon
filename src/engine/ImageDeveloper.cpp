@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
@@ -14,6 +15,7 @@
 #include <cstdio>
 #include <numeric>
 
+#include "../managers/CrashReporter.h"
 #include "../managers/LogManager.h"
 #include "Denoiser.h"
 #include "DevelopProfile.h"
@@ -823,6 +825,20 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     return QImage();
   }
 
+  QElapsedTimer stageTimer;
+  stageTimer.start();
+  auto stage = [&](const char* name) {
+    CrashReporter::setBreadcrumb(
+        QString("develop %1x%2: %3").arg(width).arg(height).arg(name));
+    LogManager::instance()->log(
+        QString("[ ImageDeveloper ] - develop stage: %1 (%2 ms)")
+            .arg(name)
+            .arg(stageTimer.elapsed()),
+        PHOTON_DEBUG);
+    stageTimer.restart();
+  };
+  stage("params");
+
   // 1. Extract parameters from JSON
   float exp = obj["exposure"].toDouble();
   float con = obj["contrast"].toDouble(1.0);
@@ -954,6 +970,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   std::vector<float> lutGreen =
       evalMonotonicSplineLut(tcGreen, kToneLutEntries);
   std::vector<float> lutBlue = evalMonotonicSplineLut(tcBlue, kToneLutEntries);
+  stage("tone curves");
 
   // Check if tone curve is identity (skip application if so), using 16-bit
   // quantization to match shader LUT precision.
@@ -981,6 +998,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   const Photon001SceneStatsCpp sceneStats =
       photon001_compute_scene_stats_cpp(src, width, height, linearLut.data(),
                                         sceneWhite);
+  stage("scene stats");
 
   std::vector<Vec3fCpp> fineBlurH;
   std::vector<Vec3fCpp> coarseBlurH;
@@ -988,6 +1006,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                            false, fineBlurH);
   photon001_precompute_horizontal_blur_cpp(src, width, height, linearLut.data(),
                                            true, coarseBlurH);
+  stage("blur precompute");
 
   QImage output(width, height, QImage::Format_RGB888);
 
@@ -1270,6 +1289,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       scanline[x * 3 + 2] = (uchar)(std::clamp(b, 0.0f, 1.0f) * 255.0f);
     }
   });
+  stage("pixel loop");
 
   // 11. Denoising
   if (denoiseEnabled && denoiseAmount > 0.1f) {
@@ -1325,6 +1345,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       output = output.convertToFormat(QImage::Format_RGB888);
     }
   }
+  stage("denoise");
 
   // === Crop & Geometry transforms ===
   // 1. Orientation steps (90° rotations)
@@ -1416,6 +1437,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                   .arg(output.width())
                                   .arg(output.height()),
                               PHOTON_DEBUG);
+  stage("done");
   return output;
 }
 

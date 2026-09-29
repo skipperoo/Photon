@@ -2,6 +2,7 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <unistd.h>
 #endif
 
 #include <clocale>
@@ -13,12 +14,14 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QSysInfo>
 #include <QVulkanFunctions>
 #include <QVulkanInstance>
 #include <vector>
 
 #include "components/RawViewport.h"
 #include "managers/AppStateManager.h"
+#include "managers/CrashReporter.h"
 #include "managers/ExportManager.h"
 #include "managers/FileScanner.h"
 #include "managers/LogManager.h"
@@ -29,8 +32,79 @@
 #include "managers/ThumbnailProvider.h"
 #include "engine/Panorama.h"
 #include "components/ToneLutProvider.h"
+#include "Version.h"
 
 using namespace photon;
+
+namespace {
+
+QString cpuFeatures() {
+  QStringList features;
+#ifdef _WIN32
+#ifdef PF_SSE4_2_INSTRUCTIONS_AVAILABLE
+  if (IsProcessorFeaturePresent(PF_SSE4_2_INSTRUCTIONS_AVAILABLE))
+    features << "sse4.2";
+#endif
+#ifdef PF_AVX_INSTRUCTIONS_AVAILABLE
+  if (IsProcessorFeaturePresent(PF_AVX_INSTRUCTIONS_AVAILABLE))
+    features << "avx";
+#endif
+#ifdef PF_AVX2_INSTRUCTIONS_AVAILABLE
+  if (IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE))
+    features << "avx2";
+#endif
+#elif defined(__x86_64__) || defined(__i386__)
+  __builtin_cpu_init();
+  if (__builtin_cpu_supports("sse4.2")) features << "sse4.2";
+  if (__builtin_cpu_supports("avx")) features << "avx";
+  if (__builtin_cpu_supports("avx2")) features << "avx2";
+#endif
+  return features.isEmpty() ? QStringLiteral("unknown") : features.join(", ");
+}
+
+QString totalMemory() {
+#ifdef _WIN32
+  MEMORYSTATUSEX status{};
+  status.dwLength = sizeof(status);
+  if (GlobalMemoryStatusEx(&status)) {
+    return QString("%1 GB").arg(double(status.ullTotalPhys) /
+                                   (1024.0 * 1024.0 * 1024.0),
+                               0, 'f', 1);
+  }
+#elif defined(_SC_PHYS_PAGES)
+  const long pages = sysconf(_SC_PHYS_PAGES);
+  const long pageSize = sysconf(_SC_PAGESIZE);
+  if (pages > 0 && pageSize > 0) {
+    return QString("%1 GB").arg(double(pages) * double(pageSize) /
+                                   (1024.0 * 1024.0 * 1024.0),
+                               0, 'f', 1);
+  }
+#endif
+  return QStringLiteral("unknown");
+}
+
+void logEnvironment(photon::LogManager* logManager,
+                    AppStateManager* appState) {
+  logManager->log(
+      QString("[ App ] - Photon v%1 (%2), Qt %3")
+          .arg(PHOTON_VERSION_STRING, PHOTON_GIT_COMMIT, qVersion()),
+      PHOTON_INFO);
+  logManager->log(
+      QString("[ App ] - OS: %1 (%2), CPU features: %3, RAM: %4")
+          .arg(QSysInfo::prettyProductName(),
+               QSysInfo::currentCpuArchitecture(), cpuFeatures(),
+               totalMemory()),
+      PHOTON_INFO);
+  logManager->log(
+      QString("[ App ] - GPUs: %1").arg(appState->availableGpus().join(", ")),
+      PHOTON_INFO);
+  logManager->log(
+      QString("[ App ] - Crash reports: %1")
+          .arg(photon::CrashReporter::crashDirectory()),
+      PHOTON_INFO);
+}
+
+}  // namespace
 
 // Function pointer types for raw Vulkan discovery
 typedef VkResult (VKAPI_PTR *PFN_vkCreateInstance_t)(const VkInstanceCreateInfo*,
@@ -142,6 +216,7 @@ int main(int argc, char* argv[]) {
   }
 
   QGuiApplication app(argc, argv);
+  photon::CrashReporter::install();
 
   // Needed by OpenCL during panorama stitching!!
   std::setlocale(LC_NUMERIC, "C");
@@ -165,6 +240,16 @@ int main(int argc, char* argv[]) {
   appState->setParent(&app);
   auto* logManager = photon::LogManager::instance();
   logManager->setParent(&app);
+
+  const QString pendingCrash =
+      photon::CrashReporter::takePendingCrashReport();
+  if (!pendingCrash.isEmpty()) {
+    logManager->log(
+        QString("[ CrashReporter ] - Previous session crashed; report: %1")
+            .arg(pendingCrash),
+        PHOTON_WARNING);
+  }
+  logEnvironment(logManager, appState);
 
   engine.addImageProvider("thumbnail",
                           new ThumbnailImageProvider(thumbProvider));

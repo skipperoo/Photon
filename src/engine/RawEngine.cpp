@@ -25,6 +25,7 @@
 #include "../managers/AppStateManager.h"
 #include "../managers/LogManager.h"
 #include "../managers/PreviewManager.h"
+#include "CrashReporter.h"
 #include "Denoiser.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
@@ -2465,6 +2466,7 @@ void RawEngine::computeSceneStats(const ushort* rgb, int width, int height,
 }
 
 void RawEngine::loadRawFileAsync(const QString& path) {
+  CrashReporter::setBreadcrumb(QString("load %1").arg(path));
   m_isLoading = true;
   emit isLoadingChanged();
 
@@ -2489,6 +2491,7 @@ void RawEngine::loadRawFileAsync(const QString& path) {
 
         bool ok = loadRawFileSync(path, loadId);
         if (!ok || loadId != m_currentLoadId) return LoadResult{false, loadId};
+        CrashReporter::setBreadcrumb(QString("postprocess %1").arg(path));
         m_processor->dcraw_process();
         libraw_processed_image_t* img = m_processor->dcraw_make_mem_image();
         if (img) {
@@ -2505,6 +2508,7 @@ void RawEngine::loadRawFileAsync(const QString& path) {
 }
 
 bool RawEngine::loadBitmapFileSync(const QString& path, int loadId) {
+  CrashReporter::setBreadcrumb(QString("decode bitmap %1").arg(path));
   m_isLoaded = false;
   clearProcessedImage();
 
@@ -2519,6 +2523,11 @@ bool RawEngine::loadBitmapFileSync(const QString& path, int loadId) {
   m_customPixels = std::move(decoded.pixels);
   m_customWidth = decoded.width;
   m_customHeight = decoded.height;
+  CrashReporter::setBreadcrumb(
+      QString("decoded bitmap %1 (%2x%3)")
+          .arg(path)
+          .arg(m_customWidth)
+          .arg(m_customHeight));
 
   const QVariantMap meta = decoded.metadata;
   const int orient = decoded.orientation;
@@ -2723,6 +2732,7 @@ QImage RawEngine::extractThumbnail(const QString& path) {
 }
 
 QImage RawEngine::getProcessedImage() {
+  CrashReporter::setBreadcrumb(QStringLiteral("getProcessedImage"));
   QMutexLocker locker(&m_processorMutex);
 
   if (!m_isLoaded) return QImage();
@@ -3599,6 +3609,7 @@ QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
 void RawEngine::reloadWithGeometry() {
   if (m_source.isEmpty() || !m_isLoaded) return;
 
+  CrashReporter::setBreadcrumb(QString("geometry bake %1").arg(m_source));
   LogManager::instance()->log(
       "[ RawEngine.cpp ] - reloadWithGeometry: re-decoding with geometry bake",
       PHOTON_DEBUG);

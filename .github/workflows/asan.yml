@@ -1,0 +1,75 @@
+name: Sanitizers
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master, develop]
+  workflow_dispatch:
+
+jobs:
+  asan:
+    name: ASan ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            qt_ver: 6.10.2
+          - os: windows-latest
+            qt_ver: 6.10.2
+            qt_arch: win64_msvc2022_64
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ matrix.qt_ver }}
+          arch: ${{ matrix.qt_arch }}
+          modules: "qtshadertools"
+          cache: true
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libraw-dev libvulkan-dev libgl1-mesa-dev \
+            libopencv-dev libtiff-dev liblcms2-dev libjpeg-turbo8-dev
+
+      - name: Install Dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows libjpeg-turbo:x64-windows lcms:x64-windows
+
+      - name: Configure (ASan)
+        shell: bash
+        run: |
+          cmake -S . -B build_asan -DCMAKE_BUILD_TYPE=Release \
+            -DPHOTON_ENABLE_ASAN=ON \
+            ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake' || '' }}
+
+      - name: Build test targets
+        run: cmake --build build_asan --config Release --target tst_RawEngine tst_AppStateManager tst_ImageDecoder -j 4
+
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:halt_on_error=1
+        run: ctest --test-dir build_asan --output-on-failure
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $asan = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*.dll" -ErrorAction SilentlyContinue
+          if ($asan) {
+            $env:PATH = ($asan | Select-Object -First 1 -ExpandProperty DirectoryName) + ";" + $env:PATH
+          }
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:ASAN_OPTIONS = "detect_leaks=0:abort_on_error=1:halt_on_error=1"
+          ctest --test-dir build_asan -C Release --output-on-failure

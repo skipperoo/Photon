@@ -13,6 +13,7 @@ echo "[ build_release.sh ] - Building Photon in container and packaging AppImage
 docker run --rm \
     --user "$(id -u):$(id -g)" \
     -e HOME=/tmp \
+    -e PHOTON_GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
     -v "$(pwd)/dist:/app/dist" \
     "$IMAGE"
 

@@ -15,6 +15,7 @@
 #include <cstring>
 #include <functional>
 
+#include "CrashReporter.h"
 #include "LogManager.h"
 
 namespace photon {
@@ -766,11 +767,13 @@ BitmapImage decodeJpegPixels(const QString& path, int maxEdge) {
 }
 
 BitmapImage decodeJpeg(const QString& path, int maxEdge) {
+  CrashReporter::setBreadcrumb(QString("jpeg pixels %1").arg(path));
   BitmapImage image = decodeJpegPixels(path, maxEdge);
   if (image.pixels.empty()) return image;
 
   downscaleRgb16(image, maxEdge);
 
+  CrashReporter::setBreadcrumb(QString("jpeg metadata %1").arg(path));
   const ParsedMetadata parsed = parseJpegMetadata(path);
   image.orientation = mapOrientation(parsed.orientation);
   applyIccProfile(image, parsed.icc);
@@ -810,6 +813,7 @@ BitmapImage decodeTiffRgbaFallback(TIFF* tif, uint32_t width, uint32_t height) {
 }
 
 BitmapImage decodeTiff(const QString& path) {
+  CrashReporter::setBreadcrumb(QString("tiff pixels %1").arg(path));
   BitmapImage image;
   const QByteArray nativePath = QFile::encodeName(path);
   TIFF* tif = TIFFOpen(nativePath.constData(), "r");
@@ -956,6 +960,7 @@ BitmapImage decodeTiff(const QString& path) {
 
   TIFFClose(tif);
 
+  CrashReporter::setBreadcrumb(QString("tiff metadata %1").arg(path));
   const ParsedMetadata parsed = parseTiffMetadata(path);
   image.orientation = mapOrientation(parsed.orientation);
   applyIccProfile(image, parsed.icc);
@@ -996,6 +1001,7 @@ bool ImageDecoder::isBitmap(const QString& path) {
 }
 
 BitmapImage ImageDecoder::decode(const QString& path) {
+  CrashReporter::setBreadcrumb(QString("decode %1").arg(path));
   const QString extension = QFileInfo(path).suffix().toLower();
   if (extension == "jpg" || extension == "jpeg") {
     return decodeJpeg(path, 0);
@@ -1008,6 +1014,7 @@ BitmapImage ImageDecoder::decode(const QString& path) {
 }
 
 BitmapImage ImageDecoder::decodeScaled(const QString& path, int maxEdge) {
+  CrashReporter::setBreadcrumb(QString("decode scaled %1").arg(path));
   const QString extension = QFileInfo(path).suffix().toLower();
   if (extension == "jpg" || extension == "jpeg") {
     return decodeJpeg(path, maxEdge);

@@ -87,10 +87,10 @@ jobs:
           $asanDll = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
           $asanDir = if ($asanDll) { $asanDll.DirectoryName } else { "" }
 
-          $exes = @(Get-ChildItem -Path build_asan -Recurse -Filter "tst_*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '\\CMakeFiles\\' })
+          $exes = @(Get-ChildItem -Path build_asan -Recurse -Filter "tst_*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch [regex]::Escape("\CMakeFiles\") })
           $exeList = ($exes | ForEach-Object { $_.FullName }) -join " | "
-          Write-Host "ASan runtime dir: $asanDir"
-          Write-Host "Test executables: $exeList"
+          Write-Output "ASan runtime dir: $asanDir"
+          Write-Output "Test executables: $exeList"
 
           if ($asanDir) {
             Copy-Item "$asanDir\clang_rt.asan*.dll" -Destination (Split-Path $exes[0].FullName) -Force -ErrorAction SilentlyContinue
@@ -101,7 +101,7 @@ jobs:
           $env:ASAN_OPTIONS = "detect_leaks=0:halt_on_error=1"
 
           if ($exes.Count -eq 0) {
-            Write-Host "::error title=No test executables found::searched build_asan recursively; asan dir: $asanDir"
+            Write-Output "::error title=No test executables found::searched build_asan recursively; asan dir: $asanDir"
             exit 1
           }
 
@@ -114,7 +114,7 @@ jobs:
             try {
               $proc = Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err -ErrorAction Stop
             } catch {
-              Write-Host "::error title=$name failed to start::$($_.Exception.Message)"
+              Write-Output "::error title=$name failed to start::$($_.Exception.Message)"
               $failed = $true
               continue
             }
@@ -123,15 +123,15 @@ jobs:
               $proc.Kill()
               $tail = ((Get-Content $err -Tail 30 -ErrorAction SilentlyContinue) + (Get-Content $out -Tail 20 -ErrorAction SilentlyContinue)) -join "`n"
               $tail = $tail -replace "`r", "" -replace "`n", "%0A"
-              Write-Host "::error title=$name hung after 150s::$tail"
+              Write-Output "::error title=$name hung after 150s::$tail"
               $failed = $true
               continue
             }
-            Write-Host "$name exit=$($proc.ExitCode)"
+            Write-Output "$name exit=$($proc.ExitCode)"
             if ($proc.ExitCode -ne 0) {
               $tail = ((Get-Content $err -Tail 40 -ErrorAction SilentlyContinue) + (Get-Content $out -Tail 20 -ErrorAction SilentlyContinue)) -join "`n"
               $tail = $tail -replace "`r", "" -replace "`n", "%0A"
-              Write-Host "::error title=$name failed ($($proc.ExitCode))::$tail"
+              Write-Output "::error title=$name failed ($($proc.ExitCode))::$tail"
               $failed = $true
             }
           }

@@ -84,26 +84,48 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
 
-          $asanDll = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $asanDir = if ($asanDll) { $asanDll.DirectoryName } else { "" }
+          $vsPath = ""
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            $vsPath = (& $vswhere -latest -products * -property installationPath | Select-Object -First 1)
+          }
+
+          $asanDir = ""
+          $candidates = @()
+          if ($vsPath) {
+            $candidates += "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
+            $candidates += "$vsPath\VC\Tools\Llvm\x64\bin\clang_rt.asan_dynamic-x86_64.dll"
+          }
+          $candidates += "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
+          $candidates += "C:\Program Files\Microsoft Visual Studio\20*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
+          foreach ($pattern in $candidates) {
+            $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $asanDir = $found.DirectoryName; break }
+          }
+          if (-not $asanDir -and $vsPath -and (Test-Path "$vsPath\VC")) {
+            $found = Get-ChildItem -Path "$vsPath\VC" -Recurse -Filter "clang_rt.asan_dynamic-x86_64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $asanDir = $found.DirectoryName }
+          }
 
           $exes = @(Get-ChildItem -Path build_asan -Recurse -Filter "tst_*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch [regex]::Escape("\CMakeFiles\") })
           $exeList = ($exes | ForEach-Object { $_.FullName }) -join " | "
+          Write-Output "VS install: $vsPath"
           Write-Output "ASan runtime dir: $asanDir"
           Write-Output "Test executables: $exeList"
 
-          if ($asanDir) {
-            Copy-Item "$asanDir\clang_rt.asan*.dll" -Destination (Split-Path $exes[0].FullName) -Force -ErrorAction SilentlyContinue
-            $env:PATH = "$asanDir;$env:PATH"
+          if ($exes.Count -eq 0) {
+            Write-Output "::error title=No test executables found::searched build_asan recursively"
+            exit 1
           }
+          if (-not $asanDir) {
+            Write-Output "::error title=ASan runtime not found::searched VS install ($vsPath) and Program Files patterns"
+            exit 1
+          }
+          Copy-Item "$asanDir\clang_rt.asan*.dll" -Destination (Split-Path $exes[0].FullName) -Force -ErrorAction SilentlyContinue
+          $env:PATH = "$asanDir;$env:PATH"
           $env:PATH = "C:\vcpkg\installed\x64-windows\bin;$env:PATH"
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:ASAN_OPTIONS = "detect_leaks=0:halt_on_error=1"
-
-          if ($exes.Count -eq 0) {
-            Write-Output "::error title=No test executables found::searched build_asan recursively; asan dir: $asanDir"
-            exit 1
-          }
 
           $failed = $false
           foreach ($exe in $exes) {

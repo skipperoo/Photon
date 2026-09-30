@@ -91,16 +91,28 @@ jobs:
           }
 
           $asanDir = ""
-          $candidates = @()
           if ($vsPath) {
-            $candidates += "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
-            $candidates += "$vsPath\VC\Tools\Llvm\x64\bin\clang_rt.asan_dynamic-x86_64.dll"
+            $tsRoot = Join-Path $vsPath "VC\Tools\MSVC"
+            if (Test-Path $tsRoot) {
+              foreach ($ts in (Get-ChildItem $tsRoot -Directory | Sort-Object Name -Descending)) {
+                $candidate = Join-Path $ts.FullName "bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
+                if (Test-Path $candidate) { $asanDir = Split-Path $candidate; break }
+              }
+            }
+            if (-not $asanDir) {
+              $candidate = Join-Path $vsPath "VC\Tools\Llvm\x64\bin\clang_rt.asan_dynamic-x86_64.dll"
+              if (Test-Path $candidate) { $asanDir = Split-Path $candidate }
+            }
           }
-          $candidates += "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
-          $candidates += "C:\Program Files\Microsoft Visual Studio\20*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
-          foreach ($pattern in $candidates) {
-            $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) { $asanDir = $found.DirectoryName; break }
+          if (-not $asanDir) {
+            $candidates = @(
+              "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll",
+              "C:\Program Files\Microsoft Visual Studio\20*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll"
+            )
+            foreach ($pattern in $candidates) {
+              $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($found) { $asanDir = $found.DirectoryName; break }
+            }
           }
           if (-not $asanDir -and $vsPath -and (Test-Path "$vsPath\VC")) {
             $found = Get-ChildItem -Path "$vsPath\VC" -Recurse -Filter "clang_rt.asan_dynamic-x86_64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -156,5 +168,9 @@ jobs:
               Write-Output "::error title=$name failed ($($proc.ExitCode))::$tail"
               $failed = $true
             }
+          }
+          foreach ($f in Get-ChildItem build_asan -Filter "tst_*.err.txt" -ErrorAction SilentlyContinue) {
+            Write-Output "----- $($f.Name) (tail) -----"
+            Get-Content $f.FullName -Tail 80 | ForEach-Object { Write-Output $_ }
           }
           if ($failed) { exit 1 }

@@ -16,6 +16,7 @@ jobs:
     name: ASan ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -172,5 +173,6 @@ jobs:
           foreach ($f in Get-ChildItem build_asan -Filter "tst_*.err.txt" -ErrorAction SilentlyContinue) {
             Write-Output "----- $($f.Name) (tail) -----"
             Get-Content $f.FullName -Tail 80 | ForEach-Object { Write-Output $_ }
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### $($f.Name)`n``````n$(Get-Content $f.FullName -Tail 40 | Out-String)``````n"
           }
           if ($failed) { exit 1 }

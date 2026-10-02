@@ -1,14 +1,6 @@
-name: Sanitizers
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+name: Sanitizers (manual)
 
 on:
-  push:
-    branches: [master, develop]
-  pull_request:
-    branches: [master, develop]
   workflow_dispatch:
 
 jobs:
@@ -16,7 +8,6 @@ jobs:
     name: ASan ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:

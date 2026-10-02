@@ -34,6 +34,7 @@ class TestRawEngine : public QObject {
   void testFileScannerIncludesBitmaps();
   void testBitmapExport();
   void testBitmapPreview();
+  void testProcessedImageConcurrentSourceSwitch();
   void testProfileAndLegacyMigration();
   void testBlackAndWhiteCpuDevelop();
 };
@@ -715,15 +716,11 @@ void TestRawEngine::testBitmapJpegLoad() {
   QCOMPARE(errorSpy.count(), 0);
   QVERIFY(!engine.isLoading());
 
-  int decodedWidth = 0;
-  int decodedHeight = 0;
-  int colors = 0;
-  const uchar* data =
-      engine.getProcessedData(decodedWidth, decodedHeight, colors);
-  QVERIFY(data != nullptr);
-  QCOMPARE(decodedWidth, width);
-  QCOMPARE(decodedHeight, height);
-  QCOMPARE(colors, 3);
+  const QImage decodedImage = engine.getProcessedImage();
+  QVERIFY(!decodedImage.isNull());
+  QCOMPARE(decodedImage.width(), width);
+  QCOMPARE(decodedImage.height(), height);
+  QCOMPARE(decodedImage.format(), QImage::Format_RGBX64);
 
   QTRY_COMPARE(engine.metadata().value("lensModel").toString(),
                QString("Unknown Lens"));
@@ -754,36 +751,33 @@ void TestRawEngine::testBitmapTiffLoadAndGeometryBake() {
   engine.setSource(path);
   QTRY_VERIFY_WITH_TIMEOUT(loadedSpy.count() > 0, 30000);
 
-  int decodedWidth = 0;
-  int decodedHeight = 0;
-  int colors = 0;
-  const uchar* data =
-      engine.getProcessedData(decodedWidth, decodedHeight, colors);
-  QVERIFY(data != nullptr);
-  QCOMPARE(decodedWidth, width);
-  QCOMPARE(decodedHeight, height);
-  QCOMPARE(colors, 3);
-  const ushort* firstPixel = reinterpret_cast<const ushort*>(data);
-  QCOMPARE(firstPixel[0], uint16_t(1));
-  QCOMPARE(firstPixel[1], uint16_t(1));
+  const QImage decodedImage = engine.getProcessedImage();
+  QVERIFY(!decodedImage.isNull());
+  QCOMPARE(decodedImage.width(), width);
+  QCOMPARE(decodedImage.height(), height);
+  QCOMPARE(decodedImage.format(), QImage::Format_RGBX64);
+  const QRgba64 firstPixel =
+      reinterpret_cast<const QRgba64*>(decodedImage.constBits())[0];
+  QCOMPARE(firstPixel.red(), uint16_t(1));
+  QCOMPARE(firstPixel.green(), uint16_t(1));
 
   // Crop mode must keep the decoded buffer alive for rendered formats.
   engine.enterCropMode();
-  data = engine.getProcessedData(decodedWidth, decodedHeight, colors);
-  QVERIFY(data != nullptr);
-  QCOMPARE(decodedWidth, width);
-  QCOMPARE(decodedHeight, height);
+  const QImage cropImage = engine.getProcessedImage();
+  QVERIFY(!cropImage.isNull());
+  QCOMPARE(cropImage.width(), width);
+  QCOMPARE(cropImage.height(), height);
 
   // Bake a 90 degree rotation through the bitmap geometry path.
   engine.setOrientationSteps(1);
   engine.exitCropMode();
   QTRY_VERIFY_WITH_TIMEOUT(engine.geometryBaked(), 30000);
 
-  data = engine.getProcessedData(decodedWidth, decodedHeight, colors);
-  QVERIFY(data != nullptr);
-  QCOMPARE(decodedWidth, height);
-  QCOMPARE(decodedHeight, width);
-  QCOMPARE(colors, 4);
+  const QImage rotatedImage = engine.getProcessedImage();
+  QVERIFY(!rotatedImage.isNull());
+  QCOMPARE(rotatedImage.width(), height);
+  QCOMPARE(rotatedImage.height(), width);
+  QCOMPARE(rotatedImage.format(), QImage::Format_RGBA64);
 }
 
 void TestRawEngine::testFileScannerIncludesBitmaps() {
@@ -869,6 +863,55 @@ void TestRawEngine::testBitmapPreview() {
   QVERIFY(!cached.isNull());
   QCOMPARE(cached.width(), width);
   QCOMPARE(cached.height(), height);
+}
+
+void TestRawEngine::testProcessedImageConcurrentSourceSwitch() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString pathA = dir.filePath("a.tif");
+  const QString pathB = dir.filePath("b.tif");
+
+  const int widthA = 64;
+  const int heightA = 48;
+  const int widthB = 48;
+  const int heightB = 64;
+  std::vector<uint16_t> pixelsA(size_t(widthA) * size_t(heightA) * 3, 8000);
+  std::vector<uint16_t> pixelsB(size_t(widthB) * size_t(heightB) * 3, 20000);
+  QVERIFY(BitmapTestUtils::writeTiff16File(pathA, widthA, heightA, pixelsA));
+  QVERIFY(BitmapTestUtils::writeTiff16File(pathB, widthB, heightB, pixelsB));
+
+  RawEngine engine;
+  QSignalSpy loadedSpy(&engine, &RawEngine::imageLoaded);
+  engine.setSource(pathA);
+  QTRY_VERIFY_WITH_TIMEOUT(loadedSpy.count() > 0, 30000);
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> calls{0};
+  std::atomic<int> failures{0};
+  QFuture<void> worker = QtConcurrent::run([&]() {
+    while (!stop.load()) {
+      const QImage image = engine.getProcessedImage();
+      if (!image.isNull()) {
+        const bool validA = image.width() == widthA && image.height() == heightA;
+        const bool validB = image.width() == widthB && image.height() == heightB;
+        if (!validA && !validB) ++failures;
+      }
+      ++calls;
+    }
+  });
+
+  for (int i = 0; i < 40; ++i) {
+    engine.setSource(i % 2 == 0 ? pathB : pathA);
+    QTest::qWait(5);
+  }
+  QTest::qWait(300);
+  stop = true;
+  worker.waitForFinished();
+
+  QVERIFY(calls.load() > 0);
+  QCOMPARE(failures.load(), 0);
+  const QImage last = engine.getProcessedImage();
+  QVERIFY(!last.isNull());
 }
 
 void TestRawEngine::testProfileAndLegacyMigration() {

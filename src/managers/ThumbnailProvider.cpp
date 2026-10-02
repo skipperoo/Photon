@@ -11,6 +11,7 @@
 #include <QThread>
 #include <QtConcurrent>
 
+#include "CrashReporter.h"
 #include "RawEngine.h"
 #include "../engine/ImageDecoder.h"
 
@@ -18,6 +19,7 @@ ThumbnailProvider::ThumbnailProvider(QObject* parent)
     : QObject(parent), m_threadPool(new QThreadPool(this)) {
   // Set maximum thread count to limit resource usage
   m_threadPool->setMaxThreadCount(4);
+  m_threadPool->setStackSize(4 * 1024 * 1024);
 }
 
 ThumbnailProvider::~ThumbnailProvider() { m_threadPool->waitForDone(); }
@@ -79,6 +81,8 @@ QImage ThumbnailProvider::loadThumbnailFromCache(
 }
 
 QImage ThumbnailProvider::generateThumbnail(const QString& imagePath) const {
+  photon::CrashReporter::setBreadcrumb(
+      QString("thumbnail %1").arg(imagePath));
   if (photon::ImageDecoder::isBitmap(imagePath)) {
     return photon::ImageDecoder::extractThumbnail(imagePath);
   }

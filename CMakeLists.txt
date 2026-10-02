@@ -10,10 +10,25 @@ if(MSVC)
 endif()
 
 # Configure version header
+if(NOT DEFINED PHOTON_GIT_COMMIT OR PHOTON_GIT_COMMIT STREQUAL "")
+    execute_process(
+        COMMAND git rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE PHOTON_GIT_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT PHOTON_GIT_COMMIT)
+        set(PHOTON_GIT_COMMIT "unknown")
+    endif()
+endif()
+
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Version.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/Version.h"
 )
+
+option(PHOTON_ENABLE_ASAN "Build with AddressSanitizer" OFF)
 
 find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent GuiPrivate)
 find_package(Vulkan REQUIRED)
@@ -79,6 +94,8 @@ qt_add_executable(Photon
     src/managers/ExportManager.h
     src/managers/PreviewManager.cpp
     src/managers/PreviewManager.h
+    src/managers/CrashReporter.cpp
+    src/managers/CrashReporter.h
 )
 
 # Mark Theme.qml as a singleton (must be before qt_add_qml_module)
@@ -156,6 +173,8 @@ qt_add_qml_module(Photon
         src/managers/ExportManager.h
         src/managers/PreviewManager.cpp
         src/managers/PreviewManager.h
+        src/managers/CrashReporter.cpp
+        src/managers/CrashReporter.h
     QML_FILES
         content/views/App.qml
         content/views/WelcomeView.qml
@@ -239,6 +258,7 @@ if(WIN32)
         PRIVATE JPEG::JPEG
         PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
+        PRIVATE Dbghelp
     )
 else()
     target_link_libraries(Photon
@@ -254,11 +274,29 @@ endif()
 
 # Performance Optimizations
 if(MSVC)
-    target_compile_options(Photon PRIVATE /O2 /arch:AVX2 /GL)
-    target_link_options(Photon PRIVATE /LTCG)
+    target_compile_options(Photon PRIVATE /O2 /arch:AVX2 /Zi)
+    target_link_options(Photon PRIVATE /DEBUG)
+    if(NOT PHOTON_ENABLE_ASAN)
+        target_compile_options(Photon PRIVATE /GL)
+        target_link_options(Photon PRIVATE /LTCG)
+    endif()
 else()
-    target_compile_options(Photon PRIVATE -O3 -mavx2 -mfma -flto=auto)
-    target_link_options(Photon PRIVATE -flto=auto)
+    target_compile_options(Photon PRIVATE -O3 -mavx2 -mfma -g1)
+    target_link_options(Photon PRIVATE -rdynamic)
+    if(NOT PHOTON_ENABLE_ASAN)
+        target_compile_options(Photon PRIVATE -flto=auto)
+        target_link_options(Photon PRIVATE -flto=auto)
+    endif()
+endif()
+
+if(PHOTON_ENABLE_ASAN)
+    if(MSVC)
+        add_compile_options(/fsanitize=address /Zi)
+        add_link_options(/DEBUG)
+    else()
+        add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+        add_link_options(-fsanitize=address)
+    endif()
 endif()
 target_include_directories(Photon PRIVATE
     src

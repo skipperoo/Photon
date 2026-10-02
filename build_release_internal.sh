@@ -9,7 +9,8 @@ APPDIR=/tmp/Photon.AppDir
 rm -rf "$BUILD_DIR" "$APPDIR"
 mkdir -p "$BUILD_DIR" "$APPDIR/usr/share/fonts"
 
-cmake -S /app -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S /app -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DPHOTON_GIT_COMMIT="${PHOTON_GIT_COMMIT:-unknown}"
 cmake --build "$BUILD_DIR" -j"$(nproc)"
 
 export QMAKE="$(command -v qmake)"

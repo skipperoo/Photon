@@ -25,6 +25,8 @@ add_executable(tst_RawEngine
  ../src/engine/VulkanComputeContext.h
     ../src/managers/PreviewManager.cpp
     ../src/managers/PreviewManager.h
+    ../src/managers/CrashReporter.cpp
+    ../src/managers/CrashReporter.h
     ../src/managers/ExportManager.cpp
     ../src/managers/ExportManager.h
     ../src/managers/FileScanner.cpp
@@ -43,6 +45,7 @@ if(WIN32)
         PRIVATE JPEG::JPEG
         PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
+        PRIVATE Dbghelp
     )
 else()
     target_link_libraries(tst_RawEngine
@@ -88,6 +91,8 @@ add_executable(tst_AppStateManager
     ../src/managers/LogManager.h
     ../src/managers/PreviewManager.cpp
     ../src/managers/PreviewManager.h
+    ../src/managers/CrashReporter.cpp
+    ../src/managers/CrashReporter.h
     ../src/engine/ImageDeveloper.cpp
     ../src/engine/ImageDeveloper.h
     ../src/engine/ImageDecoder.cpp
@@ -112,6 +117,7 @@ if(WIN32)
         PRIVATE JPEG::JPEG
         PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
+        PRIVATE Dbghelp
     )
 else()
     target_link_libraries(tst_AppStateManager
@@ -153,6 +159,8 @@ add_executable(tst_ImageDecoder
     auto/tst_ImageDecoder.cpp
     ../src/engine/ImageDecoder.cpp
     ../src/engine/ImageDecoder.h
+    ../src/managers/CrashReporter.cpp
+    ../src/managers/CrashReporter.h
     ../src/managers/LogManager.cpp
     ../src/managers/LogManager.h
 )
@@ -163,6 +171,10 @@ target_link_libraries(tst_ImageDecoder
     PRIVATE JPEG::JPEG
     PRIVATE ${PHOTON_LCMS2_LIBRARIES}
 )
+
+if(WIN32)
+    target_link_libraries(tst_ImageDecoder PRIVATE Dbghelp)
+endif()
 
 target_include_directories(tst_ImageDecoder PRIVATE
     ../src

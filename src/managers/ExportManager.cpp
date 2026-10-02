@@ -13,6 +13,7 @@
 #include "../engine/ImageDeveloper.h"
 #include "../engine/ImageDecoder.h"
 #include "../engine/RawEngine.h"
+#include "CrashReporter.h"
 #include "LogManager.h"
 
 namespace photon {
@@ -61,6 +62,7 @@ void ExportManager::processExport(const QStringList& paths,
   for (const QString& path : paths) {
     if (m_abortExport) break;
 
+    CrashReporter::setBreadcrumb(QString("export %1").arg(path));
     QFileInfo fileInfo(path);
     QString outPath =
         outputFolder + "/" + fileInfo.baseName() + "." + format.toLower();

@@ -15,6 +15,7 @@
 #include "../engine/ImageDeveloper.h"
 #include "../engine/ImageDecoder.h"
 #include "AppStateManager.h"
+#include "CrashReporter.h"
 #include "FileScanner.h"
 #include "LogManager.h"
 
@@ -26,6 +27,7 @@ PreviewManager::PreviewManager(QObject* parent)
     : QObject(parent), m_threadPool(new QThreadPool(this)) {
   s_instance = this;
   m_threadPool->setMaxThreadCount(std::max(1, QThread::idealThreadCount() / 2));
+  m_threadPool->setStackSize(4 * 1024 * 1024);
 }
 
 PreviewManager::~PreviewManager() {
@@ -99,7 +101,7 @@ void PreviewManager::startFolderScan(const QString& folderPath) {
       }
 
       if (!isPreviewValid(path)) {
-        processItem(path);
+        processItem(path, true);
       }
 
       QMetaObject::invokeMethod(this, [this]() {
@@ -181,6 +183,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
     }
   }
 
+  CrashReporter::setBreadcrumb(QString("preview %1").arg(rawPath));
   QFileInfo fileInfo(rawPath);
   QString cachePath = getCachePath(rawPath);
 

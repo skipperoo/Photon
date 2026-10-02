@@ -1108,17 +1108,15 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
   QSGSimpleTextureNode* node = static_cast<QSGSimpleTextureNode*>(oldNode);
 
   if (m_textureDirty) {
-    QImage imgToRender;
-    int width, height, colors;
-    const uchar* data = m_engine.getProcessedData(width, height, colors);
+    QImage imgToRender = m_engine.getProcessedImage();
 
     // Check if we have full-resolution processed data (RAW is ready)
-    bool hasFullResData = (data && width > 0 && height > 0);
+    bool hasFullResData = !imgToRender.isNull();
 
     if (hasFullResData) {
       // Full resolution RAW data is ready - use it
-      m_bufferWidth = width;
-      m_bufferHeight = height;
+      m_bufferWidth = imgToRender.width();
+      m_bufferHeight = imgToRender.height();
 
       // Keep logical dimensions stable while showing partial denoise ROI.
       // ROI textures are temporary and should not drive targetRect/pan math.
@@ -1129,9 +1127,9 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
 
       // Update logical image dimensions only for full-frame buffers.
       if (!hasPartialDenoiseRoi &&
-          (m_imageWidth != width || m_imageHeight != height)) {
-        m_imageWidth = width;
-        m_imageHeight = height;
+          (m_imageWidth != m_bufferWidth || m_imageHeight != m_bufferHeight)) {
+        m_imageWidth = m_bufferWidth;
+        m_imageHeight = m_bufferHeight;
         QMetaObject::invokeMethod(
             this, [this]() { emit sourceSizeChanged(); },
             Qt::QueuedConnection);
@@ -1143,19 +1141,6 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
             this, [this]() { emit showingPreviewChanged(); },
             Qt::QueuedConnection);
       }
-
-      if (colors == 3) {
-        imgToRender = QImage(width, height, QImage::Format_RGBX64);
-        const ushort* src = reinterpret_cast<const ushort*>(data);
-        QRgba64* dst = reinterpret_cast<QRgba64*>(imgToRender.bits());
-        for (int i = 0; i < width * height; ++i) {
-          dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1],
-                                       src[i * 3 + 2], 65535);
-        }
-      } else if (colors == 4) {
-        imgToRender = QImage(data, width, height, QImage::Format_RGBA64).copy();
-      }
-
     } else if (m_engine.isLoading()) {
       // RAW is still loading - check for preview
       QImage previewImg = m_engine.previewImage();

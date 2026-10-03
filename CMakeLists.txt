@@ -250,6 +250,16 @@ set_target_properties(Photon PROPERTIES
 )
 
 if(WIN32)
+    file(TO_NATIVE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.ico" PHOTON_RC_ICON)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/photon.rc"
+        @ONLY
+    )
+    target_sources(Photon PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/photon.rc")
+endif()
+
+if(WIN32)
     target_link_libraries(Photon
       PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
         PRIVATE ${LibRaw_LIBRARIES}
@@ -383,7 +393,14 @@ if(WIN32)
   set(CPACK_PACKAGE_VENDOR "RBLabs")
   set(CPACK_PACKAGE_INSTALL_DIRECTORY "Photon")
   set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
-  set(CPACK_WIX_PRODUCT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.png")
+  set(CPACK_WIX_PRODUCT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.ico")
+  set(CPACK_WIX_UI_REF "WixUI_FeatureTree")
+  set(CPACK_WIX_ROOT_FEATURE_TITLE "Photon")
+  set(CPACK_WIX_ROOT_FEATURE_DESCRIPTION "Professional RAW image editor")
+  set(CPACK_PACKAGE_EXECUTABLES "Photon" "Photon")
+  set(CPACK_WIX_PROGRAM_MENU_FOLDER "Photon")
+  set(CPACK_WIX_EXTRA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wix/DesktopShortcut.wxs")
+  set(CPACK_WIX_PATCH_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wix/patch.xml")
   set(CPACK_PACKAGING_INSTALL_PREFIX "")
 endif()
 

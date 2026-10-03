@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CPackWiXPatch>
+  <CPackWiXFragment Id="#PRODUCTFEATURE">
+    <Feature Id="DesktopShortcut"
+             Title="Desktop Shortcut"
+             Description="Create a shortcut to Photon on the desktop."
+             Level="1"
+             Absent="allow"
+             Display="expand">
+      <ComponentRef Id="PhotonDesktopShortcut" />
+    </Feature>
+  </CPackWiXFragment>
+</CPackWiXPatch>

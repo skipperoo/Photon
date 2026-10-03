@@ -250,7 +250,7 @@ set_target_properties(Photon PROPERTIES
 )
 
 if(WIN32)
-    file(TO_NATIVE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.ico" PHOTON_RC_ICON)
+    set(PHOTON_RC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.ico")
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/photon.rc.in"
         "${CMAKE_CURRENT_BINARY_DIR}/photon.rc"

@@ -100,7 +100,16 @@ jobs:
 
           # Go back and create the package from the staging directory
           Set-Location ..\..
-          cpack -G WIX -C Release --config build_dir/CPackConfig.cmake
+          cpack -G WIX -C Release -V --config build_dir/CPackConfig.cmake
+          if ($LASTEXITCODE -ne 0) {
+            $wixLog = "_CPack_Packages\win64\WIX\wix.log"
+            if (Test-Path $wixLog) {
+              Write-Host "----- wix.log -----"
+              Get-Content $wixLog -Tail 200
+              Write-Host "-------------------"
+            }
+            exit $LASTEXITCODE
+          }
 
       - name: Package (Linux)
         if: runner.os == 'Linux'

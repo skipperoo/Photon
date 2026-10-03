@@ -9,7 +9,7 @@
         <Shortcut Id="PhotonDesktopShortcutLink"
                   Name="Photon"
                   Description="Professional RAW image editor"
-                  Target="[#CM_FP_bin.Photon.exe]"
+                  Target="[INSTALL_ROOT]\bin\Photon.exe"
                   WorkingDirectory="INSTALL_ROOT" />
         <RegistryValue Root="HKCU"
                        Key="Software\RBLabs\Photon"

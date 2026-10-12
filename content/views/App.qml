@@ -16,6 +16,19 @@ Window {
     property bool showTopbar: true
     property bool altKeyPressed: KeyTracker.altPressed
     property bool showOriginal: false
+    property int compareMode: 0 // 0 = off, 1 = split wipe, 2 = side-by-side
+    property real splitPos: 0.5
+
+    function toggleCompareMode(mode) {
+        window.showOriginal = false
+        window.compareMode = window.compareMode === mode ? 0 : mode
+    }
+
+    function toggleCompareOriginal() {
+        window.showOriginal = !window.showOriginal
+        if (window.showOriginal)
+            window.compareMode = 0
+    }
 
     // Sort settings shared between library and filmstrip
     property int sortProperty: 0      // 0: Name, 1: Date, 2: Rating
@@ -338,8 +351,10 @@ Window {
         
         Shortcut { sequence: "Left"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(-1) }
         Shortcut { sequence: "Right"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(1) }
-        Shortcut { sequence: "\\"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
-        Shortcut { sequence: "B"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
+        Shortcut { sequence: "\\"; context: Qt.WindowShortcut; onActivated: window.toggleCompareOriginal() }
+        Shortcut { sequence: "B"; context: Qt.WindowShortcut; onActivated: window.toggleCompareOriginal() }
+        Shortcut { sequence: "Y"; context: Qt.WindowShortcut; onActivated: window.toggleCompareMode(2) }
+        Shortcut { sequence: "Shift+Y"; context: Qt.WindowShortcut; onActivated: window.toggleCompareMode(1) }
 
         // Crop panel: ESC to discard, Enter to apply
         Shortcut {
@@ -744,6 +759,8 @@ Window {
                             }
                             property real toneCurveActive: rawViewport.toneCurveActive ? 1.0 : 0.0
                             property real showOriginal: window.showOriginal ? 1.0 : 0.0
+                            property real compareMode: window.compareMode
+                            property real splitPos: window.splitPos
                             property real exposure: rawViewport.exposure
                             property real contrast: rawViewport.contrast
                             property real highlights: rawViewport.highlights
@@ -835,6 +852,74 @@ Window {
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                             }
                         } // shaderClip
+
+                        // --- Before/After compare overlay ---
+                        Item {
+                            anchors.fill: rawViewport
+                            z: 50
+
+                            Rectangle {
+                                id: splitDivider
+                                visible: window.compareMode === 1
+                                x: Math.round(window.splitPos * parent.width) - 1
+                                width: 2
+                                height: parent.height
+                                color: "white"
+                                opacity: 0.85
+
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 14
+                                    height: 34
+                                    radius: 7
+                                    color: Qt.rgba(0, 0, 0, 0.55)
+                                    border.color: "white"
+                                    border.width: 1
+                                }
+                            }
+
+                            MouseArea {
+                                id: splitDragArea
+                                visible: window.compareMode === 1
+                                x: splitDivider.x - 10
+                                width: 22
+                                height: parent.height
+                                cursorShape: Qt.SplitHCursor
+                                preventStealing: true
+                                onPositionChanged: function(mouse) {
+                                    if (!pressed)
+                                        return
+                                    var px = x + mouse.x
+                                    window.splitPos = Math.max(0.02, Math.min(0.98, px / parent.width))
+                                }
+                                onDoubleClicked: window.splitPos = 0.5
+                            }
+
+                            Rectangle {
+                                visible: window.compareMode === 2
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.margins: 12
+                                width: 62
+                                height: 24
+                                radius: 12
+                                color: Qt.rgba(0, 0, 0, 0.6)
+                                Text { anchors.centerIn: parent; text: "Before"; color: "white"; font: Theme.fontSmall }
+                            }
+
+                            Rectangle {
+                                visible: window.compareMode === 2
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: 12
+                                width: 54
+                                height: 24
+                                radius: 12
+                                color: Qt.rgba(0, 0, 0, 0.6)
+                                Text { anchors.centerIn: parent; text: "After"; color: "white"; font: Theme.fontSmall }
+                            }
+                        }
 
                         // Crop overlay (axis-aligned, outside transform group)
                         CropOverlay {
@@ -1010,7 +1095,7 @@ Window {
                             Text {
                                 id: toastText
                                 anchors.centerIn: parent
-                                text: window.showOriginal ? "Before" : "After"
+                                text: window.showOriginal ? "Before" : (window.compareMode === 1 ? "Split View" : (window.compareMode === 2 ? "Side by Side" : "After"))
                                 color: "white"
                                 font: Theme.fontMedium
                             }
@@ -1022,6 +1107,11 @@ Window {
                             Connections {
                                 target: window
                                 function onShowOriginalChanged() {
+                                    toastFadeOut.stop();
+                                    toastFadeIn.start();
+                                    toastHideTimer.restart();
+                                }
+                                function onCompareModeChanged() {
                                     toastFadeOut.stop();
                                     toastFadeIn.start();
                                     toastHideTimer.restart();
@@ -1093,7 +1183,7 @@ Window {
                                     opacity: enabled ? 1.0 : 0.3
                                     T.ToolTip.visible: hovered
                                     T.ToolTip.text: "Undo"
-                                    display: AbstractButton.IconOnly
+                                    display: T.AbstractButton.IconOnly
                                     padding: 0
                                     background: null
                                 }
@@ -1112,7 +1202,7 @@ Window {
                                     opacity: enabled ? 1.0 : 0.3
                                     T.ToolTip.visible: hovered
                                     T.ToolTip.text: "Redo"
-                                    display: AbstractButton.IconOnly
+                                    display: T.AbstractButton.IconOnly
                                     padding: 0
                                     background: null
                                 }
@@ -1131,7 +1221,7 @@ Window {
                                     opacity: enabled ? 1.0 : 0.3
                                     T.ToolTip.visible: hovered
                                     T.ToolTip.text: "Restore to Original"
-                                    display: AbstractButton.IconOnly
+                                    display: T.AbstractButton.IconOnly
                                     padding: 0
                                     background: null
                                 }
@@ -1144,11 +1234,45 @@ Window {
                                     icon.color: window.showOriginal ? Theme.accent : "white"
                                     implicitWidth: 24
                                     implicitHeight: 24
-                                    onClicked: window.showOriginal = !window.showOriginal
+                                    onClicked: window.toggleCompareOriginal()
                                     flat: true
                                     T.ToolTip.visible: hovered
                                     T.ToolTip.text: "Before/After (B or \\)"
-                                    display: AbstractButton.IconOnly
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
+                                T.Button {
+                                    id: compareBtn
+                                    icon.source: "qrc:/Main/assets/icons/compare.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: window.compareMode === 2 ? Theme.accent : "white"
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: window.toggleCompareMode(2)
+                                    flat: true
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Side by Side (Y)"
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
+                                T.Button {
+                                    id: splitCompareBtn
+                                    icon.source: "qrc:/Main/assets/icons/split.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: window.compareMode === 1 ? Theme.accent : "white"
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: window.toggleCompareMode(1)
+                                    flat: true
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Before/After Split (Shift+Y)"
+                                    display: T.AbstractButton.IconOnly
                                     padding: 0
                                     background: null
                                 }

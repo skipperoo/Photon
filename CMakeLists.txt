@@ -237,6 +237,8 @@ qt_add_qml_module(Photon
         assets/icons/folder.svg
         assets/icons/home.svg
         assets/icons/eye.svg
+        assets/icons/compare.svg
+        assets/icons/split.svg
         assets/icons/copy.svg
         assets/icons/clipboard-paste.svg
         assets/icons/star.svg

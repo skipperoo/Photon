@@ -85,6 +85,10 @@ layout(std140, binding = 0) uniform buf {
     vec3 calibRowG;
     vec3 calibRowB;
     float calibShadowsTint;
+
+    // Before/after compare (0 = off, 1 = split wipe, 2 = side-by-side)
+    float compareMode;
+    float splitPos;
 } ubuf;
 
 const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
@@ -710,22 +714,51 @@ float dither(vec2 p) {
 void main()
 {
     vec2 pixelPos = qt_TexCoord0 * ubuf.viewportSize;
-    if (pixelPos.x < ubuf.imageRect.x || pixelPos.x > ubuf.imageRect.x + ubuf.imageRect.z ||
-        pixelPos.y < ubuf.imageRect.y || pixelPos.y > ubuf.imageRect.y + ubuf.imageRect.w) {
-        fragColor = ubuf.backgroundColor;
-        return;
+    vec2 canvasUV = qt_TexCoord0;
+    vec2 imgCoord;
+    bool showBase = ubuf.showOriginal > 0.5;
+
+    if (ubuf.compareMode > 1.5) {
+        // Side by side: both panes show the currently visible region, left
+        // pane before, right pane after. Only pixels already inside the canvas
+        // exist in the base texture, so the visible window is fitted per pane.
+        vec2 canvas = ubuf.viewportSize;
+        float gap = 12.0;
+        float paneW = (canvas.x - gap) * 0.5;
+        float paneX = 0.0;
+        if (pixelPos.x >= paneW + gap * 0.5) {
+            paneX = paneW + gap;
+        } else {
+            showBase = true;
+        }
+        vec2 visMin = clamp(ubuf.imageRect.xy, vec2(0.0), canvas);
+        vec2 visMax = clamp(ubuf.imageRect.xy + ubuf.imageRect.zw, vec2(0.0), canvas);
+        vec2 visSize = max(visMax - visMin, vec2(1.0));
+        float scale = paneW / visSize.x;
+        vec2 size = visSize * scale;
+        vec2 origin = vec2(paneX + (paneW - size.x) * 0.5, (canvas.y - size.y) * 0.5);
+        imgCoord = (pixelPos - origin) / max(size, vec2(1.0));
+        if (imgCoord.x < 0.0 || imgCoord.x > 1.0 || imgCoord.y < 0.0 || imgCoord.y > 1.0) {
+            fragColor = ubuf.backgroundColor;
+            return;
+        }
+        canvasUV = (visMin + imgCoord * visSize) / canvas;
+    } else {
+        if (pixelPos.x < ubuf.imageRect.x || pixelPos.x > ubuf.imageRect.x + ubuf.imageRect.z ||
+            pixelPos.y < ubuf.imageRect.y || pixelPos.y > ubuf.imageRect.y + ubuf.imageRect.w) {
+            fragColor = ubuf.backgroundColor;
+            return;
+        }
+        imgCoord = (pixelPos - ubuf.imageRect.xy) / ubuf.imageRect.zw;
+        // Split wipe: before on the left of the divider.
+        if (ubuf.compareMode > 0.5 && pixelPos.x < ubuf.splitPos * ubuf.viewportSize.x) {
+            showBase = true;
+        }
     }
-    vec2 imgCoord = (pixelPos - ubuf.imageRect.xy) / ubuf.imageRect.zw;
 
-    vec4 tex = texture(source, qt_TexCoord0);
+    vec4 tex = texture(source, canvasUV);
 
-    if (ubuf.isPreview > 0.5) {
-        fragColor = vec4(tex.rgb, tex.a) * ubuf.qt_Opacity;
-        return;
-    }
-
-    // Before/After: show unprocessed RAW with only sRGB→linear→sRGB
-    if (ubuf.showOriginal > 0.5) {
+    if (ubuf.isPreview > 0.5 || showBase) {
         fragColor = vec4(tex.rgb, tex.a) * ubuf.qt_Opacity;
         return;
     }
@@ -733,18 +766,18 @@ void main()
     vec3 color = srgb_to_linear(tex.rgb);
     
     // 0. Noise Reduction (Real-time GPU pass)
-    color = apply_gpu_denoise(color, qt_TexCoord0, source, ubuf.denoiseAmount);
+    color = apply_gpu_denoise(color, canvasUV, source, ubuf.denoiseAmount);
 
     // --- Approximated Blur for Local Contrast (Clarity, Structure, Sharpness) ---
     // Stronger two-scale blur with more taps to better emulate a single-pass local pyramid mask.
     vec2 texelSize = 1.0 / ubuf.sourceSize;
-    vec3 blurredFine = texture(colorBlurFine, qt_TexCoord0).rgb;
-    vec3 blurredCoarse = texture(colorBlurCoarse, qt_TexCoord0).rgb;
+    vec3 blurredFine = texture(colorBlurFine, canvasUV).rgb;
+    vec3 blurredCoarse = texture(colorBlurCoarse, canvasUV).rgb;
     vec3 blurred = mix(blurredFine, blurredCoarse, 0.35);
 
     // Compute edge mask with feathering, then gate by focus detection
-    float edgeMask = compute_edge_mask(source, qt_TexCoord0, texelSize, ubuf.sharpenMask, ubuf.maskFeather);
-    float focusGate = compute_focus_gate(source, qt_TexCoord0, texelSize, ubuf.focusDetect);
+    float edgeMask = compute_edge_mask(source, canvasUV, texelSize, ubuf.sharpenMask, ubuf.maskFeather);
+    float focusGate = compute_focus_gate(source, canvasUV, texelSize, ubuf.focusDetect);
     float finalMask = edgeMask * focusGate;
 
     // Alt+drag mask preview: show combined mask as grayscale and return early
@@ -791,7 +824,7 @@ void main()
         }
     }
     float sceneWhiteNorm = max(ubuf.sceneWhite * exposure, 1e-4);
-    vec4 deltaValue = texture(photon001Delta, qt_TexCoord0);
+    vec4 deltaValue = texture(photon001Delta, canvasUV);
     color = apply_photon001_delta_stops(color, deltaValue.x, deltaValue.y, sceneWhiteNorm);
     //color = davinci_tonemap(color, ubuf.adaptation);
     

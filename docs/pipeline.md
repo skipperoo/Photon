@@ -38,14 +38,14 @@ Rule (see `AGENTS.md`): any pipeline change must be applied to all three, with t
 | 5 | Color grading | 3 zones, OKLab |
 | 6 | Saturation / Vibrance | OKLab chroma |
 | 7 | AgX | profile `agx` only |
-| 8 | Tone curve LUT | currently linear pre-sRGB; Phase 40.3 moves it to the display-encoded domain + parametric regions |
+| 8 | Tone curve LUT | currently linear pre-sRGB; Phase 40.4 moves it to the display-encoded domain + parametric regions |
 | 8.5 | Black & White mix | profile `black_and_white` only |
 | 9 | linear → sRGB | |
 | 10 | Film grain | |
 | 11 | Vignette | |
 | 12 | Dither + output | |
 
-Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after toggle — Phase 40.2 replaces this with modes).
+Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after toggle — Phase 40.3 replaces this with modes).
 
 ### CPU export order (`ImageDeveloper.cpp`)
 
@@ -76,19 +76,20 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | Feature | Where it plugs in | Status |
 |---|---|---|
 | Calibration panel (Phase 40.1) | scene-linear, before Contrast | DONE (`c116e1c`); moves in front of the tone LUT once that lands |
-| Before/after modes + split (40.2) | render layer (`App.qml` layout + final shader uniform/second chain) | planned |
-| Parametric tone curve (40.3) | tone-curve LUT stage, moving to display-encoded domain | planned |
-| Process version + history (40.4) | edit-stack JSON + all paths branch on version | planned |
-| Lensfun (40.5) | geometry stage, before crop (single resample) | planned |
-| HDR merge (40.6) | pre-develop source: merged linear DNG enters the normal RAW pipeline | planned |
-| Camera-look fitting (40.7) | tone stage, before user sliders | planned |
+| Colored slider component (40.2) | develop panel UI only (no pipeline effect) | DONE (`52f709c`) |
+| Before/after modes + split (40.3) | render layer (`App.qml` layout + final shader uniform/second chain) | planned |
+| Parametric tone curve (40.4) | tone-curve LUT stage, moving to display-encoded domain | planned |
+| Process version + history (40.5) | edit-stack JSON + all paths branch on version | planned |
+| Lensfun (40.6) | geometry stage, before crop (single resample) | planned |
+| HDR merge (40.7) | pre-develop source: merged linear DNG enters the normal RAW pipeline | planned |
+| Camera-look fitting (40.8) | tone stage, before user sliders | planned |
 | Local masks / adjustments | per-pixel stage | future TBD |
 | Tone-slider rewrite (filmic LUT + edge-aware HL/SHD) | replaces Photon001 delta for those ranges | future TBD |
 
 ## 3. Data model
 
 - Non-destructive edits: JSON edit stacks in `.PhotonData/edits/<image>.json` (undo/redo in memory).
-- Planned: `processVersion` per photo (40.4) for future rendering retunes; persisted per-photo history snapshots (40.4). Phase 40.3 applies globally without a gate (decided 2026-10-12).
+- Planned: `processVersion` per photo (40.5) for future rendering retunes; persisted per-photo history snapshots (40.5). Phase 40.4 applies globally without a gate (decided 2026-10-12).
 - Denoise currently recomputed per view/export (no product cache) — future TBD.
 
 ## 4. Change history
@@ -98,3 +99,4 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | 2026-10-03 | v0.3.0 release: JPEG/TIFF support (libjpeg-turbo + libtiff + lcms2), B&W profile UI, crash fixes (use-after-free, stack overflow, crash reporter) | broaden input formats + stability | `TASKS.md` Phase 38/v0.3.0 notes |
 | 2026-10-12 | Phase 40 planning + docs (`pipeline.md`, `features.md`) | set up tracked enhancement workflow | `TASKS.md` Phase 40 |
 | 2026-10-12 | Calibration panel (7 sliders: shadows tint + RGB primary hue/sat), all three paths | colour-model trims (Phase 40.1) | commit `c116e1c` |
+| 2026-10-12 | Colored slider component (gradient tracks, live-colour handle, centre-out bipolar fill, hue hints) | UI-only colour feedback (Phase 40.2) | commit `52f709c` |

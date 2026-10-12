@@ -527,7 +527,7 @@
   - [ ] Keystone/perspective transform controls.
 - [ ] Let the user decide whether to use auto brightness or not (and threshold)
 
-> Moved into the active plan: **Lens Correction (lensfun)** → Phase 40 task 40.5; **HDR merge** → Phase 40 task 40.6.
+> Moved into the active plan: **Lens Correction (lensfun)** → Phase 40 task 40.6; **HDR merge** → Phase 40 task 40.7.
 > Active plan, workflow and deferred ideas: **Phase 40: Enhancements & Refinements** at the end of this file.
 
 ## Phase 39: Color Science Parity with `research/shaders` Reference Pipeline
@@ -716,12 +716,13 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | # | Task | Status | Commit |
 |---|------|--------|--------|
 | 40.1 | Calibration panel | DONE | `c116e1c` |
-| 40.2 | Before/after modes + split view | TODO | |
-| 40.3 | Parametric tone curve | TODO | |
-| 40.4 | Process version per photo + history panel | TODO | |
-| 40.5 | Lensfun integration | TODO | |
-| 40.6 | HDR merge (OpenCV alignment) | TODO | |
-| 40.7 | Camera-look fitting from embedded JPEG | TODO | |
+| 40.2 | Colored slider component | DONE | `52f709c` |
+| 40.3 | Before/after modes + split view | TODO | |
+| 40.4 | Parametric tone curve | TODO | |
+| 40.5 | Process version per photo + history panel | TODO | |
+| 40.6 | Lensfun integration | TODO | |
+| 40.7 | HDR merge (OpenCV alignment) | TODO | |
+| 40.8 | Camera-look fitting from embedded JPEG | TODO | |
 
 ## 40.1 Calibration panel — DONE
 
@@ -746,7 +747,27 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 
 **Visual confirmation:** saturated photo — Red Hue ±100 shifts only reds toward orange/magenta; Blue Sat −100 desaturates blues without touching greens; Shadows Tint +100 tints only deep shadows green/magenta; neutrals never shift.
 
-## 40.2 Before/after modes + split view — TODO
+## 40.2 Colored slider component — DONE
+
+> Implemented 2026-10-12, confirmed visually, committed `52f709c`. `SliderRamps.qml` is a QML singleton (registered as `QT_QML_SINGLETON_TYPE`) holding the ramp functions; `PhotonSlider` renders a 25-stop gradient track when a `trackRamp` is set, fills the handle with the live sampled colour (neutral ring), hides the accent fill over gradients, and draws centre-out fill + a subtle neutral tick for auto-detected bipolar sliders (default = range midpoint); `ControlGroup` passes `trackRamp` through. 15 sliders wired in `DevelopView.qml` (WB 2, Calibration 7, HSL 3, Color Grading 3, the latter two reading the selected band/region hue). Note: the first attempt used a `.js` library, which added a `scripts` entry to the generated module qmldir and made the legacy `import "../components"` directory imports ambiguous — the singleton avoids Qt script imports entirely. AppImage builds and starts clean.
+
+**Goal:** reusable coloured slider UI: gradient track showing the control's colour range, handle filled with the live colour at the current value (thin neutral ring), band-anchored hue hints in the HSL panel, and centre-out fill for every bipolar slider (neutral in the middle).
+
+**Decisions (2026-10-12):**
+- Handle = live sampled colour (sampled from the track ramp) with a neutral ring.
+- First pass covers **every colour-related slider**: White Balance (Temp/Tint), Calibration (7), HSL panel (Hue/Saturation/Luminance per band), Color Grading (Hue/Saturation/Luminance).
+- HSL Hue hints are **band-anchored ±36°** (matches the shader's ±0.1·360° shift at ±100).
+- Centre-out fill applies to **all centred sliders app-wide** (auto-detected: default value at the range midpoint).
+
+**Implementation:**
+- [x] `content/components/SliderRamps.qml`: shared ramp singleton (WB temp/tint exact from the shader formulas; primary/band hue/sat/lum; rainbow; shadows tint green↔magenta; zone tint).
+- [x] `PhotonSlider.qml`: `trackRamp` function (t01→color) rendering a multi-stop gradient track; handle colour sampled from the ramp; bipolar fill from the neutral position; subtle neutral tick.
+- [x] `ControlGroup.qml`: pass `trackRamp` through.
+- [x] `DevelopView.qml`: ramps on White Balance, Calibration, HSL and Color Grading sliders.
+
+**Visual confirmation:** gradient tracks render smoothly; while dragging, the handle shows the live colour; neutral midpoints look neutral; Exposure/Highlights/etc. fill from the centre to the handle; HSL Hue shows the selected band's colours; all sliders still reset (double-click) and drag as before.
+
+## 40.3 Before/after modes + split view — TODO
 
 **Goal:** Lightroom-style comparison: `B`/`\` keep working (full-frame toggle), add **split wipe** (`Shift+Y`) and **side-by-side** (`Y`); "Before" must be the **unedited-looking baseline render** (import/incoming edit stack), not the raw embedded preview.
 
@@ -761,7 +782,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 
 **Visual confirmation:** same photo zoomed at 100 %, split wipe drags smoothly; Before side changes only when the baseline changes; side-by-side stays aligned while panning/zooming; toggling modes never leaks a stale texture.
 
-## 40.3 Parametric tone curve — TODO
+## 40.4 Parametric tone curve — TODO
 
 **Goal:** add the 4-region parametric curve (Highlights/Lights/Darks/Shadows + movable split points at 25/50/75 %) and compose it with the existing point curves: `parametric → master(L) → R/G/B`.
 
@@ -783,12 +804,12 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** with a point curve active, parametric +50 Highlights brightens only the top range; splits move the region boundaries visibly; combined curve stays monotone (no reversals); preview = export.
 
-## 40.4 Process version per photo + history panel — TODO
+## 40.5 Process version per photo + history panel — TODO
 
 **Goal:** (a) a per-photo `processVersion` stored in the edit stack so behaviour changes can be rolled out without altering existing edits; (b) a History panel listing the edit timeline with jump-to.
 
 **Design:**
-- `processVersion` (int, default 1) in the edit JSON; renderer branches behaviour by version. First consumer will be a future rendering retune (e.g. the tone-slider rewrite in Future work); 40.3 ships globally without a gate.
+- `processVersion` (int, default 1) in the edit JSON; renderer branches behaviour by version. First consumer will be a future rendering retune (e.g. the tone-slider rewrite in Future work); 40.4 ships globally without a gate.
 - History: per-photo **persisted step list** (default cap 100) stored in the `.PhotonData` sidecar; every applied edit becomes a step; panel lists steps with click-to-restore ("copy to before", clear); integrates with existing undo/redo but survives sessions (decided 2026-10-12).
 
 - [ ] Data model + JSON + migration of existing stacks (missing field = version 1).
@@ -797,7 +818,7 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** editing a photo fills the history; clicking an old step restores exactly that state; reopening the app keeps history; a v1 photo keeps its old rendering.
 
-## 40.5 Lensfun integration — TODO
+## 40.6 Lensfun integration — TODO
 
 **Goal:** automatic lens correction in the Lens tab: distortion, TCA (lateral CA) and vignetting from the lensfun database, auto-matched from EXIF with amount sliders + manual override.
 
@@ -814,7 +835,7 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** wide-angle shot — barrel distortion straightens; corners brighten with vignetting correction; CA sliders remove colour fringes; disable = pixel-identical to today.
 
-## 40.6 HDR merge (OpenCV alignment) — TODO
+## 40.7 HDR merge (OpenCV alignment) — TODO
 
 **Goal:** enable Photo ▸ Merge Photos ▸ HDR; merge bracketed exposures into one linear DNG.
 
@@ -834,7 +855,7 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** open a 3-shot bracket — HDR DNG opens in Photon with recovered highlights and clean shadows; no double edges with deghost Medium; alignment fixes small handheld offsets.
 
-## 40.7 Camera-look fitting from embedded JPEG — TODO
+## 40.8 Camera-look fitting from embedded JPEG — TODO
 
 **Goal:** out-of-the-box rendering reminiscent of the camera JPEG by fitting a per-photo tone curve from the embedded preview, so the classic sliders start from a familiar baseline.
 
@@ -862,7 +883,7 @@ Deferred (candidates, not scheduled; priorities to be discussed):
 - [ ] **Profiles browser** — live thumbnails, hover preview, `.cube` LUT import, Amount slider.
 - [ ] **XMP sidecar interoperability** — read/write `crs:` settings so edits survive round-trips with LR.
 - [ ] **Monitor ICC profiles + soft proofing** — currently ICC is decode-only; display rarely sRGB.
-- [ ] **Export upgrade** — ICC embedding, WebP/AVIF/JXL, output sharpening, HDR gain-map JPEG (pairs with 40.6).
+- [ ] **Export upgrade** — ICC embedding, WebP/AVIF/JXL, output sharpening, HDR gain-map JPEG (pairs with 40.7).
 - [ ] **Local masks / local adjustments** — brushes, gradients, ranges; largest missing editing dimension.
 - [ ] **Smart previews** — proxies so offline originals remain editable.
 - [ ] **Second-window loupe** — second monitor support.
@@ -872,4 +893,4 @@ Deferred (candidates, not scheduled; priorities to be discussed):
 - [ ] **Perspective correction (keystone)** — currently in Backlog/Future above.
 - [ ] **Contact-sheet PDF export**.
 - [ ] **SAM 3 / AI masks** — research only; heavy runtime + model licensing.
-- [ ] **Curve presets import/export** (`.lccurve`-style) — small follow-up to 40.3.
+- [ ] **Curve presets import/export** (`.lccurve`-style) — small follow-up to 40.4.

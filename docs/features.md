@@ -82,4 +82,15 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
+## Colored slider component (2026-10-12, Phase 40.2)
+
+- Purpose: colour-aware slider feedback — gradient tracks for colour controls, a handle that previews the live colour, centre-out fill for bipolar sliders, and HSL hue hints.
+- Algorithm: `SliderRamps` singleton builds ramp colours: WB Temperature/Tint use the exact shader multipliers normalised to max 1 (`(1+u·0.20, 1+u·0.05, 1−u·0.20)` / `(1+u·0.25, 1−u·0.25, 1+u·0.25)`, u = −1..1); primary Hue rotates ±28.65° (0.5 rad) around the primary hue; band Hue spans the selected band ±36° (the shader's ±0.1·360° at ±100); primary/band Saturation fades grey→colour; Luminance darkens→lightens; Grading Hue is a full rainbow; Shadows Tint interpolates green→grey→magenta. `PhotonSlider` renders a 25-stop horizontal `Gradient` when `trackRamp` is set and samples the ramp at the current value for the handle fill; a slider is bipolar (centre-out fill + neutral tick) when its default value is the exact range midpoint.
+- Pipeline placement: UI only (no effect on GPU/CPU/histogram rendering).
+- Key constants: 25 gradient stops; neutral tick 2 px at 30 % opacity; ramp hue shifts 28.65°/36°.
+- Files: `content/components/SliderRamps.qml` (singleton, registered via `QT_QML_SINGLETON_TYPE`), `content/components/PhotonSlider.qml`, `content/components/ControlGroup.qml`, `content/views/DevelopView.qml`, `CMakeLists.txt`.
+- Commit: `52f709c`.
+
+---
+
 *Phase 40 features are appended here as they complete.*

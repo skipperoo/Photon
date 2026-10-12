@@ -103,6 +103,11 @@ set_source_files_properties(content/theme/Theme.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
+# Mark SliderRamps.qml as a singleton (must be before qt_add_qml_module)
+set_source_files_properties(content/components/SliderRamps.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE
+)
+
 qt6_add_shaders(Photon "raw_shaders"
     PREFIX "/Main/shaders"
     BASE "src/components"
@@ -193,6 +198,7 @@ qt_add_qml_module(Photon
         content/components/Card.qml
         content/components/Collapsible.qml
         content/components/ControlGroup.qml
+        content/components/SliderRamps.qml
         content/components/CropOverlay.qml
         content/components/CropPanel.qml
         content/components/Histogram.qml

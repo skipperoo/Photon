@@ -221,8 +221,8 @@ Control {
                         spacing: 16
 
                         Text { text: "White Balance"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Temperature"; value: root.viewport ? root.viewport.temperature : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.temperature = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.tint : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.tint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Temperature"; value: root.viewport ? root.viewport.temperature : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: SliderRamps.whiteBalanceTemperature; onMoved: (v) => { if(root.viewport) root.viewport.temperature = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.tint : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: SliderRamps.whiteBalanceTint; onMoved: (v) => { if(root.viewport) root.viewport.tint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
@@ -292,6 +292,7 @@ Control {
                         property int selectedBand: 0
                         readonly property var bandNames: ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"]
                         readonly property var bandColors: ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#a855f7", "#d946ef"]
+                        readonly property var bandHues: [0, 25, 60, 115, 180, 225, 280, 330]
 
                         Text { text: "HSL Panel"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
 
@@ -328,6 +329,7 @@ Control {
                             value: root.viewport ? root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Hue"] : 0
                             from: -100; to: 100
                             defaultValue: 0.0
+                            trackRamp: function(t) { return SliderRamps.bandHue(colorSection.bandHues[colorSection.selectedBand], t) }
                             onMoved: (v) => { if(root.viewport) root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Hue"] = v }
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
@@ -336,6 +338,7 @@ Control {
                             value: root.viewport ? root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Saturation"] : 0
                             from: -100; to: 100
                             defaultValue: 0.0
+                            trackRamp: function(t) { return SliderRamps.bandSaturation(colorSection.bandHues[colorSection.selectedBand], t) }
                             onMoved: (v) => { if(root.viewport) root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Saturation"] = v }
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
@@ -344,6 +347,7 @@ Control {
                             value: root.viewport ? root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Luminance"] : 0
                             from: -100; to: 100
                             defaultValue: 0.0
+                            trackRamp: function(t) { return SliderRamps.bandLuminance(colorSection.bandHues[colorSection.selectedBand], t) }
                             onMoved: (v) => { if(root.viewport) root.viewport["hsl" + colorSection.bandNames[colorSection.selectedBand] + "Luminance"] = v }
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
@@ -414,6 +418,12 @@ Control {
                         property int selectedRegion: 0 // 0: Shadows, 1: Midtones, 2: Highlights
                         readonly property var regionNames: ["Shadows", "Midtones", "Highlights"]
 
+                        function zoneHue() {
+                            if (!root.viewport)
+                                return 0.0
+                            return root.viewport["cg" + regionNames[selectedRegion] + "Hue"]
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 20
@@ -439,6 +449,7 @@ Control {
                             value: root.viewport ? root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Hue"] : 0
                             from: 0; to: 360
                             defaultValue: 0.0
+                            trackRamp: SliderRamps.rainbow
                             onMoved: (v) => { if(root.viewport) root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Hue"] = v }
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
@@ -447,6 +458,7 @@ Control {
                             value: root.viewport ? root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Saturation"] : 0
                             from: 0; to: 100
                             defaultValue: 0.0
+                            trackRamp: function(t) { return SliderRamps.zoneSaturation(gradingSection.zoneHue(), t) }
                             onMoved: (v) => { if(root.viewport) root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Saturation"] = v }
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
@@ -455,6 +467,7 @@ Control {
                             value: root.viewport ? root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Luminance"] : 0
                             from: -100; to: 100
                             defaultValue: 0.0
+                            trackRamp: function(t) { return SliderRamps.zoneLuminance(gradingSection.zoneHue(), t) }
                             onMoved: (v) => { if(root.viewport) root.viewport["cg" + gradingSection.regionNames[gradingSection.selectedRegion] + "Luminance"] = v }
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
@@ -490,25 +503,25 @@ Control {
                         spacing: 16
 
                         Text { text: "Shadows"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.calibShadowsTint : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibShadowsTint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.calibShadowsTint : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: SliderRamps.shadowsTint; onMoved: (v) => { if(root.viewport) root.viewport.calibShadowsTint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
                         Text { text: "Red Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibRedHue : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibRedHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibRedSat : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibRedSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibRedHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(0, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibRedHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibRedSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(0, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibRedSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
                         Text { text: "Green Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibGreenHue : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibGreenSat : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibGreenHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(120, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibGreenSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(120, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
 
                         Text { text: "Blue Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibBlueHue : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibBlueSat : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibBlueHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(240, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibBlueSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(240, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                     }
                 }
 

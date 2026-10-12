@@ -12,6 +12,7 @@ ColumnLayout {
     property real defaultValue: 0.0
     property real stepSize: 0
     property int snapMode: 0
+    property var trackRamp: null
     signal moved(real val)
     signal released()
 
@@ -53,6 +54,7 @@ ColumnLayout {
         stepSize: root.stepSize
         snapMode: root.snapMode
         defaultValue: root.defaultValue
+        trackRamp: root.trackRamp
         onMoved: root.moved(value)
         onReleased: root.released()
         onDoubleClicked: {

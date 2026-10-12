@@ -718,7 +718,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.1 | Calibration panel | DONE | `c116e1c` |
 | 40.2 | Colored slider component | DONE | `52f709c` |
 | 40.3 | Before/after modes + split view | DONE | `4e07a63` |
-| 40.4 | Parametric tone curve | TODO | |
+| 40.4 | Parametric tone curve | DONE | `e60731e` |
 | 40.5 | Process version per photo + history panel | TODO | |
 | 40.6 | Lensfun integration | TODO | |
 | 40.7 | HDR merge (OpenCV alignment) | TODO | |
@@ -785,7 +785,10 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 
 **Visual confirmation:** same photo zoomed at 100 %, split wipe drags smoothly; Before side changes only when the baseline changes; side-by-side stays aligned while panning/zooming; toggling modes never leaks a stale texture.
 
-## 40.4 Parametric tone curve — TODO
+## 40.4 Parametric tone curve — DONE
+
+> Follow-up (2026-10-12, same task): the parametric curve and the point curves are now **mutually exclusive** via a `toneCurveMode` selector ("Points" / "Parametric", default manual). In parametric mode the point curves are not applied (their data stays saved in the edit stack/sidecar), the channel tabs and point handles are hidden and point editing is disabled — the graph shows the parametric curve read-only. Switching back to Points restores the stored points. LUT builders (engine + export) branch on the mode; the mode is in the JSON, reset/isDefault and the preset selective-save group. Curve endpoints now move on both axes like the reference (left endpoint clamps to `next.x − 0.01`, right to `prev.x + 0.01`). Tests extended with mutual-exclusivity checks (23/23).
+> Implemented 2026-10-12, confirmed visually (including the exclusivity selector and endpoint drag), committed `e60731e`. RawEngine: 7 new edit values (parametric highlights/lights/darks/shadows + 3 splits); the LUT builder now composes `parametric → master (Luma point curve) → per-channel RGB` (compose with linear sampling; per-channel LUTs stay pure because the luma stage already runs through the min/max reprojection). GPU: the tone-curve stage moved to the **display-encoded domain** (after linear→sRGB), with the same min/max reprojection and >1.0 bypass. CPU export (`ImageDeveloper`): same composition, same stage move. Histogram: curve applied in display domain and bins now use display-encoded values (previously linear — more balanced/accurate histogram, visible change). UI: 4 parametric + 3 split sliders in the Tone Curve section; the curve graph draws the composed parametric+point curve; new values are in the edit JSON, reset/isDefault and the preset selective-save group. Tests: updated luma-mapping test for the display domain + new `testParametricToneCurveBehavior` (highlights reach only the top, shadows only the bottom, endpoints pinned, monotone); suite 23/23, ctest 3/3, AppImage builds and starts clean.
 
 **Goal:** add the 4-region parametric curve (Highlights/Lights/Darks/Shadows + movable split points at 25/50/75 %) and compose it with the existing point curves: `parametric → master(L) → R/G/B`.
 

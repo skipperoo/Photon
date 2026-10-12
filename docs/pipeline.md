@@ -38,7 +38,7 @@ Rule (see `AGENTS.md`): any pipeline change must be applied to all three, with t
 | 5 | Color grading | 3 zones, OKLab |
 | 6 | Saturation / Vibrance | OKLab chroma |
 | 7 | AgX | profile `agx` only |
-| 8 | Tone curve LUT | currently linear pre-sRGB; Phase 40.4 moves it to the display-encoded domain + parametric regions |
+| 8 | Tone curve LUT | display-encoded (after sRGB); parametric or point curves, mutually exclusive via `toneCurveMode` |
 | 8.5 | Black & White mix | profile `black_and_white` only |
 | 9 | linear → sRGB | |
 | 10 | Film grain | |
@@ -59,7 +59,7 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 7. Color grading
 8. Saturation / Vibrance
 9. AgX
-10. Tone curve LUT (`evalMonotonicSplineLut`, 65536 entries)
+10. Tone curve LUT (display-encoded; parametric or point curves per `toneCurveMode`)
 11. Black & White mix
 12. linear → sRGB + dither
 13. BM3D denoise (two-pass at export)
@@ -78,7 +78,7 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | Calibration panel (Phase 40.1) | scene-linear, before Contrast | DONE (`c116e1c`); moves in front of the tone LUT once that lands |
 | Colored slider component (40.2) | develop panel UI only (no pipeline effect) | DONE (`52f709c`) |
 | Before/after modes + split (40.3) | final shader (`compareMode`/`splitPos` + remapped `canvasUV`) + QML overlay | DONE (`4e07a63`) |
-| Parametric tone curve (40.4) | tone-curve LUT stage, moving to display-encoded domain | planned |
+| Parametric tone curve (40.4) | tone-curve LUT stage, display-encoded, exclusive with point curves | DONE (`e60731e`) |
 | Process version + history (40.5) | edit-stack JSON + all paths branch on version | planned |
 | Lensfun (40.6) | geometry stage, before crop (single resample) | planned |
 | HDR merge (40.7) | pre-develop source: merged linear DNG enters the normal RAW pipeline | planned |
@@ -101,3 +101,4 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | 2026-10-12 | Calibration panel (7 sliders: shadows tint + RGB primary hue/sat), all three paths | colour-model trims (Phase 40.1) | commit `c116e1c` |
 | 2026-10-12 | Colored slider component (gradient tracks, live-colour handle, centre-out bipolar fill, hue hints) | UI-only colour feedback (Phase 40.2) | commit `52f709c` |
 | 2026-10-12 | Before/after compare modes: side-by-side (visible-region fit per pane), draggable split wipe, exclusive full-original toggle | visual A/B comparison (Phase 40.3) | commit `4e07a63` |
+| 2026-10-12 | Parametric tone curve (4 regions + splits), mutual exclusivity with point curves, curve stage moved to the display-encoded domain, histogram bins display-encoded values | LR-like tone-curve behaviour (Phase 40.4) | commit `e60731e` |

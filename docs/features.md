@@ -104,4 +104,15 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
+## Parametric tone curve + display-domain curve stage (2026-10-12, Phase 40.4)
+
+- Purpose: Lightroom-style parametric tone curve (Highlights/Lights/Darks/Shadows with movable region splits), mutually exclusive with the free-hand point curves; curves now run where they visually belong (display-encoded values).
+- Algorithm: parametric LUT built per node: for each region `(a,b,amt)` with `ctr=(a+b)/2`, `half=(b-a)*0.75+0.05`, `win=0.5+0.5*cos(clamp((x-ctr)/half,-1,1)*PI)`, `d += (amt/100)*0.22*win`, then `clamp(x + d*4x(1-x), 0, 1)` and a monotone prefix-max pass. Composition `parametric → master (Luma) → R/G/B` with linear-sampled LUT composition; the luma stage uses the existing min/max reprojection, so the per-channel LUTs stay pure (identity when unused). Parametric and point curves are mutually exclusive via `toneCurveMode` ("manual" default / "parametric"); the inactive set stays stored in the edit stack/sidecar and is not applied.
+- Pipeline placement: stage 8 of the final pass, now **after** the linear→sRGB encode; same order on the CPU export and histogram (histogram also bins display-encoded values now).
+- Key constants: region amplitude 0.22; split defaults 25/50/75 (ranges 10–70/20–80/30–90); endpoint drag limits `next.x − 0.01` / `prev.x + 0.01`.
+- Files: `src/engine/RawEngine.{h,cpp}`, `src/engine/ImageDeveloper.cpp`, `src/components/RawViewport.{h,cpp,frag}`, `content/components/ToneCurve.qml`, `content/views/DevelopView.qml`, `content/components/SettingsSelectionDialog.qml`, `tests/auto/tst_RawEngine.cpp`.
+- Commit: `e60731e`.
+
+---
+
 *Phase 40 features are appended here as they complete.*

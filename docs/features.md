@@ -126,4 +126,15 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
+## Lens corrections (lensfun) (2026-10-12, Phase 40.6)
+
+- Purpose: automatic lens corrections (distortion, lateral CA, vignetting) from a bundled lensfun database, with manual Lightroom-style profile selection.
+- Algorithm: `LensFun` parses the DB XML (cameras, lenses, calibration), matches the lens by normalized name similarity (longest common substring ≥ 0.5), interpolates distortion/TCA between bracketing focals and picks nearest focal+aperture for vignetting. Corrections: `poly3`/`poly5`/`ptlens` distortion (`rd/ru`), `linear`/`poly3` TCA channel scales, `pa` vignetting as the inverse response `1/(1+k1r²+k2r⁴+k3r⁶)` (r = 1 at the corner), all in the Hugin normalization (r = 1 at half the short side) with an auto-scale so no correction samples outside the source. Preview runs in the final shader in real time (radial in baked-image space; the original centre maps through the rigid geometry, so radii transfer), export on the developed pixels before geometry.
+- Pipeline placement: preview stage 0.25 (per-channel base sampling + vignetting gain); CPU export before the geometry transforms.
+- Key constants: name-score threshold 0.5; amounts default 50 (0-100); auto-scale computed per photo.
+- Files: `assets/lensfun/`, `src/engine/LensFun.{h,cpp}`, `src/engine/RawEngine.{h,cpp}`, `src/engine/ImageDeveloper.cpp`, `src/managers/ExportManager.cpp`, `src/components/RawViewport.{h,cpp,frag}`, `content/components/LensPanel.qml`, `content/views/App.qml`, `tests/auto/tst_RawEngine.cpp`.
+- Commit: `9f1df25`.
+
+---
+
 *Phase 40 features are appended here as they complete.*

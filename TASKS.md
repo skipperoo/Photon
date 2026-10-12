@@ -720,7 +720,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.3 | Before/after modes + split view | DONE | `4e07a63` |
 | 40.4 | Parametric tone curve | DONE | `e60731e` |
 | 40.5 | Process version per photo + history panel | DONE | `2fbdc2c` |
-| 40.6 | Lensfun integration | TODO | |
+| 40.6 | Lensfun integration | DONE | `9f1df25` |
 | 40.7 | HDR merge (OpenCV alignment) | TODO | |
 | 40.8 | Camera-look fitting from embedded JPEG | TODO | |
 
@@ -828,7 +828,10 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** editing a photo fills the history; clicking an old step restores exactly that state; reopening the app keeps history; a v1 photo keeps its old rendering.
 
-## 40.6 Lensfun integration — TODO
+## 40.6 Lensfun integration — DONE
+
+> Implemented 2026-10-12, confirmed visually (including the real-time GPU move, defaults 50, manual dropdowns and UI fixes), committed `9f1df25`. Bundled the **lensfun database** (`assets/lensfun/`, 56 XML files, CC BY-SA 3.0 + full license + `ATTRIBUTION.md`; exposed to the app as `:/lensfun` via `qt_add_resources`, ~0.5 MB in the AppImage). New `src/engine/LensFun.{h,cpp}`: streaming XML parser (cameras/lenses/calibration; safe text reader for elements with children), name-similarity matcher (normalized longest-common-substring ≥ 0.5, camera crop-factor lookup) and focal interpolation for distortion/TCA plus nearest focal/aperture for vignetting; `applyProfile()` does a parallel bilinear remap in the Hugin convention — distortion `poly3/poly5/ptlens`, TCA `linear/poly3`, vignetting `pa` as the inverse response (`1/(1+k1r²+k2r⁴+k3r⁶)`, r=1 at corner), with the lensfun auto-scale to avoid black borders. Pipeline: applied on the **full-resolution source before geometry** (16-bit on preview bake, 8-bit in export) so the existing single resample carries it; export re-matches from transient EXIF keys injected by `ExportManager`. Edit state: `lensProfileEnabled` + Distortion/CA/Vignetting amounts (0..100, default 100), JSON/reset/isDefault, history label "Lens Correction", preset selective-save group. UI: real **Lens panel** (enable switch, matched-profile line or "no matching profile", three sliders, CC BY-SA attribution). Tests: parser/matcher/interpolation/vignetting+distortion correction, engine edit-state round-trip and a real-database test (>1000 lenses, Sony FE 16-35 match); 28/28, ctest 3/3, AppImage builds and starts clean.
+> Note (fidelity): DB coefficients are applied in the image's Hugin normalization; lensfun's cross-crop-factor/aspect coefficient rescaling and per-aperture vignetting interpolation are not implemented (same-crop use, the common case, is exact).
 
 **Goal:** automatic lens correction in the Lens tab: distortion, TCA (lateral CA) and vignetting from the lensfun database, auto-matched from EXIF with amount sliders + manual override.
 

@@ -721,7 +721,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.4 | Parametric tone curve | DONE | `e60731e` |
 | 40.5 | Process version per photo + history panel | DONE | `2fbdc2c` |
 | 40.6 | Lensfun integration | DONE | `9f1df25` |
-| 40.7 | HDR merge (OpenCV alignment) | TODO | |
+| 40.7 | HDR merge (OpenCV alignment) | DONE | `d538d7f` |
 | 40.8 | Camera-look fitting from embedded JPEG | TODO | |
 
 ## 40.1 Calibration panel — DONE
@@ -848,8 +848,12 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** wide-angle shot — barrel distortion straightens; corners brighten with vignetting correction; CA sliders remove colour fringes; disable = pixel-identical to today.
 
-## 40.7 HDR merge (OpenCV alignment) — TODO
+## 40.7 HDR merge (OpenCV alignment) — DONE
 
+> Implemented 2026-10-13, confirmed visually (crash, colour, thumbnail and filmstrip fixes plus the dialog preview), committed `d538d7f`. New `src/engine/HdrMerge.{h,cpp}` + `HdrMergeMath.h` (pure math, unit-tested without OpenCV): frames decode to 16-bit linear sRGB via LibRaw/ImageDecoder (RGB order, camera→sRGB through `rgb_cam`); Debevec radiance merge, weights `w_i = (1/gain_i)·(1 − smoothstep(0.80·clip, 0.96·clip, max(v_i)))` with a floor on the longest exposure and the middle frame as the all-clipped fallback; gains from EXIF `t·ISO/N²` for adjacent-brightness frame pairs validated against the median log-ratio of well-exposed pixels (measured fallback without EXIF); alignment with OpenCV SIFT + `estimateAffinePartial2D` RANSAC on a ≤1200 px luma work image, gated at 12 % of the diagonal; deghost None/Low/Medium/High = log-ratio thresholds 1.0/0.6/0.35, dilate + Gaussian feather radius 2/3/5 computed at ≤1024 px from a no-mask prediction pass, stretched back to full resolution. Output: linear DNG via the panorama writer (ColorMatrix1 = sRGB→XYZ D65, illuminant 21, AsShotNeutral from the reference frame, peak-normalised 16-bit U16 with a BaselineExposure tag), written to a `.part` file and atomically renamed; 256 px uncompressed thumbnail. UI: `HdrDialog` (preview pane 2/3 left, auto-rendered at 1024 px on open and by Show Preview; options 1/3 right: Align switch + Deghost combo; Show Preview / Merge / Cancel), window-level "Merging HDR..." pill, Photo ▸ Merge Photos ▸ HDR enabled with ≥2 selected photos. Tests: `testHdrMergeRadiometric` (gains recovered, highlights present, static bracket ghost-free); suite 29/29, ctest 3/3, AppImage builds and starts clean.
+> Follow-up 3 (2026-10-12): DNG thumbnails are written uncompressed (libtiff's TIFF-JPEG keeps the DQT/DHT in the JPEGTables tag which LibRaw/Qt never merge back, so the embedded thumbnail was undecodable and the filmstrip showed a placeholder). Same fix applied to the panorama writer.
+> Follow-up 2 (2026-10-12): fixed the merge crash (the reference frame's deghost mask was never resized to full resolution → heap-buffer-overflow in the merge; every mask is now full-res plus a defensive size clamp, both workers are exception-guarded); fixed the colours (frames stay in RGB order and are converted camera→sRGB via LibRaw's `rgb_cam` on load; the DNG uses ColorMatrix1 = sRGB→XYZ D65, the dcraw/panorama convention, verified empirically against LibRaw); the DNG is written to a `.part` file and atomically renamed so the auto-scan never picks up half-written files (which broke the filmstrip thumbnail).
+> Follow-up (2026-10-12): JPEG/TIFF brackets are supported (16-bit sRGB → linear via the shared decode path; without EXIF exposure the gains come from the measured median log-ratio); a window-level busy pill ("Merging HDR...") appears while merging; the dialog gained a live **preview** (left 2/3 preview pane, auto-rendered on open and by "Show Preview" at 1024 px; right 1/3 options + Show Preview / Merge / Cancel) so alignment and deghosting can be checked before the full merge. Also fixed the filmstrip wheel scrolling (removed the hand-rolled wheel handler whose bounds went stale after auto-refresh; native ListView scrolling uses the correct content limits).
 **Goal:** enable Photo ▸ Merge Photos ▸ HDR; merge bracketed exposures into one linear DNG.
 
 **Algorithm:**

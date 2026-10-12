@@ -137,4 +137,16 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
+## HDR merge (2026-10-13, Phase 40.7)
+
+- Purpose: merge bracketed exposures into one linear DNG with recovered highlights and clean shadows, with alignment and optional deghosting.
+- Algorithm: frames decode to 16-bit linear sRGB via LibRaw/ImageDecoder (RGB order, camera→sRGB through `rgb_cam`; JPEG/TIFF brackets use the shared decode path). Debevec-style radiance merge: `merged = Σ w_i·v_i·gain_i / Σ w_i` with `w_i = (1/gain_i)·(1 − smoothstep(0.80·clip, 0.96·clip, max(v_i)))`, a weight floor on the longest exposure and the middle frame as the all-clipped fallback. Gains: EXIF `t·ISO/N²` between adjacent-brightness frames validated against the median log-ratio of well-exposed pixels (measured gains when EXIF is absent). Alignment: SIFT + `estimateAffinePartial2D` RANSAC on a ≤1200 px gamma-encoded luma image, rejected when corners move >12 % of the diagonal. Deghost: a first no-mask pass predicts the fusion; per-frame log-ratio masks (thresholds 1.0/0.6/0.35 for Low/Medium/High, computed at ≤1024 px) are dilated + Gaussian-feathered (radius 2/3/5) and stretched to full resolution.
+- Output: linear DNG through the panorama writer — ColorMatrix1 = sRGB→XYZ D65, illuminant 21, AsShotNeutral from the reference frame, peak-normalised 16-bit U16 with a BaselineExposure tag — written to a `.part` file and atomically renamed; 256 px thumbnail stored uncompressed (libtiff's TIFF-JPEG keeps DQT/DHT in the JPEGTables tag that LibRaw/Qt never merge back).
+- Pipeline placement: a tool before the develop pipeline; the merged DNG enters the library as a normal RAW file (no develop-stage change).
+- Key constants: clip 0.99; weight window 0.80–0.96·clip; align work edge 1200 px; deghost work edge 1024 px, dilate/feather radii 2/3/5; plausibility gate 12 % diagonal; preview render 1024 px; thumbnail 256 px.
+- Files: `src/engine/HdrMerge.{h,cpp}`, `src/engine/HdrMergeMath.h`, `content/components/HdrDialog.qml`, `src/engine/Panorama.cpp` (shared writer + thumbnail fix), `content/views/App.qml`, `content/views/LibraryView.qml`, `content/components/PhotoContextMenu.qml`, `src/main.cpp`, `tests/auto/tst_RawEngine.cpp`.
+- Commit: `d538d7f`. Follow-up fixes along the way: merge crash (reference deghost mask never resized to full resolution), RGB order + ColorMatrix convention, atomic `.part` writes (auto-scan picked up half-written files), uncompressed DNG thumbnails (panorama writer too), JPEG/TIFF bracket support, dialog preview + window-level busy pill, filmstrip wheel bounds after auto-refresh.
+
+---
+
 *Phase 40 features are appended here as they complete.*

@@ -1,7 +1,7 @@
 # Photon Develop Pipeline
 
 Living reference for how the develop pipeline works, where each feature sits, and what changed.
-Last updated: 2026-10-12.
+Last updated: 2026-10-13.
 
 ## 1. Overview
 
@@ -81,7 +81,7 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | Parametric tone curve (40.4) | tone-curve LUT stage, display-encoded, exclusive with point curves | DONE (`e60731e`) |
 | Process version + history (40.5) | edit-stack JSON (`processVersion`, `__step`/`__delta`/`__index` metadata) | DONE (`2fbdc2c`) |
 | Lensfun (40.6) | real-time GPU (`lensShader` uniforms, baked-image space) + CPU export before geometry | DONE (`9f1df25`) |
-| HDR merge (40.7) | pre-develop source: merged linear DNG enters the normal RAW pipeline | planned |
+| HDR merge (40.7) | tool before the develop pipeline: merged linear DNG enters the library as a normal RAW file | DONE (`d538d7f`) |
 | Camera-look fitting (40.8) | tone stage, before user sliders | planned |
 | Local masks / adjustments | per-pixel stage | future TBD |
 | Tone-slider rewrite (filmic LUT + edge-aware HL/SHD) | replaces Photon001 delta for those ranges | future TBD |
@@ -104,3 +104,4 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | 2026-10-12 | Parametric tone curve (4 regions + splits), mutual exclusivity with point curves, curve stage moved to the display-encoded domain, histogram bins display-encoded values | LR-like tone-curve behaviour (Phase 40.4) | commit `e60731e` |
 | 2026-10-12 | History panel with labelled steps, signed deltas, non-destructive reset and a persistent Original entry; per-photo processVersion plumbing | edit timeline + future retunes (Phase 40.5) | commit `2fbdc2c` |
 | 2026-10-12 | Lens corrections: bundled lensfun DB, matcher, distortion/TCA/vignetting (real-time GPU preview, CPU export) and manual profile selection | automatic + manual lens corrections (Phase 40.6) | commit `9f1df25` |
+| 2026-10-13 | HDR merge tool: radiance merge with EXIF-validated gains, SIFT+RANSAC alignment, 4 deghost levels, linear DNG output (atomic `.part` write, uncompressed thumbnail) and a preview dialog | bracketed-exposure merge (Phase 40.7) | commit `d538d7f` |

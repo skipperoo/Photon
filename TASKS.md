@@ -525,10 +525,10 @@
 
 - [ ] **Perspective Correction**
   - [ ] Keystone/perspective transform controls.
-- [ ] **Lens Correction**
-  - [ ] Integrate `lensfun` for automatic distortion/vignette removal.
 - [ ] Let the user decide whether to use auto brightness or not (and threshold)
-- [ ] HDR merge of bracketed shots
+
+> Moved into the active plan: **Lens Correction (lensfun)** → Phase 40 task 40.5; **HDR merge** → Phase 40 task 40.6.
+> Active plan, workflow and deferred ideas: **Phase 40: Enhancements & Refinements** at the end of this file.
 
 ## Phase 39: Color Science Parity with `research/shaders` Reference Pipeline
 
@@ -693,3 +693,183 @@ Steps: photo with fine diagonal texture (foliage); Sharpening +50, then Structur
   - Reworked 2026-09-16: HSL panel, 3-way grading and Saturation/Vibrance now operate in OKLab/OKLCh, and Contrast is a smoothstep S-curve on luma. Automated checks: saturated-color hue must stay within 4° under HSL luminance/saturation changes; +Contrast darkens below mid-gray, brightens above, and leaves mid-gray unchanged. Please verify visually: equal slider amounts should look even across hues; per-band HSL luminance/saturation should not swing hue; grading tints should be clean; Contrast +100 should deepen without washing saturation, -100 should flatten symmetrically.
   - Fixed 2026-09-16 (round 2): per-band HSL luminance in deep shadows/highlights produced banding/halos because chroma was kept constant while OKLab lightness moved outside the sRGB gamut (channels clipped). Chroma is now gamut-mapped along the hue ray (bisection) and target lightness is clamped, in GPU + both CPU paths. Automated check: saturated yellow at HSL luminance ±80 must keep its OKLab hue within 5°. Please re-check the Yellow band luminance in the sky/shadows for banding and halos.
   - Fixed 2026-09-16 (round 3): gamut mapping still produced chroma speckle because absolute chroma was preserved while lightness moved (deep shadows have very little gamut headroom). Chroma now scales proportionally with lightness (relative chroma preserved), so colours stay in gamut instead of being clipped; lightness strength is normalised to the previous linear-luma response (÷3 on the OKLab exponent). Automated check: relative chroma (`C/L`) must stay within 15% under HSL luminance −80. Please re-check Yellow luminance ±100 in sky/shadows.
+
+---
+
+# Phase 40: Enhancements & Refinements
+
+Planning + tracking for the selected pipeline enhancements (tone, comparison views, geometry, merge, camera look). Every task below carries its own algorithm, constants and file references so it is self-contained.
+
+## Workflow
+
+1. Pick the next task below (default order is the table order; may be re-prioritized by agreement).
+2. Implement for **all three paths**: GPU preview (`RawViewport.frag` + QML shader graph), CPU export (`ImageDeveloper.cpp`), live histogram (`RawEngine`). Preview/export/histogram must agree.
+3. Build + run automated tests + smoke-run the app.
+4. Ask the user for **visual confirmation** (provide exact photos, steps, expected result). **Do not commit before confirmation.**
+5. After confirmation: commit, update the task status/notes here, add an entry to `docs/features.md`, and update `docs/pipeline.md` if the stage order changed.
+6. Pick the next task.
+
+Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DONE` · `DEFERRED`
+
+## Status board
+
+| # | Task | Status | Commit |
+|---|------|--------|--------|
+| 40.1 | Calibration panel | AWAITING VISUAL CONFIRMATION | |
+| 40.2 | Before/after modes + split view | TODO | |
+| 40.3 | Parametric tone curve | TODO | |
+| 40.4 | Process version per photo + history panel | TODO | |
+| 40.5 | Lensfun integration | TODO | |
+| 40.6 | HDR merge (OpenCV alignment) | TODO | |
+| 40.7 | Camera-look fitting from embedded JPEG | TODO | |
+
+## 40.1 Calibration panel — AWAITING VISUAL CONFIRMATION
+
+> Implemented 2026-10-12 (uncommitted). Shared math in `src/engine/Calibration.h` (host-computed white-preserving primary matrix + shadows tint); GPU receives 3 matrix-row uniforms + normalized tint in `RawViewport.frag` (inserted after the tone-ranges pass, before Contrast); CPU export in `ImageDeveloper.cpp` and histogram in `RawEngine.cpp` use the shared header; UI section in `DevelopView.qml`; preset group in `SettingsSelectionDialog.qml`. Tests: `tst_RawEngine testCalibrationReferenceBehavior` (defaults identical, primaries keep neutrals, saturated red reacts, tint only in deep shadows). Full suite 3/3 green; AppImage builds and starts clean.
+
+**Goal:** Lightroom-Classic-style Calibration section: Shadows Tint + Red/Green/Blue primary Hue/Saturation (7 sliders, −100…+100, default 0).
+
+**Algorithm (verified from the reference implementation):**
+- Primary matrix over the working linear space (Rec.2020/RGB): each primary `(1,0,0)/(0,1,0)/(0,0,1)` converted to OkLCh, hue rotated by `(hue/100)·0.5 rad`, chroma scaled by `1 + (sat/100)·0.6`, back to linear; then rescale columns by `k = inverse(M)·(1,1,1)` so neutral (1,1,1) maps to itself.
+- Shadows tint: `Y0 = luma(c)`, `w = 1 − smooth(−5.0, −0.5, log2(Y0/0.18))`, `c.g *= (1 − 0.3·tint·w)`, then restore luminance `c *= Y0/Y1`.
+- Conditional: skip entirely when all 7 values are 0 (no cost).
+
+**Pipeline placement:** scene-linear, immediately before the tone/contrast stage (with today's Photon001 chain: after the tone-ranges pass, before Contrast; once a luminance tone LUT exists, directly in front of it).
+
+**Implementation:**
+- [x] `DevelopView.qml`: new "Calibration" collapsible section (after Color Grading) — Shadows Tint, then Red/Green/Blue primary Hue + Saturation.
+- [x] Edit stack: 7 values in the JSON (load/save/reset/isDefault in `RawEngine`), plus preset/selective-save group.
+- [x] `RawViewport.frag`: matrix rows + tint (host-computed matrix, OKLab-based, applied in linear space).
+- [x] `ImageDeveloper.cpp`: same formulas/order via `src/engine/Calibration.h`.
+- [x] Histogram path in `RawEngine.cpp`: same.
+- [x] Tests: greys stay neutral at any hue/sat; matrix is identity at defaults; shadows tint only deep shadows; preview vs export parity (automated + visual).
+
+**Visual confirmation:** saturated photo — Red Hue ±100 shifts only reds toward orange/magenta; Blue Sat −100 desaturates blues without touching greens; Shadows Tint +100 tints only deep shadows green/magenta; neutrals never shift.
+
+## 40.2 Before/after modes + split view — TODO
+
+**Goal:** Lightroom-style comparison: `B`/`\` keep working (full-frame toggle), add **split wipe** (`Shift+Y`) and **side-by-side** (`Y`); "Before" must be the **unedited-looking baseline render** (import/incoming edit stack), not the raw embedded preview.
+
+**Reference behaviour:** two renders (dedicated `Before` texture + processed `After`), split = clip rect + half-UV sub-rect, pan/zoom synced, WB picker maps through the pane clicked. We add a **draggable divider**.
+
+**Implementation:**
+- [ ] Store a `beforeStack` per image (snapshot at open/import); render it through the existing chain.
+- [ ] Split mode: `splitMode`/`splitPos` uniforms in the final shader (processed one side, original the other) + draggable handle in QML; keep zoom/pan shared.
+- [ ] Side-by-side: second shader-chain instance at half width, synced viewport uniforms; labels "Before"/"After".
+- [ ] Shortcuts: `Y` side-by-side, `Shift+Y` split, `B`/`\` toggle/hold original.
+- [ ] Ensure sharpen/denoise/effects behave sanely in the Before pane (Baseline = no user edits, but same optics).
+
+**Visual confirmation:** same photo zoomed at 100 %, split wipe drags smoothly; Before side changes only when the baseline changes; side-by-side stays aligned while panning/zooming; toggling modes never leaks a stale texture.
+
+## 40.3 Parametric tone curve — TODO
+
+**Goal:** add the 4-region parametric curve (Highlights/Lights/Darks/Shadows + movable split points at 25/50/75 %) and compose it with the existing point curves: `parametric → master(L) → R/G/B`.
+
+**Algorithm:**
+
+```cpp
+// per region (a,b,amt): center=(a+b)/2, half=(b-a)*0.75+0.05
+t   = clamp((x - ctr) / half, -1, 1);
+win = 0.5 + 0.5*cos(t*PI);
+d  += (amt/100.0f) * 0.22f * win;
+base(x) = clamp(x + d*4*x*(1-x), 0, 1);
+// monotone: v[i] = max(v[i], v[i-1]);  then compose master, then per-channel
+```
+
+- [ ] Build into the existing LUT generation (`RawEngine::rebuildToneLut` / `evalMonotonicSpline`), 65536 entries, no new texture.
+- [ ] `ToneCurve.qml`: add the 4 parametric sliders + 3 split sliders; the point UI stays as the master/R/G/B curves.
+- [ ] Port to `ImageDeveloper.cpp` and the histogram path.
+- [ ] **Curve domain (decided 2026-10-12):** move curve application to the **display-encoded domain** (after linear→sRGB) to match Lightroom. Applied **globally, no process-version gate** — existing edits may visibly change (accepted).
+
+**Visual confirmation:** with a point curve active, parametric +50 Highlights brightens only the top range; splits move the region boundaries visibly; combined curve stays monotone (no reversals); preview = export.
+
+## 40.4 Process version per photo + history panel — TODO
+
+**Goal:** (a) a per-photo `processVersion` stored in the edit stack so behaviour changes can be rolled out without altering existing edits; (b) a History panel listing the edit timeline with jump-to.
+
+**Design:**
+- `processVersion` (int, default 1) in the edit JSON; renderer branches behaviour by version. First consumer will be a future rendering retune (e.g. the tone-slider rewrite in Future work); 40.3 ships globally without a gate.
+- History: per-photo **persisted step list** (default cap 100) stored in the `.PhotonData` sidecar; every applied edit becomes a step; panel lists steps with click-to-restore ("copy to before", clear); integrates with existing undo/redo but survives sessions (decided 2026-10-12).
+
+- [ ] Data model + JSON + migration of existing stacks (missing field = version 1).
+- [ ] History panel UI in the develop sidebar.
+- [ ] Restore/undo/redo interplay tested.
+
+**Visual confirmation:** editing a photo fills the history; clicking an old step restores exactly that state; reopening the app keeps history; a v1 photo keeps its old rendering.
+
+## 40.5 Lensfun integration — TODO
+
+**Goal:** automatic lens correction in the Lens tab: distortion, TCA (lateral CA) and vignetting from the lensfun database, auto-matched from EXIF with amount sliders + manual override.
+
+**Design:**
+- Parse lensfun XML (distortion/TCA/vignetting polynomials, calibrated points → interpolate).
+- Match camera + lens + focal + aperture + crop factor from EXIF; fall back to nearest focal.
+- Insert into the geometry stage before crop (single resample), alongside the existing manual correction sliders.
+- **Data source (decided 2026-10-12): bundle a lensfun DB snapshot** with the app (CC-BY-SA — add attribution to `NOTICE`/About and ship the license text; note installer size). System/user path override still supported for newer DBs.
+
+- [ ] Parser + DB loader (new `src/engine/LensFun` module); bundle the DB as a Qt resource or installed data dir.
+- [ ] Enable the Lens tab UI (checkbox + amount sliders + "no profile found" state).
+- [ ] Wire into the geometry/baked pipeline and export path.
+- [ ] Tests on synthetic polynomials (distortion sign, vignette normalization); license/attribution in packaging.
+
+**Visual confirmation:** wide-angle shot — barrel distortion straightens; corners brighten with vignetting correction; CA sliders remove colour fringes; disable = pixel-identical to today.
+
+## 40.6 HDR merge (OpenCV alignment) — TODO
+
+**Goal:** enable Photo ▸ Merge Photos ▸ HDR; merge bracketed exposures into one linear DNG.
+
+**Algorithm:**
+- Radiance merge (Debevec-style, **not** exposure fusion): relative exposure `k_i` per frame, weighted mean of `v_i/k_i`.
+- Gains: robust median of `ln(b_green/a_green)` on well-exposed pixels between adjacent-brightness frames; EXIF `log2(t·ISO/N²)` fallback.
+- Weights: `w_i = k_i·(1 − smoothstep(0.80·clip, 0.96·clip, max_channel))`, small floors so fully clipped pixels still contribute.
+- Alignment (we keep OpenCV): SIFT + `estimateAffinePartial2D`/`findHomography` RANSAC on gamma-encoded luma (or `findTransformECC` for small offsets); plausibility gate.
+- Deghost: None/Low/Medium/High → log-ratio thresholds 1.0/0.6/0.35, dilate+feather 2/3/5; consistency computed at ≤1024 px; optional ghost overlay.
+- Output: linear DNG (reuse `Panorama.cpp` DNG writer): 16-bit float if practical, else U16 + `BaselineExposure` scaling (peak → 0.95); keep ColorMatrix/AsShotNeutral from the reference frame. **(Decided 2026-10-12: linear DNG, matching panorama.)**
+- Background thread + progress/cancel + toast, like Panorama.
+
+- [ ] `src/engine/HdrMerge.{h,cpp}` (decode via `raw_to_linear` helper shared with Panorama).
+- [ ] Options dialog (align on/off, deghost level) + enable the context-menu item.
+- [ ] Linear DNG writing + library reload check.
+- [ ] Tests: synthetic 3-bracket (gains recovered, highlights present, no ghosts when static).
+
+**Visual confirmation:** open a 3-shot bracket — HDR DNG opens in Photon with recovered highlights and clean shadows; no double edges with deghost Medium; alignment fixes small handheld offsets.
+
+## 40.7 Camera-look fitting from embedded JPEG — TODO
+
+**Goal:** out-of-the-box rendering reminiscent of the camera JPEG by fitting a per-photo tone curve from the embedded preview, so the classic sliders start from a familiar baseline.
+
+**Algorithm:**
+- Extract the embedded JPEG (LibRaw `dcraw_make_mem_thumb`) + its tone: quantile-match camera-JPEG luminance against the developed RAW luminance.
+- Fit a **32-knot monotone curve** in scene-luminance → display-luminance space (log-spaced knots over ~12 stops), applied inside the tone stage **before** the user sliders (sliders remain additive/relative on top).
+- **Scope (decided 2026-10-12): full look** — tone curve + chroma curve + colour (per-model matrix/hue-sat tables fitted from the previews). If the result looks off in visual review, we revert to tone-only or disable it.
+- Fallback to current rendering when no JPEG preview exists; user can disable the look.
+
+- [ ] Preview extraction + fitting (worker thread, cached in `.PhotonData`).
+- [ ] Tone curve + chroma curve application in GPU tone stage + CPU export + histogram.
+- [ ] Colour fitting: chromaticity matrix + hue/sat table per camera model, profile store on disk.
+- [ ] Toggle in Develop/Preferences + tests on synthetic pairs.
+
+**Visual confirmation:** RAW vs camera JPEG of the same shot — default rendering is close in contrast/tonality/colour; sliders behave relative to the fitted baseline; disabling the look returns to today's rendering.
+
+## Future work - To Be Discussed
+
+Deferred (candidates, not scheduled; priorities to be discussed):
+
+- [ ] **Basic-slider tone rewrite** — filmic luminance LUT (contrast/whites/blacks) + edge-aware guided-filter base for highs/shadows. Biggest remaining quality win; must ship behind process version.
+- [ ] **Denoise product cache** — full-res result computed once, disk-cached, Amount as blend of two buffers; keeps BM3D, no ML dependency.
+- [ ] **AI denoise (ONNX U-Net)** — needs an inference runtime + model licensing review (weights are GPL-3.0, user-installed).
+- [ ] **Panorama finishing** — boundary warp, auto crop, fill edges; enable gain compensation by default.
+- [ ] **Profiles browser** — live thumbnails, hover preview, `.cube` LUT import, Amount slider.
+- [ ] **XMP sidecar interoperability** — read/write `crs:` settings so edits survive round-trips with LR.
+- [ ] **Monitor ICC profiles + soft proofing** — currently ICC is decode-only; display rarely sRGB.
+- [ ] **Export upgrade** — ICC embedding, WebP/AVIF/JXL, output sharpening, HDR gain-map JPEG (pairs with 40.6).
+- [ ] **Local masks / local adjustments** — brushes, gradients, ranges; largest missing editing dimension.
+- [ ] **Smart previews** — proxies so offline originals remain editable.
+- [ ] **Second-window loupe** — second monitor support.
+- [ ] **Activity stack** — unified background-task list with cancel (imports/exports/merges/denoise).
+- [ ] **Calibrated Auto tone** — recipe tuned against Lightroom results.
+- [ ] **Face detection / People view**, **geocoding + map link** — catalog intelligence.
+- [ ] **Perspective correction (keystone)** — currently in Backlog/Future above.
+- [ ] **Contact-sheet PDF export**.
+- [ ] **SAM 3 / AI masks** — research only; heavy runtime + model licensing.
+- [ ] **Curve presets import/export** (`.lccurve`-style) — small follow-up to 40.3.

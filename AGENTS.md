@@ -47,7 +47,33 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 - `src/`: C++ source code (Engine, Viewport, Managers).
 - `content/`: QML files, views, components, and UI themes.
 - `cmake/`: Build configurations and modules.
+- `docs/`: Living developer documentation (`pipeline.md` = how the develop pipeline works and its change history; `features.md` = algorithm/purpose history per feature).
+- `research/`: Local-only study material (gitignored; pipeline/shader references and notes).
 - `.PhotonData/`: (Runtime) Hidden directory for sidecar metadata and cache.
+
+## 📋 Backlog & Feature Workflow
+
+The active plan lives in `TASKS.md` under **Phase 40: Enhancements & Refinements** (plus its `Future work - To Be Discussed` list). Work is done one task at a time:
+
+1. Pick the next task from the Phase 40 status board (default order; re-prioritize only by agreement).
+2. Implement for **all pipeline paths**: GPU preview (`RawViewport.frag` + QML shader graph), CPU export (`ImageDeveloper.cpp`) and live histogram (`RawEngine`). They must agree.
+3. Build, run automated tests, and smoke-run the app.
+4. Ask the user for **visual confirmation** with exact photos/steps/expected result. **Never commit before confirmation.**
+5. After confirmation: commit, update the status board + task notes in `TASKS.md`, add the feature to `docs/features.md`, and update `docs/pipeline.md` if the stage order changed.
+6. Pick the next task.
+
+- When requirements are ambiguous, or a hard/design decision is needed (domain, persistence, licensing, data sources), **stop and ask** instead of guessing.
+- Items not selected for the current phase go to `Future work - To Be Discussed` in `TASKS.md`.
+
+## 📚 Documentation Duties
+
+Every completed feature must leave behind:
+
+- **`docs/pipeline.md`** — updated stage order (GPU chain, CPU export, histogram) and a change-history entry (date, feature, one-line purpose).
+- **`docs/features.md`** — a section with: purpose, algorithm/formulas, pipeline placement, key constants, files touched, date.
+- **`AGENTS.md`** — only if conventions, commands or architecture changed.
+
+Keep local study notes in `research/` as the deep reference for the current phase (gitignored).
 
 ## 📜 Development Conventions
 

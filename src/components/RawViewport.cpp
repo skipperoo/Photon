@@ -94,6 +94,38 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit tintChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::calibShadowsTintChanged, this, [this]() {
+    emit calibShadowsTintChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibRedHueChanged, this, [this]() {
+    emit calibRedHueChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibRedSatChanged, this, [this]() {
+    emit calibRedSatChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibGreenHueChanged, this, [this]() {
+    emit calibGreenHueChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibGreenSatChanged, this, [this]() {
+    emit calibGreenSatChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibBlueHueChanged, this, [this]() {
+    emit calibBlueHueChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibBlueSatChanged, this, [this]() {
+    emit calibBlueSatChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibrationMatrixChanged, this, [this]() {
+    emit calibrationMatrixChanged();
+    update();
+  });
   connect(&m_engine, &RawEngine::profileChanged, this, [this]() {
     emit profileChanged();
     update();
@@ -541,6 +573,55 @@ void RawViewport::setTint(float val) {
   if (qFuzzyCompare(m_engine.tint(), val)) return;
   m_engine.setTint(val);
   emit tintChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibShadowsTint(float val) {
+  if (qFuzzyCompare(m_engine.calibShadowsTint(), val)) return;
+  m_engine.setCalibShadowsTint(val);
+  emit calibShadowsTintChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibRedHue(float val) {
+  if (qFuzzyCompare(m_engine.calibRedHue(), val)) return;
+  m_engine.setCalibRedHue(val);
+  emit calibRedHueChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibRedSat(float val) {
+  if (qFuzzyCompare(m_engine.calibRedSat(), val)) return;
+  m_engine.setCalibRedSat(val);
+  emit calibRedSatChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibGreenHue(float val) {
+  if (qFuzzyCompare(m_engine.calibGreenHue(), val)) return;
+  m_engine.setCalibGreenHue(val);
+  emit calibGreenHueChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibGreenSat(float val) {
+  if (qFuzzyCompare(m_engine.calibGreenSat(), val)) return;
+  m_engine.setCalibGreenSat(val);
+  emit calibGreenSatChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibBlueHue(float val) {
+  if (qFuzzyCompare(m_engine.calibBlueHue(), val)) return;
+  m_engine.setCalibBlueHue(val);
+  emit calibBlueHueChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibBlueSat(float val) {
+  if (qFuzzyCompare(m_engine.calibBlueSat(), val)) return;
+  m_engine.setCalibBlueSat(val);
+  emit calibBlueSatChanged();
   m_engine.requestHistogramUpdate();
 }
 

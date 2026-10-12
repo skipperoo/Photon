@@ -23,6 +23,7 @@ class TestRawEngine : public QObject {
   void testProperties();
   void testPhoton001MultipassUsesFloatTargets();
   void testPhoton001ToneRangesReferenceBehavior();
+  void testCalibrationReferenceBehavior();
   void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
   void testSwitchingSourceResetsExposureAndContrast();
@@ -387,6 +388,122 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
   QVERIFY(upDiff < 2.0f * downDiff);
   QVERIFY(downDiff < 2.0f * upDiff);
 }
+
+void TestRawEngine::testCalibrationReferenceBehavior() {
+  constexpr int w = 64;
+  constexpr int h = 4;
+
+  auto linearToSrgb16 = [](float linear) {
+    const float s = linear <= 0.0031308f
+                        ? linear * 12.92f
+                        : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+    return ushort(std::clamp(s, 0.0f, 1.0f) * 65535.0f + 0.5f);
+  };
+
+  auto maxLinearDiff = [](const QImage& a, const QImage& b) {
+    float maxDiff = 0.0f;
+    for (int y = 0; y < a.height(); ++y) {
+      const uchar* sa = a.constScanLine(y);
+      const uchar* sb = b.constScanLine(y);
+      for (int x = 0; x < a.width(); ++x) {
+        for (int c = 0; c < 3; ++c) {
+          const float la = srgbToLinear(sa[x * 3 + c] / 255.0f);
+          const float lb = srgbToLinear(sb[x * 3 + c] / 255.0f);
+          maxDiff = std::max(maxDiff, std::abs(la - lb));
+        }
+      }
+    }
+    return maxDiff;
+  };
+
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+
+  std::vector<ushort> ramp(w * h * 3);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const float linear = 0.001f + 0.999f * float(x) / float(w - 1);
+      const ushort v = linearToSrgb16(linear);
+      const int i = (y * w + x) * 3;
+      ramp[i] = v;
+      ramp[i + 1] = v;
+      ramp[i + 2] = v;
+    }
+  }
+
+  const QImage ref = photon::ImageDeveloper::develop(ramp.data(), w, h, base);
+  QVERIFY(!ref.isNull());
+
+  QJsonObject neutral = base;
+  neutral["calibShadowsTint"] = 0.0;
+  neutral["calibRedHue"] = 0.0;
+  neutral["calibRedSat"] = 0.0;
+  neutral["calibGreenHue"] = 0.0;
+  neutral["calibGreenSat"] = 0.0;
+  neutral["calibBlueHue"] = 0.0;
+  neutral["calibBlueSat"] = 0.0;
+  const QImage neutralImg =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, neutral);
+  QVERIFY(!neutralImg.isNull());
+  QVERIFY(maxLinearDiff(ref, neutralImg) < 1e-4f);
+
+  QJsonObject prim = base;
+  prim["calibRedHue"] = 100.0;
+  prim["calibRedSat"] = -100.0;
+  prim["calibGreenHue"] = -80.0;
+  prim["calibBlueSat"] = 100.0;
+  const QImage primImg =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, prim);
+  QVERIFY(!primImg.isNull());
+  QVERIFY(maxLinearDiff(ref, primImg) < 0.01f);
+
+  std::vector<ushort> colors(w * h * 3);
+  const ushort r16 = linearToSrgb16(0.62f);
+  const ushort g16 = linearToSrgb16(0.06f);
+  const ushort b16 = linearToSrgb16(0.06f);
+  for (int i = 0; i < w * h; ++i) {
+    colors[i * 3] = r16;
+    colors[i * 3 + 1] = g16;
+    colors[i * 3 + 2] = b16;
+  }
+  const QImage colorRef =
+      photon::ImageDeveloper::develop(colors.data(), w, h, base);
+  QVERIFY(!colorRef.isNull());
+  QJsonObject desat = base;
+  desat["calibRedSat"] = -100.0;
+  const QImage colorDesat =
+      photon::ImageDeveloper::develop(colors.data(), w, h, desat);
+  QVERIFY(!colorDesat.isNull());
+  QVERIFY(maxLinearDiff(colorRef, colorDesat) > 0.02f);
+
+  QJsonObject tint = base;
+  tint["calibShadowsTint"] = 100.0;
+  const QImage tintImg =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, tint);
+  QVERIFY(!tintImg.isNull());
+
+  float darkDelta = 0.0f;
+  float brightDelta = 0.0f;
+  for (int y = 0; y < h; ++y) {
+    const uchar* sa = ref.constScanLine(y);
+    const uchar* sb = tintImg.constScanLine(y);
+    for (int x = 0; x < w; ++x) {
+      for (int c = 0; c < 3; ++c) {
+        const float la = srgbToLinear(sa[x * 3 + c] / 255.0f);
+        const float lb = srgbToLinear(sb[x * 3 + c] / 255.0f);
+        const float diff = std::abs(la - lb);
+        if (x <= 4) darkDelta = std::max(darkDelta, diff);
+        if (x >= 16) brightDelta = std::max(brightDelta, diff);
+      }
+    }
+  }
+  QVERIFY(darkDelta > 0.001f);
+  QVERIFY(brightDelta < 0.002f);
+}
+
 
 void TestRawEngine::testOklabCreativeOps() {
   auto oklabHueDeg = [](float r, float g, float b) {

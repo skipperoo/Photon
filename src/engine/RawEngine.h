@@ -8,6 +8,7 @@
 #include <QString>
 #include <QTimer>
 #include <QVariantList>
+#include <QVector3D>
 #include <QtConcurrent>
 #include <QtQuick/QQuickWindow>
 #include <memory>
@@ -45,6 +46,23 @@ class RawEngine : public QObject {
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
                  temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
+  Q_PROPERTY(float calibShadowsTint READ calibShadowsTint WRITE
+                 setCalibShadowsTint NOTIFY calibShadowsTintChanged)
+  Q_PROPERTY(float calibRedHue READ calibRedHue WRITE setCalibRedHue NOTIFY
+                 calibRedHueChanged)
+  Q_PROPERTY(float calibRedSat READ calibRedSat WRITE setCalibRedSat NOTIFY
+                 calibRedSatChanged)
+  Q_PROPERTY(float calibGreenHue READ calibGreenHue WRITE setCalibGreenHue
+                 NOTIFY calibGreenHueChanged)
+  Q_PROPERTY(float calibGreenSat READ calibGreenSat WRITE setCalibGreenSat
+                 NOTIFY calibGreenSatChanged)
+  Q_PROPERTY(float calibBlueHue READ calibBlueHue WRITE setCalibBlueHue NOTIFY
+                 calibBlueHueChanged)
+  Q_PROPERTY(float calibBlueSat READ calibBlueSat WRITE setCalibBlueSat NOTIFY
+                 calibBlueSatChanged)
+  Q_PROPERTY(QVector3D calibRowR READ calibRowR NOTIFY calibrationMatrixChanged)
+  Q_PROPERTY(QVector3D calibRowG READ calibRowG NOTIFY calibrationMatrixChanged)
+  Q_PROPERTY(QVector3D calibRowB READ calibRowB NOTIFY calibrationMatrixChanged)
   Q_PROPERTY(
       QString profile READ profile WRITE setProfile NOTIFY profileChanged)
   Q_PROPERTY(float bwMixRed READ bwMixRed WRITE setBwMixRed NOTIFY
@@ -292,6 +310,24 @@ class RawEngine : public QObject {
 
   float tint() const { return m_tint; }
   void setTint(float val);
+
+  float calibShadowsTint() const { return m_calibShadowsTint; }
+  void setCalibShadowsTint(float val);
+  float calibRedHue() const { return m_calibRedHue; }
+  void setCalibRedHue(float val);
+  float calibRedSat() const { return m_calibRedSat; }
+  void setCalibRedSat(float val);
+  float calibGreenHue() const { return m_calibGreenHue; }
+  void setCalibGreenHue(float val);
+  float calibGreenSat() const { return m_calibGreenSat; }
+  void setCalibGreenSat(float val);
+  float calibBlueHue() const { return m_calibBlueHue; }
+  void setCalibBlueHue(float val);
+  float calibBlueSat() const { return m_calibBlueSat; }
+  void setCalibBlueSat(float val);
+  QVector3D calibRowR() const { return m_calibRowR; }
+  QVector3D calibRowG() const { return m_calibRowG; }
+  QVector3D calibRowB() const { return m_calibRowB; }
 
   QString profile() const { return m_profile; }
   void setProfile(const QString& profile);
@@ -568,6 +604,14 @@ class RawEngine : public QObject {
   void saturationChanged();
   void temperatureChanged();
   void tintChanged();
+  void calibShadowsTintChanged();
+  void calibRedHueChanged();
+  void calibRedSatChanged();
+  void calibGreenHueChanged();
+  void calibGreenSatChanged();
+  void calibBlueHueChanged();
+  void calibBlueSatChanged();
+  void calibrationMatrixChanged();
   void profileChanged();
   void bwMixRedChanged();
   void bwMixOrangeChanged();
@@ -688,6 +732,7 @@ class RawEngine : public QObject {
                           int channels, float percentile = 0.97f);
   void updateProcessingParams();
   void rebuildToneLut();
+  void refreshCalibrationMatrix();
   static std::vector<float> evalMonotonicSpline(const QVariantList& pts,
                                                  int lutSize = 256);
   bool loadRawFileSync(const QString& path, int loadId);
@@ -717,6 +762,16 @@ class RawEngine : public QObject {
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;
   float m_tint = 0.0f;
+  float m_calibShadowsTint = 0.0f;
+  float m_calibRedHue = 0.0f;
+  float m_calibRedSat = 0.0f;
+  float m_calibGreenHue = 0.0f;
+  float m_calibGreenSat = 0.0f;
+  float m_calibBlueHue = 0.0f;
+  float m_calibBlueSat = 0.0f;
+  QVector3D m_calibRowR{1.0f, 0.0f, 0.0f};
+  QVector3D m_calibRowG{0.0f, 1.0f, 0.0f};
+  QVector3D m_calibRowB{0.0f, 0.0f, 1.0f};
   QString m_profile = QStringLiteral("normal");
   float m_bwMixRed = 0.0f;
   float m_bwMixOrange = 0.0f;

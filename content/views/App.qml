@@ -756,6 +756,10 @@ Window {
                             property real saturation: rawViewport.saturation
                             property real temperature: rawViewport.temperature
                             property real tint: rawViewport.tint
+                            property vector3d calibRowR: rawViewport.calibRowR
+                            property vector3d calibRowG: rawViewport.calibRowG
+                            property vector3d calibRowB: rawViewport.calibRowB
+                            property real calibShadowsTint: rawViewport.calibShadowsTint / 100.0
                             property real profileIndex: rawViewport.profileIndex
                             property real bwMixRed: rawViewport.bwMixRed
                             property real bwMixOrange: rawViewport.bwMixOrange

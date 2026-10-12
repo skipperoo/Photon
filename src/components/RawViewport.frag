@@ -79,6 +79,12 @@ layout(std140, binding = 0) uniform buf {
 
     // Before/After bypass
     float showOriginal;
+
+    // Calibration (host-computed matrix rows + normalized shadows tint)
+    vec3 calibRowR;
+    vec3 calibRowG;
+    vec3 calibRowB;
+    float calibShadowsTint;
 } ubuf;
 
 const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
@@ -497,6 +503,21 @@ vec3 apply_photon001_delta_stops(vec3 color, float deltaStops, float whitesStops
     return apply_luma_target(color, srcGrayLinear, targetLuma);
 }
 
+vec3 apply_calibration(vec3 color) {
+    color = max(vec3(dot(ubuf.calibRowR, color),
+                     dot(ubuf.calibRowG, color),
+                     dot(ubuf.calibRowB, color)), vec3(0.0));
+    if (abs(ubuf.calibShadowsTint) > 0.0001) {
+        float y0 = max(get_luma(color), 1e-7);
+        float x = clamp((log2(y0 / 0.18) + 5.0) / 4.5, 0.0, 1.0);
+        float w = 1.0 - x * x * (3.0 - 2.0 * x);
+        color.g *= max(1.0 - 0.3 * ubuf.calibShadowsTint * w, 0.0);
+        float y1 = max(get_luma(color), 1e-9);
+        color *= y0 / y1;
+    }
+    return color;
+}
+
 float sample_tone_lut_channel(float value, int channel) {
     int idx = int(clamp(floor(clamp(value, 0.0, 1.0) * 65535.0 + 0.5), 0.0, 65535.0));
     int x = idx & 255;
@@ -774,6 +795,9 @@ void main()
     color = apply_photon001_delta_stops(color, deltaValue.x, deltaValue.y, sceneWhiteNorm);
     //color = davinci_tonemap(color, ubuf.adaptation);
     
+    // Calibration (scene-linear, before the tone curve)
+    color = apply_calibration(color);
+
     // 3. Contrast (perceptual S-curve on luma; 1.0 = identity)
     color = max(vec3(0.0), color);
     if (abs(ubuf.contrast - 1.0) > 0.001) {

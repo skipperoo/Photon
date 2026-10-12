@@ -97,6 +97,18 @@ T.Dialog {
             ]
         },
         {
+            "label": "Calibration",
+            "items": [
+                { "key": "calibShadowsTint", "label": "Shadows Tint" },
+                { "key": "calibRedHue", "label": "Red Hue" },
+                { "key": "calibRedSat", "label": "Red Saturation" },
+                { "key": "calibGreenHue", "label": "Green Hue" },
+                { "key": "calibGreenSat", "label": "Green Saturation" },
+                { "key": "calibBlueHue", "label": "Blue Hue" },
+                { "key": "calibBlueSat", "label": "Blue Saturation" }
+            ]
+        },
+        {
             "label": "Effects",
             "items": [
                 { "key": "grainAmount", "label": "Grain Amount" },

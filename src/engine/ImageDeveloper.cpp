@@ -17,6 +17,7 @@
 
 #include "../managers/CrashReporter.h"
 #include "../managers/LogManager.h"
+#include "Calibration.h"
 #include "Denoiser.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
@@ -852,6 +853,15 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float clarity = obj["clarity"].toDouble();
   float temp = obj["temperature"].toDouble() / 100.0f;
   float tint = obj["tint"].toDouble() / 100.0f;
+
+  photon::calibration::Params calib;
+  calib.shadowsTint = obj["calibShadowsTint"].toDouble();
+  calib.redHue = obj["calibRedHue"].toDouble();
+  calib.redSat = obj["calibRedSat"].toDouble();
+  calib.greenHue = obj["calibGreenHue"].toDouble();
+  calib.greenSat = obj["calibGreenSat"].toDouble();
+  calib.blueHue = obj["calibBlueHue"].toDouble();
+  calib.blueSat = obj["calibBlueSat"].toDouble();
   float sat_global = obj["saturation"].toDouble();
   float vib_global = obj["vibrance"].toDouble();
   const QString profile =
@@ -1065,6 +1075,9 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
           color, blurredFineTone, blurredCoarseTone, high / 100.0f,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
           sceneWhiteNorm, sceneStats);
+
+      // Calibration (scene-linear, before the tone curve)
+      photon::calibration::apply(calib, color.r, color.g, color.b);
 
       // 2. Contrast (perceptual S-curve on luma; 1.0 = identity)
       r = std::max(0.0f, color.r);

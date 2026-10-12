@@ -26,6 +26,7 @@
 #include "../managers/LogManager.h"
 #include "../managers/PreviewManager.h"
 #include "CrashReporter.h"
+#include "Calibration.h"
 #include "Denoiser.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
@@ -990,6 +991,80 @@ void RawEngine::setTint(float val) {
   m_tint = val;
   emit tintChanged();
   emit isDefaultChanged();
+}
+
+void RawEngine::setCalibShadowsTint(float val) {
+  if (qFuzzyCompare(m_calibShadowsTint, val)) return;
+  m_calibShadowsTint = val;
+  refreshCalibrationMatrix();
+  emit calibShadowsTintChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibRedHue(float val) {
+  if (qFuzzyCompare(m_calibRedHue, val)) return;
+  m_calibRedHue = val;
+  refreshCalibrationMatrix();
+  emit calibRedHueChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibRedSat(float val) {
+  if (qFuzzyCompare(m_calibRedSat, val)) return;
+  m_calibRedSat = val;
+  refreshCalibrationMatrix();
+  emit calibRedSatChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibGreenHue(float val) {
+  if (qFuzzyCompare(m_calibGreenHue, val)) return;
+  m_calibGreenHue = val;
+  refreshCalibrationMatrix();
+  emit calibGreenHueChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibGreenSat(float val) {
+  if (qFuzzyCompare(m_calibGreenSat, val)) return;
+  m_calibGreenSat = val;
+  refreshCalibrationMatrix();
+  emit calibGreenSatChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibBlueHue(float val) {
+  if (qFuzzyCompare(m_calibBlueHue, val)) return;
+  m_calibBlueHue = val;
+  refreshCalibrationMatrix();
+  emit calibBlueHueChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibBlueSat(float val) {
+  if (qFuzzyCompare(m_calibBlueSat, val)) return;
+  m_calibBlueSat = val;
+  refreshCalibrationMatrix();
+  emit calibBlueSatChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::refreshCalibrationMatrix() {
+  photon::calibration::Params params;
+  params.shadowsTint = m_calibShadowsTint;
+  params.redHue = m_calibRedHue;
+  params.redSat = m_calibRedSat;
+  params.greenHue = m_calibGreenHue;
+  params.greenSat = m_calibGreenSat;
+  params.blueHue = m_calibBlueHue;
+  params.blueSat = m_calibBlueSat;
+
+  const photon::calibration::Matrix mat =
+      photon::calibration::computeMatrix(params);
+  m_calibRowR = QVector3D(mat.m[0][0], mat.m[0][1], mat.m[0][2]);
+  m_calibRowG = QVector3D(mat.m[1][0], mat.m[1][1], mat.m[1][2]);
+  m_calibRowB = QVector3D(mat.m[2][0], mat.m[2][1], mat.m[2][2]);
+  emit calibrationMatrixChanged();
 }
 
 void RawEngine::setProfile(const QString& profile) {
@@ -2033,6 +2108,15 @@ void RawEngine::requestHistogramUpdate() {
   float temp = m_temperature / 100.0f;
   float tint = m_tint / 100.0f;
 
+  photon::calibration::Params calibParams;
+  calibParams.shadowsTint = m_calibShadowsTint;
+  calibParams.redHue = m_calibRedHue;
+  calibParams.redSat = m_calibRedSat;
+  calibParams.greenHue = m_calibGreenHue;
+  calibParams.greenSat = m_calibGreenSat;
+  calibParams.blueHue = m_calibBlueHue;
+  calibParams.blueSat = m_calibBlueSat;
+
   // Capture HSL parameters (24 floats)
   std::vector<float> hsl_h = {m_hslRedHue,    m_hslOrangeHue, m_hslYellowHue,
                               m_hslGreenHue,  m_hslAquaHue,   m_hslBlueHue,
@@ -2085,7 +2169,7 @@ void RawEngine::requestHistogramUpdate() {
                                          cgSS, cgSL, cgMH, cgMS, cgML, cgHH,
                                          cgHS, cgHL, cgBal, cgBlen, statsDetail,
                                          statsPin, statsComp, profileIndex,
-                                         bw_mix]() {
+                                         bw_mix, calibParams]() {
     std::vector<uint32_t> r_bins(256, 0);
     std::vector<uint32_t> g_bins(256, 0);
     std::vector<uint32_t> b_bins(256, 0);
@@ -2095,6 +2179,10 @@ void RawEngine::requestHistogramUpdate() {
     float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
     float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
     float exp_mult = std::pow(2.0f, exp > 0.0f ? exp * 0.85f : exp);
+
+    const photon::calibration::Matrix calibMat =
+        photon::calibration::computeMatrix(calibParams);
+    const float calibTint = calibParams.shadowsTint / 100.0f;
 
     // HSL centers and widths matching shader
     float centers[8] = {358.0f, 25.0f,  60.0f,  115.0f,
@@ -2152,6 +2240,9 @@ void RawEngine::requestHistogramUpdate() {
       r = color.r;
       g = color.g;
       b = color.b;
+
+      photon::calibration::applyMatrix(calibMat, r, g, b);
+      photon::calibration::applyShadowsTint(r, g, b, calibTint);
 
       // 2. Contrast (perceptual S-curve on luma; 1.0 = identity)
       r = std::max(0.0f, r);
@@ -2819,6 +2910,13 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["saturation"] = e->saturation();
   obj["temperature"] = e->temperature();
   obj["tint"] = e->tint();
+  obj["calibShadowsTint"] = e->calibShadowsTint();
+  obj["calibRedHue"] = e->calibRedHue();
+  obj["calibRedSat"] = e->calibRedSat();
+  obj["calibGreenHue"] = e->calibGreenHue();
+  obj["calibGreenSat"] = e->calibGreenSat();
+  obj["calibBlueHue"] = e->calibBlueHue();
+  obj["calibBlueSat"] = e->calibBlueSat();
   obj["profile"] = e->profile();
   obj["bwMixRed"] = e->bwMixRed();
   obj["bwMixOrange"] = e->bwMixOrange();
@@ -2938,6 +3036,20 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("temperature"))
     e->setTemperature(obj["temperature"].toDouble());
   if (obj.contains("tint")) e->setTint(obj["tint"].toDouble());
+  if (obj.contains("calibShadowsTint"))
+    e->setCalibShadowsTint(obj["calibShadowsTint"].toDouble());
+  if (obj.contains("calibRedHue"))
+    e->setCalibRedHue(obj["calibRedHue"].toDouble());
+  if (obj.contains("calibRedSat"))
+    e->setCalibRedSat(obj["calibRedSat"].toDouble());
+  if (obj.contains("calibGreenHue"))
+    e->setCalibGreenHue(obj["calibGreenHue"].toDouble());
+  if (obj.contains("calibGreenSat"))
+    e->setCalibGreenSat(obj["calibGreenSat"].toDouble());
+  if (obj.contains("calibBlueHue"))
+    e->setCalibBlueHue(obj["calibBlueHue"].toDouble());
+  if (obj.contains("calibBlueSat"))
+    e->setCalibBlueSat(obj["calibBlueSat"].toDouble());
   if (obj.contains("profile")) {
     e->setProfile(obj["profile"].toString());
   } else if (obj.contains("tonemappingEnabled")) {
@@ -3117,6 +3229,13 @@ static void resetToDefaults(RawEngine* e) {
   e->setSaturation(0.0f);
   e->setTemperature(0.0f);
   e->setTint(0.0f);
+  e->setCalibShadowsTint(0.0f);
+  e->setCalibRedHue(0.0f);
+  e->setCalibRedSat(0.0f);
+  e->setCalibGreenHue(0.0f);
+  e->setCalibGreenSat(0.0f);
+  e->setCalibBlueHue(0.0f);
+  e->setCalibBlueSat(0.0f);
   e->setProfile(QString::fromLatin1(develop::kProfileNormal));
   e->setBwMixRed(0.0f);
   e->setBwMixOrange(0.0f);
@@ -3410,6 +3529,13 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_saturation)) return false;
   if (!qFuzzyIsNull(m_temperature)) return false;
   if (!qFuzzyIsNull(m_tint)) return false;
+  if (!qFuzzyIsNull(m_calibShadowsTint)) return false;
+  if (!qFuzzyIsNull(m_calibRedHue)) return false;
+  if (!qFuzzyIsNull(m_calibRedSat)) return false;
+  if (!qFuzzyIsNull(m_calibGreenHue)) return false;
+  if (!qFuzzyIsNull(m_calibGreenSat)) return false;
+  if (!qFuzzyIsNull(m_calibBlueHue)) return false;
+  if (!qFuzzyIsNull(m_calibBlueSat)) return false;
   if (m_profile != QLatin1String(develop::kProfileNormal)) return false;
   if (!qFuzzyIsNull(m_bwMixRed) || !qFuzzyIsNull(m_bwMixOrange) ||
       !qFuzzyIsNull(m_bwMixYellow) || !qFuzzyIsNull(m_bwMixGreen) ||

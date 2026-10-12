@@ -480,6 +480,38 @@ Control {
                     }
                 }
 
+                // --- Calibration Section ---
+                Collapsible {
+                    title: "Calibration"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        Text { text: "Shadows"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.calibShadowsTint : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibShadowsTint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        Text { text: "Red Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibRedHue : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibRedHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibRedSat : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibRedSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        Text { text: "Green Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibGreenHue : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibGreenSat : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        Text { text: "Blue Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibBlueHue : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibBlueSat : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                    }
+                }
+
                 // --- Effects Section ---
                 Collapsible {
                     title: "Effects"

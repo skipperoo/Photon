@@ -21,6 +21,8 @@ add_executable(tst_RawEngine
  ../src/engine/ImageDeveloper.h
  ../src/engine/ImageDecoder.cpp
  ../src/engine/ImageDecoder.h
+ ../src/engine/LensFun.cpp
+ ../src/engine/LensFun.h
  ../src/engine/VulkanComputeContext.cpp
  ../src/engine/VulkanComputeContext.h
     ../src/managers/PreviewManager.cpp
@@ -97,6 +99,8 @@ add_executable(tst_AppStateManager
     ../src/engine/ImageDeveloper.h
     ../src/engine/ImageDecoder.cpp
     ../src/engine/ImageDecoder.h
+    ../src/engine/LensFun.cpp
+    ../src/engine/LensFun.h
     ../src/managers/FileScanner.cpp
     ../src/managers/FileScanner.h
  ../src/engine/Denoiser.cpp

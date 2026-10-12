@@ -94,6 +94,41 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit tintChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::lensProfileEnabledChanged, this, [this]() {
+    emit lensProfileEnabledChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::lensProfileDistortionChanged, this, [this]() {
+    emit lensProfileDistortionChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileVignettingChanged, this, [this]() {
+    emit lensProfileVignettingChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileCAChanged, this, [this]() {
+    emit lensProfileCAChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileNameChanged, this, [this]() {
+    emit lensProfileNameChanged();
+  });
+  connect(&m_engine, &RawEngine::lensShaderChanged, this, [this]() {
+    emit lensShaderChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::lensProfileMakerChanged, this, [this]() {
+    emit lensProfileMakerChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileLensChanged, this, [this]() {
+    emit lensProfileLensChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileMakersChanged, this, [this]() {
+    emit lensProfileMakersChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileLensesChanged, this, [this]() {
+    emit lensProfileLensesChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileEffectiveChanged, this, [this]() {
+    emit lensProfileEffectiveChanged();
+  });
   connect(&m_engine, &RawEngine::processVersionChanged, this, [this]() {
     emit processVersionChanged();
   });
@@ -615,6 +650,42 @@ void RawViewport::setTint(float val) {
   m_engine.setTint(val);
   emit tintChanged();
   m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setLensProfileMaker(const QString& maker) {
+  if (m_engine.lensProfileMaker() == maker) return;
+  m_engine.setLensProfileMaker(maker);
+  emit lensProfileMakerChanged();
+}
+
+void RawViewport::setLensProfileLens(const QString& lens) {
+  if (m_engine.lensProfileLens() == lens) return;
+  m_engine.setLensProfileLens(lens);
+  emit lensProfileLensChanged();
+}
+
+void RawViewport::setLensProfileEnabled(bool enabled) {
+  if (m_engine.lensProfileEnabled() == enabled) return;
+  m_engine.setLensProfileEnabled(enabled);
+  emit lensProfileEnabledChanged();
+}
+
+void RawViewport::setLensProfileDistortion(float amount) {
+  if (qFuzzyCompare(m_engine.lensProfileDistortion(), amount)) return;
+  m_engine.setLensProfileDistortion(amount);
+  emit lensProfileDistortionChanged();
+}
+
+void RawViewport::setLensProfileVignetting(float amount) {
+  if (qFuzzyCompare(m_engine.lensProfileVignetting(), amount)) return;
+  m_engine.setLensProfileVignetting(amount);
+  emit lensProfileVignettingChanged();
+}
+
+void RawViewport::setLensProfileCA(float amount) {
+  if (qFuzzyCompare(m_engine.lensProfileCA(), amount)) return;
+  m_engine.setLensProfileCA(amount);
+  emit lensProfileCAChanged();
 }
 
 void RawViewport::setProcessVersion(int version) {

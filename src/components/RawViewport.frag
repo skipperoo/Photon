@@ -89,6 +89,31 @@ layout(std140, binding = 0) uniform buf {
     // Before/after compare (0 = off, 1 = split wipe, 2 = side-by-side)
     float compareMode;
     float splitPos;
+
+    // Lens profile correction (real-time, baked-image space)
+    float lensActive;
+    vec2 lensCenter;
+    float lensHalfShort;
+    float lensHalfDiag;
+    float lensZoom;
+    float lensAmountDist;
+    float lensAmountCa;
+    float lensAmountVig;
+    float lensDistModel;
+    float lensDistK0;
+    float lensDistK1;
+    float lensDistK2;
+    float lensTcaModel;
+    float lensTcaVR;
+    float lensTcaCR;
+    float lensTcaBR;
+    float lensTcaVB;
+    float lensTcaCB;
+    float lensTcaBB;
+    float lensVigActive;
+    float lensVigK0;
+    float lensVigK1;
+    float lensVigK2;
 } ubuf;
 
 const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
@@ -756,14 +781,79 @@ void main()
         }
     }
 
+    // --- Lens profile correction (radial, in baked-image space) ---
+    vec2 baseCanvasUV = canvasUV;
+    vec2 canvasUVR = canvasUV;
+    vec2 canvasUVB = canvasUV;
+    float lensVigGain = 1.0;
+    if (ubuf.lensActive > 0.5) {
+        vec2 bakedSize = max(ubuf.sourceSize, vec2(2.0));
+        vec2 bakedPx = imgCoord * bakedSize;
+        vec2 d = bakedPx - ubuf.lensCenter;
+        float r = length(d) / max(ubuf.lensHalfShort, 1.0);
+
+        float ratio = 1.0;
+        if (ubuf.lensDistModel > 0.5) {
+            float model = 1.0;
+            if (ubuf.lensDistModel < 1.5) {
+                model = 1.0 + ubuf.lensDistK0 * r * r;
+            } else if (ubuf.lensDistModel < 2.5) {
+                float r2 = r * r;
+                model = 1.0 + ubuf.lensDistK0 * r2 + ubuf.lensDistK1 * r2 * r2;
+            } else {
+                model = 1.0 + ubuf.lensDistK2 * r + ubuf.lensDistK1 * r * r +
+                        ubuf.lensDistK0 * r * r * r;
+            }
+            ratio = 1.0 + (model - 1.0) * ubuf.lensAmountDist;
+        }
+        ratio /= max(ubuf.lensZoom, 1e-4);
+
+        float ratioR = ratio;
+        float ratioB = ratio;
+        if (ubuf.lensTcaModel > 0.5) {
+            float fr = ubuf.lensTcaModel > 1.5
+                           ? ubuf.lensTcaVR + ubuf.lensTcaCR * r +
+                                 ubuf.lensTcaBR * r * r
+                           : ubuf.lensTcaVR;
+            float fb = ubuf.lensTcaModel > 1.5
+                           ? ubuf.lensTcaVB + ubuf.lensTcaCB * r +
+                                 ubuf.lensTcaBB * r * r
+                           : ubuf.lensTcaVB;
+            ratioR *= 1.0 + (fr - 1.0) * ubuf.lensAmountCa;
+            ratioB *= 1.0 + (fb - 1.0) * ubuf.lensAmountCa;
+        }
+
+        vec2 corrR = (bakedPx + d * (ratioR - 1.0)) / bakedSize;
+        vec2 corrG = (bakedPx + d * (ratio - 1.0)) / bakedSize;
+        vec2 corrB = (bakedPx + d * (ratioB - 1.0)) / bakedSize;
+        canvasUVR = (ubuf.imageRect.xy + corrR * ubuf.imageRect.zw) / ubuf.viewportSize;
+        canvasUV = (ubuf.imageRect.xy + corrG * ubuf.imageRect.zw) / ubuf.viewportSize;
+        canvasUVB = (ubuf.imageRect.xy + corrB * ubuf.imageRect.zw) / ubuf.viewportSize;
+
+        if (ubuf.lensVigActive > 0.5) {
+            float rv = r * (ubuf.lensHalfShort / max(ubuf.lensHalfDiag, 1.0));
+            float rv2 = rv * rv;
+            float rv4 = rv2 * rv2;
+            float rv6 = rv4 * rv2;
+            float response = 1.0 + ubuf.lensVigK0 * rv2 + ubuf.lensVigK1 * rv4 +
+                             ubuf.lensVigK2 * rv6;
+            float gain = response > 1e-4 ? 1.0 / response : 1.0;
+            lensVigGain = 1.0 + (gain - 1.0) * ubuf.lensAmountVig;
+        }
+    }
+
     vec4 tex = texture(source, canvasUV);
+    if (ubuf.lensActive > 0.5 && ubuf.lensTcaModel > 0.5) {
+        tex.r = texture(source, canvasUVR).r;
+        tex.b = texture(source, canvasUVB).b;
+    }
 
     if (ubuf.isPreview > 0.5 || showBase) {
-        fragColor = vec4(tex.rgb, tex.a) * ubuf.qt_Opacity;
+        fragColor = texture(source, baseCanvasUV) * ubuf.qt_Opacity;
         return;
     }
 
-    vec3 color = srgb_to_linear(tex.rgb);
+    vec3 color = srgb_to_linear(tex.rgb) * lensVigGain;
     
     // 0. Noise Reduction (Real-time GPU pass)
     color = apply_gpu_denoise(color, canvasUV, source, ubuf.denoiseAmount);

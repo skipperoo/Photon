@@ -19,6 +19,7 @@
 #include "../managers/LogManager.h"
 #include "Calibration.h"
 #include "Denoiser.h"
+#include "LensFun.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
 
@@ -904,6 +905,11 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       obj.contains("toneCurveMode")
           ? obj["toneCurveMode"].toString()
           : QStringLiteral("manual");
+  const bool lensEnabled = obj["lensProfileEnabled"].toBool();
+  const float lensDistortion = obj["lensProfileDistortion"].toDouble(50.0);
+  const float lensVignetting = obj["lensProfileVignetting"].toDouble(50.0);
+  const float lensCA = obj["lensProfileCA"].toDouble(50.0);
+
   const float tcShadows = obj["toneCurveShadows"].toDouble(0.0);
   const float tcDarks = obj["toneCurveDarks"].toDouble(0.0);
   const float tcLights = obj["toneCurveLights"].toDouble(0.0);
@@ -1432,6 +1438,19 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     }
   }
   stage("denoise");
+
+  // === Lens corrections (before geometry, display-referred pixels) ===
+  if (lensEnabled) {
+    photon::lensfun::Database::instance().ensureLoaded();
+    const auto profile = photon::lensfun::Database::instance().match(
+        obj["exifMake"].toString(), obj["exifModel"].toString(),
+        obj["exifLens"].toString(), obj["exifFocal"].toDouble(0.0),
+        obj["exifAperture"].toDouble(0.0));
+    if (profile.valid) {
+      output = photon::lensfun::applyProfile(output, profile, lensDistortion,
+                                             lensCA, lensVignetting);
+    }
+  }
 
   // === Crop & Geometry transforms ===
   // 1. Orientation steps (90° rotations)

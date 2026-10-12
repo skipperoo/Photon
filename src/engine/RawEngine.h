@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "DevelopProfile.h"
+#include "LensFun.h"
 
 class QRhi;
 namespace photon {
@@ -232,6 +233,29 @@ class RawEngine : public QObject {
                  setToneCurveSplitHighlights NOTIFY
                      toneCurveSplitHighlightsChanged)
   Q_PROPERTY(int toneLutVersion READ toneLutVersion NOTIFY toneLutVersionChanged)
+  Q_PROPERTY(bool lensProfileEnabled READ lensProfileEnabled WRITE
+                 setLensProfileEnabled NOTIFY lensProfileEnabledChanged)
+  Q_PROPERTY(float lensProfileDistortion READ lensProfileDistortion WRITE
+                 setLensProfileDistortion NOTIFY lensProfileDistortionChanged)
+  Q_PROPERTY(float lensProfileVignetting READ lensProfileVignetting WRITE
+                 setLensProfileVignetting NOTIFY lensProfileVignettingChanged)
+  Q_PROPERTY(float lensProfileCA READ lensProfileCA WRITE setLensProfileCA
+                 NOTIFY lensProfileCAChanged)
+  Q_PROPERTY(QString lensProfileName READ lensProfileName NOTIFY
+                 lensProfileNameChanged)
+  Q_PROPERTY(QVariantMap lensShader READ lensShader NOTIFY lensShaderChanged)
+  Q_PROPERTY(QString lensProfileMaker READ lensProfileMaker WRITE
+                 setLensProfileMaker NOTIFY lensProfileMakerChanged)
+  Q_PROPERTY(QString lensProfileLens READ lensProfileLens WRITE
+                 setLensProfileLens NOTIFY lensProfileLensChanged)
+  Q_PROPERTY(QStringList lensProfileMakers READ lensProfileMakers NOTIFY
+                 lensProfileMakersChanged)
+  Q_PROPERTY(QStringList lensProfileLenses READ lensProfileLenses NOTIFY
+                 lensProfileLensesChanged)
+  Q_PROPERTY(QString lensProfileEffectiveMaker READ lensProfileEffectiveMaker
+                 NOTIFY lensProfileEffectiveChanged)
+  Q_PROPERTY(QString lensProfileEffectiveLens READ lensProfileEffectiveLens
+                 NOTIFY lensProfileEffectiveChanged)
   Q_PROPERTY(int processVersion READ processVersion WRITE setProcessVersion
                  NOTIFY processVersionChanged)
   Q_PROPERTY(int currentProcessVersion READ currentProcessVersion CONSTANT)
@@ -547,6 +571,35 @@ class RawEngine : public QObject {
   void setToneCurveSplitHighlights(float val);
   int toneLutVersion() const { return m_toneLutVersion; }
 
+  bool lensProfileEnabled() const { return m_lensProfileEnabled; }
+  void setLensProfileEnabled(bool enabled);
+  float lensProfileDistortion() const { return m_lensProfileDistortion; }
+  void setLensProfileDistortion(float amount);
+  float lensProfileVignetting() const { return m_lensProfileVignetting; }
+  void setLensProfileVignetting(float amount);
+  float lensProfileCA() const { return m_lensProfileCA; }
+  void setLensProfileCA(float amount);
+  QString lensProfileName() const { return m_lensProfileName; }
+  QVariantMap lensShader() const { return m_lensShader; }
+
+  QString lensProfileMaker() const { return m_lensProfileMaker; }
+  void setLensProfileMaker(const QString& maker);
+  QString lensProfileLens() const { return m_lensProfileLens; }
+  void setLensProfileLens(const QString& lens);
+  QStringList lensProfileMakers();
+  QStringList lensProfileLenses();
+  QString lensProfileEffectiveMaker() const;
+  QString lensProfileEffectiveLens() const;
+  Q_INVOKABLE void autoDetectLensProfile();
+
+  // Geometry mapping of the original image centre into the baked image.
+  struct GeometryBakeInfo {
+    int preCropW = 0;
+    int preCropH = 0;
+    int cropLeft = 0;
+    int cropTop = 0;
+  };
+
   static constexpr int kHistoryLimit = 100;
   static constexpr int kCurrentProcessVersion = 1;
   int processVersion() const { return m_processVersion; }
@@ -635,7 +688,8 @@ class RawEngine : public QObject {
   static QImage applyGeometryTransforms(const QImage& input, int orientSteps,
                                         bool flipH, bool flipV,
                                         double straighten,
-                                        const QRectF& cropRect);
+                                        const QRectF& cropRect,
+                                        GeometryBakeInfo* bakeInfo = nullptr);
 
  signals:
   void sourceChanged();
@@ -729,6 +783,17 @@ class RawEngine : public QObject {
   void cgHighlightsLuminanceChanged();
   void cgBalanceChanged();
   void cgBlendingChanged();
+  void lensProfileEnabledChanged();
+  void lensProfileDistortionChanged();
+  void lensProfileVignettingChanged();
+  void lensProfileCAChanged();
+  void lensProfileNameChanged();
+  void lensShaderChanged();
+  void lensProfileMakerChanged();
+  void lensProfileLensChanged();
+  void lensProfileMakersChanged();
+  void lensProfileLensesChanged();
+  void lensProfileEffectiveChanged();
   void processVersionChanged();
   void historyChanged();
   void toneCurveModeChanged();
@@ -789,6 +854,8 @@ class RawEngine : public QObject {
   float computeSceneWhite(const ushort* rgb, int width, int height,
                           int channels, float percentile = 0.97f);
   void updateProcessingParams();
+  void resolveLensProfile();
+  void updateLensShader();
   void applyHistoryIndex(int index);
   void persistEditStack();
   void rebuildToneLut();
@@ -904,6 +971,18 @@ class RawEngine : public QObject {
   float m_cgBlending = 50.0f;
 
   // Tone Curve data
+  bool m_lensProfileEnabled = false;
+  float m_lensProfileDistortion = 50.0f;
+  float m_lensProfileVignetting = 50.0f;
+  float m_lensProfileCA = 50.0f;
+  QString m_lensProfileName;
+  photon::lensfun::Profile m_lensProfileResolved;
+  QString m_lensProfileMaker;
+  QString m_lensProfileLens;
+  QVariantMap m_lensShader;
+  GeometryBakeInfo m_lensBakeInfo;
+  int m_lensBakedWidth = 0;
+  int m_lensBakedHeight = 0;
   int m_processVersion = kCurrentProcessVersion;
   QString m_pendingStepLabel;
   QString m_toneCurveMode = QStringLiteral("manual");

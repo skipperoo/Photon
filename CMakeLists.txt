@@ -68,6 +68,8 @@ qt_add_executable(Photon
     src/engine/ImageDeveloper.h
     src/engine/ImageDecoder.cpp
     src/engine/ImageDecoder.h
+    src/engine/LensFun.cpp
+    src/engine/LensFun.h
     src/engine/DevelopProfile.h
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
@@ -192,6 +194,7 @@ qt_add_qml_module(Photon
         content/components/PhotonInput.qml
         content/components/PhotonSlider.qml
         content/components/PhotonComboBox.qml
+        content/components/PhotonSpinBox.qml
         content/components/PhotonScrollBar.qml
         content/components/PhotonToast.qml
         content/components/PhotonToastManager.qml
@@ -206,6 +209,7 @@ qt_add_qml_module(Photon
         content/components/PresetPanel.qml
         content/components/SettingsSelectionDialog.qml
         content/components/HistoryPanel.qml
+        content/components/LensPanel.qml
         content/components/PhotoContextMenu.qml
         content/components/MetadataPanel.qml
         content/components/ExportPanel.qml
@@ -250,6 +254,15 @@ qt_add_qml_module(Photon
         assets/icons/rotate-cw-menu.svg
         assets/icons/flip-horizontal-menu.svg
         assets/icons/flip-vertical-menu.svg
+)
+
+# Bundled lensfun database (CC BY-SA 3.0, see assets/lensfun/ATTRIBUTION.md)
+file(GLOB LENSFUN_DB_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/lensfun/*.xml")
+list(APPEND LENSFUN_DB_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/lensfun/timestamp.txt")
+qt_add_resources(Photon "lensfun_db"
+    PREFIX "/lensfun"
+    BASE "assets/lensfun"
+    FILES ${LENSFUN_DB_FILES}
 )
 
 set_target_properties(Photon PROPERTIES

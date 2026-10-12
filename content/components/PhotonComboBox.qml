@@ -60,7 +60,8 @@ ComboBox {
     popup: Popup {
         y: control.height + 8
         width: control.width
-        implicitHeight: contentItem.implicitHeight + 8
+        // Cap the popup so long lists scroll instead of running off screen.
+        implicitHeight: Math.min(contentItem.implicitHeight + 8, 320)
         padding: 4
 
         contentItem: ListView {
@@ -69,6 +70,7 @@ ComboBox {
             model: control.popup.visible ? control.delegateModel : null
             currentIndex: control.highlightedIndex
             boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: PhotonScrollBar {}
         }
 
         background: Item {

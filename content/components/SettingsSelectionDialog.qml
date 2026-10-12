@@ -97,6 +97,15 @@ T.Dialog {
             ]
         },
         {
+            "label": "Lens Correction",
+            "items": [
+                { "key": "lensProfileEnabled", "label": "Enable" },
+                { "key": "lensProfileDistortion", "label": "Distortion" },
+                { "key": "lensProfileCA", "label": "Chromatic Aberration" },
+                { "key": "lensProfileVignetting", "label": "Vignetting" }
+            ]
+        },
+        {
             "label": "Calibration",
             "items": [
                 { "key": "calibShadowsTint", "label": "Shadows Tint" },

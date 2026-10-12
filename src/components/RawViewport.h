@@ -48,6 +48,29 @@ class RawViewport : public QQuickItem {
                  calibBlueHueChanged)
   Q_PROPERTY(float calibBlueSat READ calibBlueSat WRITE setCalibBlueSat NOTIFY
                  calibBlueSatChanged)
+  Q_PROPERTY(bool lensProfileEnabled READ lensProfileEnabled WRITE
+                 setLensProfileEnabled NOTIFY lensProfileEnabledChanged)
+  Q_PROPERTY(float lensProfileDistortion READ lensProfileDistortion WRITE
+                 setLensProfileDistortion NOTIFY lensProfileDistortionChanged)
+  Q_PROPERTY(float lensProfileVignetting READ lensProfileVignetting WRITE
+                 setLensProfileVignetting NOTIFY lensProfileVignettingChanged)
+  Q_PROPERTY(float lensProfileCA READ lensProfileCA WRITE setLensProfileCA
+                 NOTIFY lensProfileCAChanged)
+  Q_PROPERTY(QString lensProfileName READ lensProfileName NOTIFY
+                 lensProfileNameChanged)
+  Q_PROPERTY(QVariantMap lensShader READ lensShader NOTIFY lensShaderChanged)
+  Q_PROPERTY(QString lensProfileMaker READ lensProfileMaker WRITE
+                 setLensProfileMaker NOTIFY lensProfileMakerChanged)
+  Q_PROPERTY(QString lensProfileLens READ lensProfileLens WRITE
+                 setLensProfileLens NOTIFY lensProfileLensChanged)
+  Q_PROPERTY(QStringList lensProfileMakers READ lensProfileMakers NOTIFY
+                 lensProfileMakersChanged)
+  Q_PROPERTY(QStringList lensProfileLenses READ lensProfileLenses NOTIFY
+                 lensProfileLensesChanged)
+  Q_PROPERTY(QString lensProfileEffectiveMaker READ lensProfileEffectiveMaker
+                 NOTIFY lensProfileEffectiveChanged)
+  Q_PROPERTY(QString lensProfileEffectiveLens READ lensProfileEffectiveLens
+                 NOTIFY lensProfileEffectiveChanged)
   Q_PROPERTY(int processVersion READ processVersion WRITE setProcessVersion
                  NOTIFY processVersionChanged)
   Q_PROPERTY(int currentProcessVersion READ currentProcessVersion CONSTANT)
@@ -329,6 +352,35 @@ class RawViewport : public QQuickItem {
   void setCalibBlueHue(float val);
   float calibBlueSat() const { return m_engine.calibBlueSat(); }
   void setCalibBlueSat(float val);
+  bool lensProfileEnabled() const { return m_engine.lensProfileEnabled(); }
+  void setLensProfileEnabled(bool enabled);
+  float lensProfileDistortion() const {
+    return m_engine.lensProfileDistortion();
+  }
+  void setLensProfileDistortion(float amount);
+  float lensProfileVignetting() const {
+    return m_engine.lensProfileVignetting();
+  }
+  void setLensProfileVignetting(float amount);
+  float lensProfileCA() const { return m_engine.lensProfileCA(); }
+  void setLensProfileCA(float amount);
+  QString lensProfileName() const { return m_engine.lensProfileName(); }
+  QVariantMap lensShader() const { return m_engine.lensShader(); }
+  QString lensProfileMaker() const { return m_engine.lensProfileMaker(); }
+  void setLensProfileMaker(const QString& maker);
+  QString lensProfileLens() const { return m_engine.lensProfileLens(); }
+  void setLensProfileLens(const QString& lens);
+  QStringList lensProfileMakers() { return m_engine.lensProfileMakers(); }
+  QStringList lensProfileLenses() { return m_engine.lensProfileLenses(); }
+  QString lensProfileEffectiveMaker() const {
+    return m_engine.lensProfileEffectiveMaker();
+  }
+  QString lensProfileEffectiveLens() const {
+    return m_engine.lensProfileEffectiveLens();
+  }
+  Q_INVOKABLE void autoDetectLensProfile() {
+    m_engine.autoDetectLensProfile();
+  }
   int processVersion() const { return m_engine.processVersion(); }
   void setProcessVersion(int version);
   int currentProcessVersion() const { return m_engine.currentProcessVersion(); }
@@ -630,6 +682,17 @@ class RawViewport : public QQuickItem {
   void calibBlueHueChanged();
   void calibBlueSatChanged();
   void calibrationMatrixChanged();
+  void lensProfileEnabledChanged();
+  void lensProfileDistortionChanged();
+  void lensProfileVignettingChanged();
+  void lensProfileCAChanged();
+  void lensProfileNameChanged();
+  void lensShaderChanged();
+  void lensProfileMakerChanged();
+  void lensProfileLensChanged();
+  void lensProfileMakersChanged();
+  void lensProfileLensesChanged();
+  void lensProfileEffectiveChanged();
   void processVersionChanged();
   void historyChanged();
   void toneCurveModeChanged();

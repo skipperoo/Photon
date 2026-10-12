@@ -11,6 +11,7 @@
 #include "ExportManager.h"
 #include "FileScanner.h"
 #include "ImageDeveloper.h"
+#include "LensFun.h"
 #include "PreviewManager.h"
 #include "RawEngine.h"
 
@@ -27,6 +28,9 @@ class TestRawEngine : public QObject {
   void testParametricToneCurveBehavior();
   void testToneCurveModeStash();
   void testHistoryStepsAndProcessVersion();
+  void testLensFunParserAndCorrection();
+  void testLensProfileEditState();
+  void testLensFunRealDatabase();
   void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
   void testSwitchingSourceResetsExposureAndContrast();
@@ -777,6 +781,155 @@ void TestRawEngine::testHistoryStepsAndProcessVersion() {
   QVERIFY(!arr.isEmpty());
   QVERIFY(arr.last().toObject().contains("__index"));
   QVERIFY(arr.first().toObject().contains("__step"));
+}
+
+void TestRawEngine::testLensFunParserAndCorrection() {
+  const QByteArray xml = R"(<lensdatabase version="1">
+    <camera><maker>Sony</maker><model>Sony ILCE-7M2</model>
+      <mount>Sony E</mount><cropfactor>1.01</cropfactor></camera>
+    <lens><maker>Sony</maker><model>Sony FE 16-35mm f/4 ZA OSS</model>
+      <mount>Sony E</mount><cropfactor>1</cropfactor>
+      <calibration>
+        <distortion model="ptlens" focal="16" a="0.02" b="-0.03" c="0.01"/>
+        <distortion model="ptlens" focal="35" a="0.01" b="-0.02" c="0.0"/>
+        <tca model="poly3" focal="16" br="0.0001" vr="1.0002" bb="0.0001" vb="1.0001"/>
+        <vignetting model="pa" focal="16" aperture="4" distance="10" k1="-0.8" k2="0.15" k3="-0.05"/>
+      </calibration>
+    </lens>
+  </lensdatabase>)";
+
+  photon::lensfun::Database& db = photon::lensfun::Database::instance();
+  db.loadFromBuiltinXml({xml});
+
+  const photon::lensfun::Profile profile = db.match(
+      "Sony", "ILCE-7M2", "FE 16-35mm F4 ZA OSS", 24.0f, 4.0f);
+  QVERIFY(profile.valid);
+  QCOMPARE(profile.lensName, QStringLiteral("Sony FE 16-35mm f/4 ZA OSS"));
+  QCOMPARE(profile.distortionModel, QStringLiteral("ptlens"));
+  QVERIFY(profile.hasTca);
+  QVERIFY(profile.hasVignetting);
+  QCOMPARE(profile.crop, 1.01f);
+
+  // Interpolated between focal 16 and 35: t = 8/19.
+  const float t = 8.0f / 19.0f;
+  QVERIFY(std::abs(profile.distortionK[0] - (0.02f + (0.01f - 0.02f) * t)) <
+          1e-6f);
+  QVERIFY(std::abs(profile.vignetting[0] - (-0.8f)) < 1e-6f);
+
+  // Unknown lens is rejected.
+  const photon::lensfun::Profile unknown = db.match(
+      "Sony", "ILCE-7M2", "FE 70-200mm F2.8 GM", 70.0f, 2.8f);
+  QVERIFY(!unknown.valid);
+
+  // Vignetting correction brightens the corners (negative k1 = dark corners).
+  QImage flat(64, 64, QImage::Format_RGB888);
+  flat.fill(QColor(128, 128, 128));
+  const QImage corrected =
+      photon::lensfun::applyProfile(flat, profile, 0.0f, 0.0f, 100.0f);
+  QCOMPARE(corrected.size(), flat.size());
+  const int centre = corrected.constScanLine(32)[32 * 3 + 1];
+  const int corner = corrected.constScanLine(0)[0 * 3 + 1];
+  QVERIFY(corner > centre);
+  QVERIFY(centre >= 126 && centre <= 130);
+
+  // Distortion correction (barrel) keeps the centre and moves edge detail.
+  QImage grid(64, 64, QImage::Format_RGB888);
+  grid.fill(Qt::black);
+  for (int y = 0; y < 64; ++y)
+    for (int x = 0; x < 64; ++x) {
+      uchar* px = grid.scanLine(y) + x * 3;
+      px[0] = px[1] = px[2] = (x % 8 == 0 || y % 8 == 0) ? 255 : 0;
+    }
+  const QImage undistorted = photon::lensfun::applyProfile(
+      grid, profile, 100.0f, 0.0f, 0.0f);
+  QCOMPARE(undistorted.size(), grid.size());
+  const uchar* centreRow = undistorted.constScanLine(32);
+  QVERIFY(centreRow[32 * 3 + 1] >= 0);
+}
+
+void TestRawEngine::testLensProfileEditState() {
+  QTemporaryDir tempDir;
+  QVERIFY(tempDir.isValid());
+
+  RawEngine engine;
+  engine.setSource(tempDir.filePath("lens.arw"));
+
+  QVERIFY(!engine.lensProfileEnabled());
+  QCOMPARE(engine.lensProfileDistortion(), 50.0f);
+  QCOMPARE(engine.lensProfileVignetting(), 50.0f);
+  QCOMPARE(engine.lensProfileCA(), 50.0f);
+  QVERIFY(engine.isDefault());
+
+  engine.setLensProfileEnabled(true);
+  engine.setLensProfileDistortion(60.0f);
+  QVERIFY(engine.lensProfileEnabled());
+  QVERIFY(!engine.isDefault());
+
+  const QVariantMap saved = engine.currentSettings();
+  QCOMPARE(saved.value("lensProfileEnabled").toBool(), true);
+  QCOMPARE(saved.value("lensProfileDistortion").toFloat(), 60.0f);
+
+  RawEngine reloaded;
+  reloaded.setSource(tempDir.filePath("lens2.arw"));
+  reloaded.applySettings(saved);
+  QVERIFY(reloaded.lensProfileEnabled());
+  QCOMPARE(reloaded.lensProfileDistortion(), 60.0f);
+  QCOMPARE(reloaded.lensProfileVignetting(), 50.0f);
+
+  // Manual selection resolves a lens even without matching EXIF data.
+  QVERIFY(engine.lensProfileMakers().contains(QStringLiteral("Sony")));
+  engine.setLensProfileMaker(QStringLiteral("Sony"));
+  QVERIFY(engine.lensProfileLenses().contains(
+      QStringLiteral("Sony FE 16-35mm f/4 ZA OSS")));
+  engine.setLensProfileLens(QStringLiteral("Sony FE 16-35mm f/4 ZA OSS"));
+  QCOMPARE(engine.lensProfileName(),
+           QStringLiteral("Sony FE 16-35mm f/4 ZA OSS"));
+
+  const QVariantMap manual = engine.currentSettings();
+  QCOMPARE(manual.value("lensProfileLens").toString(),
+           QStringLiteral("Sony FE 16-35mm f/4 ZA OSS"));
+
+  engine.autoDetectLensProfile();
+  QCOMPARE(engine.lensProfileLens(), QString());
+  QCOMPARE(engine.lensProfileName(), QString());
+}
+
+void TestRawEngine::testLensFunRealDatabase() {
+  // Optional: validate the parser against a full lensfun database when one is
+  // installed on the host (the bundled copy lives in the app resources).
+  const QString dbDir = QStringLiteral("/usr/share/lensfun/version_1");
+  if (!QDir(dbDir).exists())
+    QSKIP("no system lensfun database available");
+
+  QVector<QByteArray> docs;
+  const QStringList files =
+      QDir(dbDir).entryList(QStringList() << "*.xml", QDir::Files);
+  for (const QString& name : files) {
+    QFile file(QDir(dbDir).filePath(name));
+    if (file.open(QIODevice::ReadOnly)) docs.append(file.readAll());
+  }
+  QVERIFY(!docs.isEmpty());
+
+  photon::lensfun::Database& db = photon::lensfun::Database::instance();
+  db.loadFromBuiltinXml(docs);
+  std::fprintf(stderr, "DEBUG lensfun: %d cameras, %d lenses, %d docs\n",
+               db.cameraCount(), db.lensCount(), docs.size());
+
+  // A well-known combination must resolve from the real database.
+  const photon::lensfun::Profile profile = db.match(
+      "Sony", "ILCE-7M2", "FE 16-35mm F4 ZA OSS", 24.0f, 4.0f);
+  QVERIFY(profile.valid);
+  QVERIFY(profile.lensName.contains("16-35"));
+  QVERIFY(!profile.distortionModel.isEmpty());
+  QVERIFY(profile.hasVignetting);
+  QVERIFY(db.makers().contains(QStringLiteral("Sony")));
+  QVERIFY(db.lensesForMaker(QStringLiteral("Sony"))
+              .contains(QStringLiteral("FE 16-35mm f/4 ZA OSS")));
+
+  // And an unknown lens must not resolve.
+  const photon::lensfun::Profile unknown = db.match(
+      "Sony", "ILCE-7M2", "Totally Fake Lens 12-24mm", 12.0f, 2.8f);
+  QVERIFY(!unknown.valid);
 }
 
 void TestRawEngine::testOklabCreativeOps() {

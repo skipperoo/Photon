@@ -761,6 +761,29 @@ Window {
                             property real showOriginal: window.showOriginal ? 1.0 : 0.0
                             property real compareMode: window.compareMode
                             property real splitPos: window.splitPos
+                            property real lensActive: rawViewport.lensShader.active ? 1.0 : 0.0
+                            property vector2d lensCenter: Qt.vector2d(rawViewport.lensShader.centerX || 0, rawViewport.lensShader.centerY || 0)
+                            property real lensHalfShort: rawViewport.lensShader.halfShort || 0
+                            property real lensHalfDiag: rawViewport.lensShader.halfDiag || 0
+                            property real lensZoom: rawViewport.lensShader.zoom || 1
+                            property real lensAmountDist: rawViewport.lensShader.amountDist || 0
+                            property real lensAmountCa: rawViewport.lensShader.amountCa || 0
+                            property real lensAmountVig: rawViewport.lensShader.amountVig || 0
+                            property real lensDistModel: rawViewport.lensShader.distModel || 0
+                            property real lensDistK0: rawViewport.lensShader.distK0 || 0
+                            property real lensDistK1: rawViewport.lensShader.distK1 || 0
+                            property real lensDistK2: rawViewport.lensShader.distK2 || 0
+                            property real lensTcaModel: rawViewport.lensShader.tcaModel || 0
+                            property real lensTcaVR: rawViewport.lensShader.tcaVR || 1
+                            property real lensTcaCR: rawViewport.lensShader.tcaCR || 0
+                            property real lensTcaBR: rawViewport.lensShader.tcaBR || 0
+                            property real lensTcaVB: rawViewport.lensShader.tcaVB || 1
+                            property real lensTcaCB: rawViewport.lensShader.tcaCB || 0
+                            property real lensTcaBB: rawViewport.lensShader.tcaBB || 0
+                            property real lensVigActive: rawViewport.lensShader.vigActive ? 1.0 : 0.0
+                            property real lensVigK0: rawViewport.lensShader.vigK0 || 0
+                            property real lensVigK1: rawViewport.lensShader.vigK1 || 0
+                            property real lensVigK2: rawViewport.lensShader.vigK2 || 0
                             property real exposure: rawViewport.exposure
                             property real contrast: rawViewport.contrast
                             property real highlights: rawViewport.highlights
@@ -1137,10 +1160,17 @@ Window {
                                 anchors.rightMargin: 20
                                 spacing: 12
 
-                                Image {
-                                    source: "qrc:/Main/assets/icons/search.svg"
-                                    sourceSize: Qt.size(16, 16)
-                                    opacity: 0.6
+                                T.Button {
+                                    icon.source: "qrc:/Main/assets/icons/search.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: Theme.mutedFg
+                                    implicitWidth: 20
+                                    implicitHeight: 20
+                                    flat: true
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
                                 }
 
                                 PhotonSlider {
@@ -1212,7 +1242,7 @@ Window {
                                     icon.source: "qrc:/Main/assets/icons/rotate-ccw.svg"
                                     icon.width: 16
                                     icon.height: 16
-                                    icon.color: "white"
+                                    icon.color: Theme.foreground
                                     implicitWidth: 24
                                     implicitHeight: 24
                                     onClicked: rawViewport.resetToOriginal()
@@ -1231,7 +1261,7 @@ Window {
                                     icon.source: "qrc:/Main/assets/icons/eye.svg"
                                     icon.width: 16
                                     icon.height: 16
-                                    icon.color: window.showOriginal ? Theme.accent : "white"
+                                    icon.color: window.showOriginal ? Theme.accent : Theme.foreground
                                     implicitWidth: 24
                                     implicitHeight: 24
                                     onClicked: window.toggleCompareOriginal()
@@ -1248,7 +1278,7 @@ Window {
                                     icon.source: "qrc:/Main/assets/icons/compare.svg"
                                     icon.width: 16
                                     icon.height: 16
-                                    icon.color: window.compareMode === 2 ? Theme.accent : "white"
+                                    icon.color: window.compareMode === 2 ? Theme.accent : Theme.foreground
                                     implicitWidth: 24
                                     implicitHeight: 24
                                     onClicked: window.toggleCompareMode(2)
@@ -1265,7 +1295,7 @@ Window {
                                     icon.source: "qrc:/Main/assets/icons/split.svg"
                                     icon.width: 16
                                     icon.height: 16
-                                    icon.color: window.compareMode === 1 ? Theme.accent : "white"
+                                    icon.color: window.compareMode === 1 ? Theme.accent : Theme.foreground
                                     implicitWidth: 24
                                     implicitHeight: 24
                                     onClicked: window.toggleCompareMode(1)
@@ -1328,10 +1358,9 @@ Window {
                                 }
 
                                 // 3: Lens
-                                Rectangle {
-                                    color: Theme.background
-                                    Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
-                                    Text { anchors.centerIn: parent; text: "Lens Correction (Coming Soon)"; color: Theme.mutedFg }
+                                LensPanel {
+                                    viewport: rawViewport
+                                    viewTopPadding: 10
                                 }
 
                                 // 4: Presets

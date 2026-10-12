@@ -105,6 +105,15 @@ void ExportManager::processExport(const QStringList& paths,
       processor.imgdata.params.auto_bright_thr = 0.01;
 
       if (processor.open_file(path.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
+        // Transient EXIF fields for lens-profile matching during develop.
+        lastState["exifMake"] =
+            QString::fromLocal8Bit(processor.imgdata.idata.make).trimmed();
+        lastState["exifModel"] =
+            QString::fromLocal8Bit(processor.imgdata.idata.model).trimmed();
+        lastState["exifLens"] =
+            QString::fromUtf8(processor.imgdata.lens.Lens).trimmed();
+        lastState["exifFocal"] = double(processor.imgdata.other.focal_len);
+        lastState["exifAperture"] = double(processor.imgdata.other.aperture);
         if (processor.unpack() == LIBRAW_SUCCESS) {
           if (processor.dcraw_process() == LIBRAW_SUCCESS) {
             int ret = 0;

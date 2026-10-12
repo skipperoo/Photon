@@ -57,6 +57,9 @@ Slider {
             anchors.fill: parent
             radius: height / 2
             color: Theme.secondary
+            border.color: Qt.rgba(Theme.foreground.r, Theme.foreground.g,
+                                  Theme.foreground.b, 0.18)
+            border.width: 1
         }
 
         Rectangle {

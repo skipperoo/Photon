@@ -30,6 +30,7 @@
 #include "Denoiser.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
+#include "LensFun.h"
 #include "ImageDecoder.h"
 
 using namespace photon;
@@ -685,6 +686,7 @@ RawEngine::RawEngine(QObject* parent)
                 return;
               }
 
+              updateLensShader();
               requestHistogramUpdate();
               if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
                 startAsyncDenoise();
@@ -709,6 +711,7 @@ RawEngine::RawEngine(QObject* parent)
                 m_geometryBaked = false;
               }
               emit geometryBakedChanged();
+              updateLensShader();
               requestHistogramUpdate();
               if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
                 startAsyncDenoise();
@@ -877,6 +880,10 @@ void RawEngine::setSource(const QString& source) {
   m_geometryBuffer.clear();
   m_geometryWidth = 0;
   m_geometryHeight = 0;
+  m_lensBakeInfo = GeometryBakeInfo();
+  m_lensBakedWidth = 0;
+  m_lensBakedHeight = 0;
+  updateLensShader();
   m_inCropMode = false;
   emit geometryBakedChanged();
 
@@ -2879,6 +2886,8 @@ bool RawEngine::loadRawFileSync(const QString& path, int loadId) {
       m_processor->imgdata.other.focal_len > 0
           ? QString("%1mm").arg(m_processor->imgdata.other.focal_len, 0, 'f', 1)
           : "-";
+  meta["focalMm"] = double(m_processor->imgdata.other.focal_len);
+  meta["apertureF"] = double(m_processor->imgdata.other.aperture);
 
   QString lens = QString::fromUtf8(m_processor->imgdata.lens.Lens).trimmed();
   meta["lensModel"] = lens.isEmpty() ? "Unknown Lens" : lens;
@@ -2890,6 +2899,8 @@ bool RawEngine::loadRawFileSync(const QString& path, int loadId) {
   QDateTime dt =
       QDateTime::fromSecsSinceEpoch(m_processor->imgdata.other.timestamp);
   meta["timestamp"] = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : "-";
+
+  resolveLensProfile();
 
   // Map LibRaw flip to EXIF orientation tag
   int flip = m_processor->imgdata.sizes.flip;
@@ -3180,6 +3191,12 @@ static QJsonObject stateToJson(const RawEngine* e) {
     return arr;
   };
   obj["processVersion"] = e->processVersion();
+  obj["lensProfileEnabled"] = e->lensProfileEnabled();
+  obj["lensProfileDistortion"] = e->lensProfileDistortion();
+  obj["lensProfileVignetting"] = e->lensProfileVignetting();
+  obj["lensProfileCA"] = e->lensProfileCA();
+  obj["lensProfileMaker"] = e->lensProfileMaker();
+  obj["lensProfileLens"] = e->lensProfileLens();
   obj["toneCurveMode"] = e->toneCurveMode();
   obj["toneCurveLuma"] = pointsToArray(e->toneCurveLuma());
   obj["toneCurveRed"] = pointsToArray(e->toneCurveRed());
@@ -3380,6 +3397,18 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     }
     return pts;
   };
+  if (obj.contains("lensProfileEnabled"))
+    e->setLensProfileEnabled(obj["lensProfileEnabled"].toBool());
+  if (obj.contains("lensProfileDistortion"))
+    e->setLensProfileDistortion(obj["lensProfileDistortion"].toDouble());
+  if (obj.contains("lensProfileVignetting"))
+    e->setLensProfileVignetting(obj["lensProfileVignetting"].toDouble());
+  if (obj.contains("lensProfileCA"))
+    e->setLensProfileCA(obj["lensProfileCA"].toDouble());
+  if (obj.contains("lensProfileMaker"))
+    e->setLensProfileMaker(obj["lensProfileMaker"].toString());
+  if (obj.contains("lensProfileLens"))
+    e->setLensProfileLens(obj["lensProfileLens"].toString());
   if (obj.contains("processVersion"))
     e->setProcessVersion(obj["processVersion"].toInt(1));
   if (obj.contains("toneCurveMode"))
@@ -3521,6 +3550,12 @@ static void resetToDefaults(RawEngine* e) {
   p1["x"] = 1.0;
   p1["y"] = 1.0;
   defaultPts << p0 << p1;
+  e->setLensProfileEnabled(false);
+  e->setLensProfileDistortion(50.0f);
+  e->setLensProfileVignetting(50.0f);
+  e->setLensProfileCA(50.0f);
+  e->setLensProfileMaker(QString());
+  e->setLensProfileLens(QString());
   e->setProcessVersion(RawEngine::kCurrentProcessVersion);
   e->setToneCurveMode("manual");
   e->setToneCurveLuma(defaultPts);
@@ -3705,6 +3740,8 @@ static QString historyLabelForKey(const QString& key) {
   }
 
   if (key.startsWith(QLatin1String("denoise"))) return QStringLiteral("Denoise");
+  if (key.startsWith(QLatin1String("lens")))
+    return QStringLiteral("Lens Correction");
   if (key.startsWith(QLatin1String("crop")) ||
       key.startsWith(QLatin1String("straighten")) ||
       key.startsWith(QLatin1String("orientation")) ||
@@ -3763,6 +3800,231 @@ static HistoryStepInfo historyStepForDiff(const QJsonObject& prev,
   info.label = labels.isEmpty() ? QStringLiteral("Edit")
                                 : labels.join(QStringLiteral(", "));
   return info;
+}
+
+void RawEngine::setLensProfileEnabled(bool enabled) {
+  if (m_lensProfileEnabled == enabled) return;
+  m_lensProfileEnabled = enabled;
+  if (enabled) resolveLensProfile();
+  updateLensShader();
+  emit lensProfileEnabledChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setLensProfileDistortion(float amount) {
+  amount = std::clamp(amount, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_lensProfileDistortion, amount)) return;
+  m_lensProfileDistortion = amount;
+  updateLensShader();
+  emit lensProfileDistortionChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setLensProfileVignetting(float amount) {
+  amount = std::clamp(amount, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_lensProfileVignetting, amount)) return;
+  m_lensProfileVignetting = amount;
+  updateLensShader();
+  emit lensProfileVignettingChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setLensProfileCA(float amount) {
+  amount = std::clamp(amount, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_lensProfileCA, amount)) return;
+  m_lensProfileCA = amount;
+  updateLensShader();
+  emit lensProfileCAChanged();
+  emit isDefaultChanged();
+}
+
+QStringList RawEngine::lensProfileMakers() {
+  photon::lensfun::Database::instance().ensureLoaded();
+  return photon::lensfun::Database::instance().makers();
+}
+
+QString RawEngine::lensProfileEffectiveLens() const {
+  if (!m_lensProfileLens.isEmpty()) return m_lensProfileLens;
+  return m_lensProfileResolved.valid ? m_lensProfileResolved.lensName
+                                     : QString();
+}
+
+QString RawEngine::lensProfileEffectiveMaker() const {
+  if (!m_lensProfileMaker.isEmpty()) return m_lensProfileMaker;
+  const QString lens = lensProfileEffectiveLens();
+  if (lens.isEmpty()) return QString();
+  return photon::lensfun::Database::instance().makerForLens(lens);
+}
+
+QStringList RawEngine::lensProfileLenses() {
+  photon::lensfun::Database::instance().ensureLoaded();
+  QString maker = lensProfileEffectiveMaker();
+  if (maker.isEmpty()) maker = m_metadata.value("make").toString();
+  return photon::lensfun::Database::instance().lensesForMaker(maker);
+}
+
+void RawEngine::setLensProfileMaker(const QString& maker) {
+  if (m_lensProfileMaker == maker) return;
+  m_lensProfileMaker = maker;
+  // Drop a lens selection that does not belong to the new brand.
+  if (!m_lensProfileLens.isEmpty() &&
+      !photon::lensfun::Database::instance().lensesForMaker(maker).contains(
+          m_lensProfileLens)) {
+    m_lensProfileLens.clear();
+    emit lensProfileLensChanged();
+  }
+  emit lensProfileMakerChanged();
+  emit lensProfileLensesChanged();
+  resolveLensProfile();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setLensProfileLens(const QString& lens) {
+  if (m_lensProfileLens == lens) return;
+  m_lensProfileLens = lens;
+  emit lensProfileLensChanged();
+  resolveLensProfile();
+  emit isDefaultChanged();
+}
+
+void RawEngine::autoDetectLensProfile() {
+  const bool hadManual =
+      !m_lensProfileMaker.isEmpty() || !m_lensProfileLens.isEmpty();
+  m_lensProfileMaker.clear();
+  m_lensProfileLens.clear();
+  emit lensProfileMakerChanged();
+  emit lensProfileLensChanged();
+  emit lensProfileLensesChanged();
+  resolveLensProfile();
+  if (hadManual) emit isDefaultChanged();
+}
+
+void RawEngine::resolveLensProfile() {
+  QString name = m_lensProfileLens;
+  if (name.isEmpty()) name = m_metadata.value("lensModel").toString();
+  m_lensProfileResolved = photon::lensfun::Profile();
+  if (!name.isEmpty()) {
+    photon::lensfun::Database::instance().ensureLoaded();
+    QString maker = m_lensProfileMaker;
+    if (maker.isEmpty()) maker = m_metadata.value("make").toString();
+    m_lensProfileResolved = photon::lensfun::Database::instance().match(
+        maker, m_metadata.value("model").toString(), name,
+        float(m_metadata.value("focalMm").toDouble()),
+        float(m_metadata.value("apertureF").toDouble()));
+  }
+  const QString resolved =
+      m_lensProfileResolved.valid ? m_lensProfileResolved.lensName : QString();
+  if (resolved != m_lensProfileName) {
+    m_lensProfileName = resolved;
+    emit lensProfileNameChanged();
+  }
+  emit lensProfileEffectiveChanged();
+  emit lensProfileLensesChanged();
+  updateLensShader();
+}
+
+void RawEngine::updateLensShader() {
+  const photon::lensfun::Profile& p = m_lensProfileResolved;
+  const bool hasDistortion = p.valid && !p.distortionModel.isEmpty();
+  const bool hasTca = p.valid && p.hasTca;
+  const bool hasVignetting = p.valid && p.hasVignetting;
+  const bool active = m_lensProfileEnabled &&
+                      (hasDistortion || hasTca || hasVignetting);
+
+  int origW = 0;
+  int origH = 0;
+  if (m_isBitmap) {
+    origW = m_customWidth;
+    origH = m_customHeight;
+  } else if (m_processedImage) {
+    origW = m_processedImage->width;
+    origH = m_processedImage->height;
+  }
+  if (origW <= 0 || origH <= 0) {
+    origW = m_geometryWidth;
+    origH = m_geometryHeight;
+  }
+  const int bakedW = m_lensBakedWidth > 0 ? m_lensBakedWidth : origW;
+  const int bakedH = m_lensBakedHeight > 0 ? m_lensBakedHeight : origH;
+  float centerX = 0.0f;
+  float centerY = 0.0f;
+  if (m_lensBakeInfo.preCropW > 0 && m_lensBakeInfo.preCropH > 0) {
+    centerX = (m_lensBakeInfo.preCropW - 1) * 0.5f - m_lensBakeInfo.cropLeft;
+    centerY = (m_lensBakeInfo.preCropH - 1) * 0.5f - m_lensBakeInfo.cropTop;
+  } else {
+    centerX = (bakedW - 1) * 0.5f;
+    centerY = (bakedH - 1) * 0.5f;
+  }
+
+  const float halfShort =
+      std::max(std::min(origW, origH) * 0.5f, 1.0f);
+  const float halfDiag =
+      std::max(std::hypot(float(origW), float(origH)) * 0.5f, 1.0f);
+  const float distAmount =
+      std::clamp(m_lensProfileDistortion, 0.0f, 100.0f) / 100.0f;
+  float zoom = 1.0f;
+  if (active && hasDistortion) {
+    const float dx = float(origW) * 0.5f;
+    const float dy = float(origH) * 0.5f;
+    const float samples[5] = {1.0f, dx / halfShort, dy / halfShort,
+                              std::hypot(dx, dy) / halfShort, 0.0f};
+    for (const float r : samples) {
+      float model = 1.0f;
+      const float k0 = p.distortionK[0];
+      const float k1 = p.distortionK[1];
+      const float k2 = p.distortionK[2];
+      if (p.distortionModel == QLatin1String("poly3")) {
+        model = 1.0f + k0 * r * r;
+      } else if (p.distortionModel == QLatin1String("poly5")) {
+        const float r2 = r * r;
+        model = 1.0f + k0 * r2 + k1 * r2 * r2;
+      } else if (p.distortionModel == QLatin1String("ptlens")) {
+        model = 1.0f + k2 * r + k1 * r * r + k0 * r * r * r;
+      }
+      zoom = std::max(zoom, 1.0f + (model - 1.0f) * distAmount);
+    }
+  }
+
+  int distModel = 0;
+  if (hasDistortion) {
+    distModel = p.distortionModel == QLatin1String("poly3")   ? 1
+                : p.distortionModel == QLatin1String("poly5") ? 2
+                                                              : 3;
+  }
+  int tcaModel = 0;
+  if (hasTca) tcaModel = p.tcaModel == QLatin1String("poly3") ? 2 : 1;
+
+  QVariantMap map;
+  map["active"] = active;
+  map["centerX"] = double(centerX);
+  map["centerY"] = double(centerY);
+  map["halfShort"] = double(halfShort);
+  map["halfDiag"] = double(halfDiag);
+  map["zoom"] = double(zoom);
+  map["amountDist"] = double(distAmount);
+  map["amountCa"] = double(std::clamp(m_lensProfileCA, 0.0f, 100.0f) / 100.0f);
+  map["amountVig"] =
+      double(std::clamp(m_lensProfileVignetting, 0.0f, 100.0f) / 100.0f);
+  map["distModel"] = distModel;
+  map["distK0"] = double(p.distortionK[0]);
+  map["distK1"] = double(p.distortionK[1]);
+  map["distK2"] = double(p.distortionK[2]);
+  map["tcaModel"] = tcaModel;
+  map["tcaVR"] = double(p.tcaR[0]);
+  map["tcaCR"] = double(p.tcaR[1]);
+  map["tcaBR"] = double(p.tcaR[2]);
+  map["tcaVB"] = double(p.tcaB[0]);
+  map["tcaCB"] = double(p.tcaB[1]);
+  map["tcaBB"] = double(p.tcaB[2]);
+  map["vigActive"] = hasVignetting;
+  map["vigK0"] = double(p.vignetting[0]);
+  map["vigK1"] = double(p.vignetting[1]);
+  map["vigK2"] = double(p.vignetting[2]);
+
+  if (map != m_lensShader) {
+    m_lensShader = map;
+    emit lensShaderChanged();
+  }
 }
 
 void RawEngine::setProcessVersion(int version) {
@@ -3841,6 +4103,10 @@ void RawEngine::applyHistoryIndex(int index) {
     m_geometryBuffer.clear();
     m_geometryWidth = 0;
     m_geometryHeight = 0;
+    m_lensBakeInfo = GeometryBakeInfo();
+    m_lensBakedWidth = 0;
+    m_lensBakedHeight = 0;
+    updateLensShader();
     emit geometryBakedChanged();
     emit imageLoaded();
   }
@@ -3977,6 +4243,10 @@ void RawEngine::resetToOriginal() {
     m_geometryBuffer.clear();
     m_geometryWidth = 0;
     m_geometryHeight = 0;
+    m_lensBakeInfo = GeometryBakeInfo();
+    m_lensBakedWidth = 0;
+    m_lensBakedHeight = 0;
+    updateLensShader();
     emit geometryBakedChanged();
   }
 
@@ -4113,6 +4383,12 @@ bool RawEngine::isDefault() const {
            qFuzzyCompare(p1["x"].toDouble(), 1.0) &&
            qFuzzyCompare(p1["y"].toDouble(), 1.0);
   };
+  if (m_lensProfileEnabled) return false;
+  if (!qFuzzyCompare(m_lensProfileDistortion, 50.0f)) return false;
+  if (!qFuzzyCompare(m_lensProfileVignetting, 50.0f)) return false;
+  if (!qFuzzyCompare(m_lensProfileCA, 50.0f)) return false;
+  if (!m_lensProfileMaker.isEmpty() || !m_lensProfileLens.isEmpty())
+    return false;
   if (m_toneCurveMode != QLatin1String("manual")) return false;
   if (!isIdentityCurve(m_toneCurveLuma)) return false;
   if (!isIdentityCurve(m_toneCurveRed)) return false;
@@ -4149,7 +4425,8 @@ bool RawEngine::hasNonDefaultGeometry() const {
 QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
                                           bool flipH, bool flipV,
                                           double straighten,
-                                          const QRectF& cropRect) {
+                                          const QRectF& cropRect,
+                                          GeometryBakeInfo* bakeInfo) {
   const int inputW = input.width();
   const int inputH = input.height();
   QImage output = input;
@@ -4212,6 +4489,13 @@ QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
     }
   }
 
+  if (bakeInfo) {
+    bakeInfo->preCropW = preCropW;
+    bakeInfo->preCropH = preCropH;
+    bakeInfo->cropLeft = cropLeft;
+    bakeInfo->cropTop = cropTop;
+  }
+
   LogManager::instance()->log(
       QString("[ RawEngine.cpp ] - cropDebug applyGeometry in=%1x%2 orient=%3 "
               "flipH=%4 flipV=%5 straighten=%6 cropN=(%7,%8,%9,%10) "
@@ -4259,7 +4543,6 @@ void RawEngine::reloadWithGeometry() {
   double straighten = m_straightenAngle;
   QRectF crop = m_cropRect;
   bool hasGeom = hasNonDefaultGeometry();
-
   QFuture<LoadResult> future = QtConcurrent::run([this, path, loadId,
                                                   orientSteps, flipH, flipV,
                                                   straighten, crop, hasGeom]() {
@@ -4326,9 +4609,15 @@ void RawEngine::reloadWithGeometry() {
       }
     }
 
-    // Apply geometry transforms
+    // Apply geometry transforms. Lens corrections are applied on the GPU in
+    // real time (export applies them in ImageDeveloper).
+    GeometryBakeInfo bakeInfo;
     QImage transformed = applyGeometryTransforms(srcImg, orientSteps, flipH,
-                                                 flipV, straighten, crop);
+                                                 flipV, straighten, crop,
+                                                 &bakeInfo);
+    m_lensBakeInfo = bakeInfo;
+    m_lensBakedWidth = transformed.width();
+    m_lensBakedHeight = transformed.height();
 
     // Convert back to RGBA64 buffer for getProcessedImage
     transformed = transformed.convertToFormat(QImage::Format_RGBA64);
@@ -4361,6 +4650,10 @@ void RawEngine::enterCropMode() {
     m_geometryBuffer.clear();
     m_geometryWidth = 0;
     m_geometryHeight = 0;
+    m_lensBakeInfo = GeometryBakeInfo();
+    m_lensBakedWidth = 0;
+    m_lensBakedHeight = 0;
+    updateLensShader();
     emit geometryBakedChanged();
   }
 

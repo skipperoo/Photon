@@ -321,17 +321,26 @@ T.Dialog {
         return result
     }
 
+    readonly property int sectionSpacing: 18
+
     function estimateSectionHeight(section) {
         return 26 + (section.items.length * 24)
     }
 
-    function rebalanceColumns() {
-        if (!scroll || scroll.height <= 0) {
-            sectionColumns = [sectionDefinitions]
-            return
-        }
+    function totalSectionsHeight() {
+        var total = 0
+        for (var i = 0; i < sectionDefinitions.length; i++)
+            total += estimateSectionHeight(sectionDefinitions[i])
+        return total
+    }
 
-        var maxColumnHeight = Math.max(180, scroll.height - 8)
+    function maxFittingColumns() {
+        if (!scroll || scroll.availableWidth <= 0)
+            return 1
+        return Math.max(1, Math.floor((scroll.availableWidth + sectionSpacing) / (minSectionColumnWidth + sectionSpacing)))
+    }
+
+    function greedyColumns(maxColumnHeight) {
         var cols = []
         var currentCol = []
         var currentHeight = 0
@@ -351,13 +360,41 @@ T.Dialog {
         if (currentCol.length > 0)
             cols.push(currentCol)
 
-        sectionColumns = cols
+        return cols
+    }
+
+    function minimalPackingHeight(maxColumns, fromHeight) {
+        var lo = fromHeight
+        var hi = totalSectionsHeight()
+        for (var i = 0; i < 32 && lo < hi; i++) {
+            var mid = Math.floor((lo + hi) / 2)
+            if (greedyColumns(mid).length > maxColumns)
+                lo = mid + 1
+            else
+                hi = mid
+        }
+        return lo
+    }
+
+    function rebalanceColumns() {
+        if (!scroll || scroll.height <= 0) {
+            sectionColumns = [sectionDefinitions]
+            return
+        }
+
+        var maxColumnHeight = Math.max(180, scroll.height - 8)
+        var maxColumns = maxFittingColumns()
+
+        if (greedyColumns(maxColumnHeight).length > maxColumns)
+            maxColumnHeight = minimalPackingHeight(maxColumns, maxColumnHeight)
+
+        sectionColumns = greedyColumns(maxColumnHeight)
     }
 
     function sectionColumnWidth() {
         if (!sectionColumns || sectionColumns.length === 0 || !scroll)
             return minSectionColumnWidth
-        var visibleFit = Math.floor((scroll.availableWidth - (sectionColumns.length - 1) * 18) / sectionColumns.length)
+        var visibleFit = Math.floor((scroll.availableWidth - (sectionColumns.length - 1) * sectionSpacing) / sectionColumns.length)
         return Math.max(minSectionColumnWidth, visibleFit)
     }
 
@@ -456,7 +493,7 @@ T.Dialog {
 
                 Row {
                     id: columnsRow
-                    spacing: 18
+                    spacing: root.sectionSpacing
 
                     Repeater {
                         model: root.sectionColumns

@@ -70,6 +70,8 @@ qt_add_executable(Photon
     src/engine/ImageDecoder.h
     src/engine/LensFun.cpp
     src/engine/LensFun.h
+    src/engine/HdrMerge.cpp
+    src/engine/HdrMerge.h
     src/engine/DevelopProfile.h
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
@@ -210,6 +212,7 @@ qt_add_qml_module(Photon
         content/components/SettingsSelectionDialog.qml
         content/components/HistoryPanel.qml
         content/components/LensPanel.qml
+        content/components/HdrDialog.qml
         content/components/PhotoContextMenu.qml
         content/components/MetadataPanel.qml
         content/components/ExportPanel.qml

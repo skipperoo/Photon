@@ -59,6 +59,76 @@ Window {
         toaster.show(result.message, result.success ? "info" : "error")
       }
     }
+    Connections {
+      target: HdrMerge
+      function onMergeCompleted(result) {
+        toaster.show(result.message, result.success ? "info" : "error")
+      }
+    }
+
+    HdrDialog {
+        id: hdrDialog
+        photoCount: AppState.selectedImages.length
+        onMergeRequested: (align, deghost) => HdrMerge.mergeAsync(AppState.selectedImages, align, deghost)
+    }
+
+    // HDR merge busy indicator (covers the whole window while merging).
+    Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 140
+        z: 1001
+        visible: HdrMerge.busy
+        width: busyRow.implicitWidth + 28
+        height: 40
+        radius: Theme.radiusLg
+        color: Qt.rgba(0, 0, 0, 0.72)
+
+        RowLayout {
+            id: busyRow
+            anchors.centerIn: parent
+            spacing: 8
+
+            Rectangle {
+                width: 16
+                height: 16
+                color: "transparent"
+
+                Canvas {
+                    anchors.fill: parent
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.reset()
+                        ctx.lineWidth = 2
+                        ctx.strokeStyle = "white"
+                        ctx.beginPath()
+                        ctx.arc(8, 8, 6, 0, Math.PI / 2)
+                        ctx.stroke()
+                    }
+                }
+                RotationAnimation on rotation {
+                    from: 0; to: 360; duration: 1000
+                    loops: Animation.Infinite
+                    running: HdrMerge.busy
+                }
+            }
+
+            Text {
+                text: "Merging HDR..."
+                color: "white"
+                font: Theme.fontRegular
+            }
+        }
+    }
+
+    // Auto-scan: keep the filmstrip in sync when files are added/removed in the
+    // current folder (refreshFiles() is diff-based and preserves scroll).
+    Timer {
+        interval: AppState.scanIntervalSeconds * 1000
+        repeat: true
+        running: AppState.currentFolder !== ""
+        onTriggered: window.refreshFiles()
+    }
 
     // List model to hold the RAW files
     ListModel {
@@ -97,6 +167,7 @@ Window {
         onFlipHorizontalRequested: window.flipSelectionHorizontal()
         onFlipVerticalRequested: window.flipSelectionVertical()
         onCreatePanoramaRequested: Panorama.stitchAsync(AppState.selectedImages)
+        onCreateHdrMergeRequested: hdrDialog.open()
     }
 
     // Function to refresh the file list
@@ -1499,17 +1570,30 @@ Window {
                         id: filmstripList
                         anchors.fill: parent
                         orientation: ListView.Horizontal
-                        spacing: 10
+                        property real thumbWidth: 150
+                        property real thumbSpacing: 10
+                        spacing: thumbSpacing
                         model: rawFilesModel
                         T.ScrollBar.horizontal: PhotonScrollBar { orientation: Qt.Horizontal }
-                        
-                        // Handle mouse wheel for horizontal scrolling
+
+                        // Mouse wheel scrolls the filmstrip horizontally.
+                        // Delegates have a fixed size, so the exact content
+                        // width is derived from the current model count (never
+                        // stale after an auto-refresh).
                         MouseArea {
                             anchors.fill: parent
                             acceptedButtons: Qt.NoButton // Pass clicks to delegates
                             onWheel: (wheel) => {
-                                if (wheel.angleDelta.y !== 0) {
-                                    filmstripList.contentX = Math.max(0, Math.min(filmstripList.contentWidth - parent.width, filmstripList.contentX - wheel.angleDelta.y));
+                                var delta = wheel.angleDelta.y + wheel.angleDelta.x;
+                                if (delta !== 0) {
+                                    var count = filmstripList.count;
+                                    var contentW = count > 0
+                                        ? count * (filmstripList.thumbWidth + filmstripList.thumbSpacing)
+                                          - filmstripList.thumbSpacing
+                                        : 0;
+                                    var maxX = Math.max(0, contentW - filmstripList.width);
+                                    filmstripList.contentX =
+                                        Math.max(0, Math.min(maxX, filmstripList.contentX - delta));
                                     wheel.accepted = true;
                                 } else {
                                     wheel.accepted = false;
@@ -1518,7 +1602,7 @@ Window {
                         }
 
                         delegate: Rectangle {
-                            width: 150
+                            width: filmstripList.thumbWidth
                             height: 100
                             anchors.verticalCenter: parent.verticalCenter
                             color: Theme.secondary

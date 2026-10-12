@@ -479,8 +479,9 @@ QVariantMap Panorama::stitchPhotos(const QStringList& inputFiles,
   TIFFSetField(out, TIFFTAG_BITSPERSAMPLE,  8);
   TIFFSetField(out, TIFFTAG_SAMPLESPERPIXEL, 3);
   TIFFSetField(out, TIFFTAG_PHOTOMETRIC,    PHOTOMETRIC_RGB);
-  TIFFSetField(out, TIFFTAG_COMPRESSION,    COMPRESSION_JPEG); // JPEG is preferred by most viewers
-  TIFFSetField(out, TIFFTAG_JPEGQUALITY,    90);
+  // Uncompressed thumbnail: with TIFF-JPEG the DQT/DHT live in the JPEGTables
+  // tag and thumbnail extractors (LibRaw/Qt) cannot decode the bare stream.
+  TIFFSetField(out, TIFFTAG_COMPRESSION,    COMPRESSION_NONE);
   TIFFSetField(out, TIFFTAG_PLANARCONFIG,   PLANARCONFIG_CONTIG);
   TIFFSetField(out, TIFFTAG_ORIENTATION,    ORIENTATION_TOPLEFT);
   TIFFSetField(out, TIFFTAG_ROWSPERSTRIP,   thumbnail8.rows); // single strip for thumbnail

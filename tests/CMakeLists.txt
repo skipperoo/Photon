@@ -77,7 +77,7 @@ target_include_directories(tst_RawEngine PRIVATE
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtCore/6.10.1/QtCore>
     ${TIFF_INCLUDE_DIR}
     ${JPEG_INCLUDE_DIRS}
-)
+ ${OPENCV_INCLUDE_DIRS})
 
 if(WIN32)
     target_include_directories(tst_RawEngine PRIVATE ${LibRaw_INCLUDE_DIR})

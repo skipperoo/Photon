@@ -12,6 +12,7 @@
 #include "FileScanner.h"
 #include "ImageDeveloper.h"
 #include "LensFun.h"
+#include "HdrMergeMath.h"
 #include "PreviewManager.h"
 #include "RawEngine.h"
 
@@ -30,6 +31,7 @@ class TestRawEngine : public QObject {
   void testHistoryStepsAndProcessVersion();
   void testLensFunParserAndCorrection();
   void testLensProfileEditState();
+  void testHdrMergeRadiometric();
   void testLensFunRealDatabase();
   void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
@@ -930,6 +932,35 @@ void TestRawEngine::testLensFunRealDatabase() {
   const photon::lensfun::Profile unknown = db.match(
       "Sony", "ILCE-7M2", "Totally Fake Lens 12-24mm", 12.0f, 2.8f);
   QVERIFY(!unknown.valid);
+}
+
+void TestRawEngine::testHdrMergeRadiometric() {
+  // Synthetic scene spanning 0.01..8.0 radiance, three brackets at 1x, 1/4x
+  // and 1/16x exposure with a 0.98 clip level.
+  constexpr int N = 100;
+  std::vector<std::vector<float>> frames(3, std::vector<float>(N));
+  const std::vector<float> gains = {1.0f, 4.0f, 16.0f};
+  const std::vector<float> exposures = {1.0f, 0.25f, 0.0625f};
+  std::vector<float> scene(N);
+  for (int p = 0; p < N; ++p) {
+    scene[p] = 0.01f * std::pow(800.0f, float(p) / float(N - 1));
+    for (int i = 0; i < 3; ++i)
+      frames[i][p] = std::min(scene[p] * exposures[i], 0.98f);
+  }
+
+  const std::vector<float> merged =
+      photon::hdrmath::mergeRadiometric(frames, gains, 0.99f);
+  QCOMPARE(int(merged.size()), N);
+
+  // Highlights recovered from the darkest frame (others are clipped).
+  QVERIFY(merged[N - 1] > 6.0f);
+  // Deep shadows come from the brightest frame.
+  QVERIFY(merged[0] > 0.005f && merged[0] < 0.02f);
+  // Midtones track the true scene.
+  const int mid = N / 2;
+  QVERIFY(std::abs(merged[mid] - scene[mid]) / scene[mid] < 0.1f);
+  // Monotone response.
+  for (int p = 1; p < N; ++p) QVERIFY(merged[p] >= merged[p - 1] * 0.98f);
 }
 
 void TestRawEngine::testOklabCreativeOps() {

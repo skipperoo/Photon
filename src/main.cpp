@@ -32,6 +32,7 @@
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
 #include "engine/Panorama.h"
+#include "engine/HdrMerge.h"
 #include "components/ToneLutProvider.h"
 #include "Version.h"
 
@@ -264,11 +265,13 @@ int main(int argc, char* argv[]) {
   qmlRegisterSingletonInstance("Main", 1, 0, "Logger", logManager);
   auto *keyTracker = new KeyTracker(&app);
   auto *panorama = new photon::Panorama(&app);
+  auto *hdrMerge = new HdrMerge(&app);
   qmlRegisterSingletonInstance("Main", 1, 0, "KeyTracker", keyTracker);
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "PreviewManager", previewManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "ExportManager", exportManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "Panorama", panorama);
+  qmlRegisterSingletonInstance("Main", 1, 0, "HdrMerge", hdrMerge);
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");
   engine.rootContext()->setContextProperty("thumbnailProvider", thumbProvider);
   qmlRegisterType<FileScanner>("Main", 1, 0, "FileScanner");

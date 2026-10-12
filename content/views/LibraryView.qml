@@ -49,6 +49,13 @@ Control {
         onFlipHorizontalRequested: AppState.flipSelectedHorizontal("")
         onFlipVerticalRequested: AppState.flipSelectedVertical("")
         onCreatePanoramaRequested: Panorama.stitchAsync(AppState.selectedImages)
+        onCreateHdrMergeRequested: hdrDialog.open()
+    }
+
+    HdrDialog {
+        id: hdrDialog
+        photoCount: AppState.selectedImages.length
+        onMergeRequested: (align, deghost) => HdrMerge.mergeAsync(AppState.selectedImages, align, deghost)
     }
 
     // Function to refresh the file list

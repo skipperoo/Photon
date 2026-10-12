@@ -719,7 +719,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.2 | Colored slider component | DONE | `52f709c` |
 | 40.3 | Before/after modes + split view | DONE | `4e07a63` |
 | 40.4 | Parametric tone curve | DONE | `e60731e` |
-| 40.5 | Process version per photo + history panel | TODO | |
+| 40.5 | Process version per photo + history panel | DONE | `2fbdc2c` |
 | 40.6 | Lensfun integration | TODO | |
 | 40.7 | HDR merge (OpenCV alignment) | TODO | |
 | 40.8 | Camera-look fitting from embedded JPEG | TODO | |
@@ -810,7 +810,11 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** with a point curve active, parametric +50 Highlights brightens only the top range; splits move the region boundaries visibly; combined curve stays monotone (no reversals); preview = export.
 
-## 40.5 Process version per photo + history panel — TODO
+## 40.5 Process version per photo + history panel — DONE
+
+> Follow-up 2 (2026-10-12): legacy steps without metadata now get **labels/deltas derived from state diffs on load** (reopening an old photo shows meaningful entries instead of "Edit"); the History list **preserves its scroll position** when clicking a step; **reset is non-destructive** — it appends a single "Reset" step at the end and never discards entries (only Clear History removes steps); Clear History also drops the leftover delta from the "Current" entry.
+> Follow-up (2026-10-12): a persistent virtual **Original** step is always the last entry and resets all edits; resetting commits a single **Reset** step (pending label, not a diff list). Steps now also store a signed value hint (`__delta`) shown flushed right in muted text ("+10", "+0.50", "-20"; contrast converted to UI units ×200). Labels are entity-specific: `HSL Hue (Red)`, `HSL Luminance (Yellow)`, `Grading Hue (Shadows)`, `Calibration Red Hue`, `B&W Mix (Red)`, `Parametric Highlights`, `Parametric Splits`, `Tone Curve Points`, etc. The Clear button ignores the virtual entry. Tests extended (25/25).
+> Implemented 2026-10-12, confirmed visually (including the follow-ups), committed `2fbdc2c`. Engine: history steps now carry labels derived from the state diff (sensor-key → group table, up to 3 groups joined); `commitEdit` stores `__step`, caps the stack at `kHistoryLimit = 100` (oldest dropped) and persists the stack together with a trailing `{"__index": N}` marker so the current position survives sessions (old arrays without the marker load with index = last). New API: `historySteps` (newest-first `{index,label,current,future}`), `jumpToHistory`, `clearHistory`; undo/redo share `applyHistoryIndex` (which also persists and rebakes geometry); presets commit with the label "Preset", the first state is "Open". `processVersion` (default 1) is stored per photo in the JSON and reset to the current version on load; exposed with `currentProcessVersion` (1, no rendering branches yet). UI: new **History** panel in the sidebar (clock icon) listing steps (current highlighted, future dimmed), click to jump; "Clear History" button; header shows `Process v1`. Tests: `testHistoryStepsAndProcessVersion` (labels, jump/redo, clear, cap, sidecar marker, process-version round-trip); suite 25/25, ctest 3/3, AppImage builds and starts clean.
 
 **Goal:** (a) a per-photo `processVersion` stored in the edit stack so behaviour changes can be rolled out without altering existing edits; (b) a History panel listing the edit timeline with jump-to.
 

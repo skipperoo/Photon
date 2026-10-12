@@ -115,4 +115,15 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
+## History panel + process version (2026-10-12, Phase 40.5)
+
+- Purpose: a persistent per-photo edit timeline (Lightroom-style) with meaningful labels, jump-to-step, a non-destructive Original entry, and per-photo process versioning for future rendering retunes.
+- Algorithm: every commit stores `__step` (label) and `__delta` (signed hint) inside the state object; labels come from a key→entity mapping (HSL band/channel, grading region, calibration, parametric curve, …) and deltas from the numeric change of the first changed key (contrast converted to UI units ×200). Legacy steps without metadata get labels/deltas derived by diffing consecutive states when the history is read. The sidecar keeps the full stack plus a trailing `{"__index": N}` marker; the list is capped at `kHistoryLimit = 100`. Reset appends a single "Reset" step and keeps all entries; Clear History keeps only the current state; a virtual "Original" entry (index −1) always sits last and resets non-destructively.
+- Pipeline placement: state management only; no rendering effect (processVersion is storage-only until a retune ships).
+- Key constants: `kHistoryLimit = 100`, `kCurrentProcessVersion = 1`.
+- Files: `src/engine/RawEngine.{h,cpp}`, `src/components/RawViewport.{h,cpp}`, `content/components/HistoryPanel.qml`, `content/views/App.qml`, `assets/icons/history.svg`, `tests/auto/tst_RawEngine.cpp`.
+- Commit: `2fbdc2c`.
+
+---
+
 *Phase 40 features are appended here as they complete.*

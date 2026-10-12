@@ -205,6 +205,7 @@ qt_add_qml_module(Photon
         content/components/ToneCurve.qml
         content/components/PresetPanel.qml
         content/components/SettingsSelectionDialog.qml
+        content/components/HistoryPanel.qml
         content/components/PhotoContextMenu.qml
         content/components/MetadataPanel.qml
         content/components/ExportPanel.qml
@@ -237,6 +238,7 @@ qt_add_qml_module(Photon
         assets/icons/folder.svg
         assets/icons/home.svg
         assets/icons/eye.svg
+        assets/icons/history.svg
         assets/icons/compare.svg
         assets/icons/split.svg
         assets/icons/copy.svg

@@ -26,6 +26,7 @@ class TestRawEngine : public QObject {
   void testCalibrationReferenceBehavior();
   void testParametricToneCurveBehavior();
   void testToneCurveModeStash();
+  void testHistoryStepsAndProcessVersion();
   void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
   void testSwitchingSourceResetsExposureAndContrast();
@@ -646,6 +647,136 @@ void TestRawEngine::testToneCurveModeStash() {
   QCOMPARE(reloaded.toneCurveHighlights(), 80.0f);
   QCOMPARE(reloaded.toneCurveSplitMid(), 40.0f);
   QVERIFY(reloaded.toneCurveLuma() == pts);
+}
+
+void TestRawEngine::testHistoryStepsAndProcessVersion() {
+  QTemporaryDir tempDir;
+  QVERIFY(tempDir.isValid());
+
+  RawEngine engine;
+  engine.setSource(tempDir.filePath("history.arw"));
+
+  QCOMPARE(engine.processVersion(), 1);
+  QCOMPARE(engine.currentProcessVersion(), 1);
+
+  // loadEdits creates the initial "Open" step (plus the virtual Original).
+  QCOMPARE(engine.historySteps().size(), 2);
+  QCOMPARE(engine.historySteps()[0].toMap()["label"].toString(),
+           QStringLiteral("Open"));
+  QCOMPARE(engine.historySteps()[1].toMap()["label"].toString(),
+           QStringLiteral("Original"));
+
+  engine.setExposure(0.5f);
+  engine.commitEdit();
+  engine.setContrast(1.1f);
+  engine.commitEdit();
+
+  QVariantList steps = engine.historySteps();
+  QCOMPARE(steps.size(), 4);
+  QCOMPARE(steps[0].toMap()["label"].toString(), QStringLiteral("Contrast"));
+  QCOMPARE(steps[0].toMap()["delta"].toString(), QStringLiteral("+20"));
+  QVERIFY(steps[0].toMap()["current"].toBool());
+  QCOMPARE(steps[1].toMap()["label"].toString(), QStringLiteral("Exposure"));
+  QCOMPARE(steps[1].toMap()["delta"].toString(), QStringLiteral("+0.50"));
+  QCOMPARE(steps[2].toMap()["label"].toString(), QStringLiteral("Open"));
+  QCOMPARE(steps[3].toMap()["label"].toString(), QStringLiteral("Original"));
+  QCOMPARE(steps[3].toMap()["index"].toInt(), -1);
+
+  // Per-entity labels for the colour mixer.
+  engine.setHslRedHue(10.0f);
+  engine.commitEdit();
+  steps = engine.historySteps();
+  QCOMPARE(steps[0].toMap()["label"].toString(),
+           QStringLiteral("HSL Hue (Red)"));
+  QCOMPARE(steps[0].toMap()["delta"].toString(), QStringLiteral("+10"));
+
+  // Jumping back marks the newer steps as future and applies the state.
+  engine.jumpToHistory(0);
+  steps = engine.historySteps();
+  QCOMPARE(engine.exposure(), 0.0f);
+  QCOMPARE(engine.contrast(), 1.0f);
+  QVERIFY(steps[0].toMap()["future"].toBool());
+  QVERIFY(steps[3].toMap()["current"].toBool());
+
+  // Redo walks forward again.
+  engine.redo();
+  QCOMPARE(engine.exposure(), 0.5f);
+
+  // The virtual Original step resets every edit, keeps all entries and logs
+  // a single "Reset" step at the top.
+  engine.jumpToHistory(-1);
+  steps = engine.historySteps();
+  QCOMPARE(engine.exposure(), 0.0f);
+  QCOMPARE(engine.contrast(), 1.0f);
+  QCOMPARE(engine.hslRedHue(), 0.0f);
+  QCOMPARE(steps.size(), 6);
+  QCOMPARE(steps[0].toMap()["label"].toString(), QStringLiteral("Reset"));
+  QCOMPARE(steps[0].toMap()["delta"].toString(), QString());
+  QVERIFY(!steps[0].toMap()["future"].toBool());
+  QCOMPARE(steps[1].toMap()["label"].toString(),
+           QStringLiteral("HSL Hue (Red)"));
+  QCOMPARE(steps.last().toMap()["label"].toString(), QStringLiteral("Original"));
+
+  // Process version is stored/restored with the state.
+  engine.setProcessVersion(2);
+  QCOMPARE(engine.currentSettings().value("processVersion").toInt(), 2);
+  RawEngine reloaded;
+  reloaded.applySettings(engine.currentSettings());
+  QCOMPARE(reloaded.processVersion(), 2);
+
+  // Clear history keeps only the current state (plus the virtual Original).
+  engine.clearHistory();
+  steps = engine.historySteps();
+  QCOMPARE(steps.size(), 2);
+  QCOMPARE(steps[0].toMap()["label"].toString(), QStringLiteral("Current"));
+  QCOMPARE(steps[0].toMap()["delta"].toString(), QString());
+  QCOMPARE(steps[1].toMap()["label"].toString(), QStringLiteral("Original"));
+
+  // History is capped at kHistoryLimit, dropping the oldest steps.
+  for (int i = 1; i <= RawEngine::kHistoryLimit + 5; ++i) {
+    engine.setExposure(0.01f * i);
+    engine.commitEdit();
+  }
+  QCOMPARE(engine.historySteps().size(), RawEngine::kHistoryLimit + 1);
+  QCOMPARE(engine.exposure(), 0.01f * (RawEngine::kHistoryLimit + 5));
+
+  // Legacy sidecar steps (no metadata) get derived labels and deltas on load.
+  QTemporaryDir legacyDir;
+  QVERIFY(legacyDir.isValid());
+  QDir().mkpath(legacyDir.filePath(".PhotonData/edits"));
+  QJsonObject legacy0;
+  legacy0["exposure"] = 0.0;
+  legacy0["contrast"] = 1.0;
+  QJsonObject legacy1 = legacy0;
+  legacy1["exposure"] = 0.7;
+  QJsonArray legacyArr;
+  legacyArr.append(legacy0);
+  legacyArr.append(legacy1);
+  {
+    QFile legacyFile(legacyDir.filePath(".PhotonData/edits/legacy.arw.json"));
+    QVERIFY(legacyFile.open(QIODevice::WriteOnly));
+    legacyFile.write(QJsonDocument(legacyArr).toJson());
+  }
+  RawEngine legacy;
+  legacy.setSource(legacyDir.filePath("legacy.arw"));
+  const QVariantList legacySteps = legacy.historySteps();
+  QCOMPARE(legacySteps.size(), 3);
+  QCOMPARE(legacySteps[0].toMap()["label"].toString(),
+           QStringLiteral("Exposure"));
+  QCOMPARE(legacySteps[0].toMap()["delta"].toString(), QStringLiteral("+0.70"));
+  QCOMPARE(legacySteps[1].toMap()["label"].toString(),
+           QStringLiteral("Open"));
+  QCOMPARE(legacy.exposure(), 0.7f);
+
+  // Sidecar round-trip: steps carry labels and the current index marker.
+  QFile sidecar(tempDir.filePath(
+      ".PhotonData/edits/history.arw.json"));
+  QVERIFY(sidecar.open(QIODevice::ReadOnly));
+  const QJsonArray arr =
+      QJsonDocument::fromJson(sidecar.readAll()).array();
+  QVERIFY(!arr.isEmpty());
+  QVERIFY(arr.last().toObject().contains("__index"));
+  QVERIFY(arr.first().toObject().contains("__step"));
 }
 
 void TestRawEngine::testOklabCreativeOps() {

@@ -1344,6 +1344,12 @@ Window {
                                 ExportPanel {
                                     Layout.fillHeight: true
                                 }
+
+                                // 6: History
+                                HistoryPanel {
+                                    viewport: rawViewport
+                                    viewTopPadding: 10
+                                }
                             }
 
                             // 2. Section Switcher (48px)
@@ -1366,7 +1372,8 @@ Window {
                                         { icon: "crop", index: 2, tooltip: "Crop" },
                                         { icon: "telescope", index: 3, tooltip: "Lens" },
                                         { icon: "bookmark", index: 4, tooltip: "Presets" },
-                                        { icon: "download", index: 5, tooltip: "Export" }
+                                        { icon: "download", index: 5, tooltip: "Export" },
+                                        { icon: "history", index: 6, tooltip: "History" }
                                     ]
 
                                     Repeater {

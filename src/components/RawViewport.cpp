@@ -94,6 +94,12 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit tintChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::processVersionChanged, this, [this]() {
+    emit processVersionChanged();
+  });
+  connect(&m_engine, &RawEngine::historyChanged, this, [this]() {
+    emit historyChanged();
+  });
   connect(&m_engine, &RawEngine::toneCurveModeChanged, this, [this]() {
     emit toneCurveModeChanged();
     update();
@@ -609,6 +615,12 @@ void RawViewport::setTint(float val) {
   m_engine.setTint(val);
   emit tintChanged();
   m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setProcessVersion(int version) {
+  if (m_engine.processVersion() == version) return;
+  m_engine.setProcessVersion(version);
+  emit processVersionChanged();
 }
 
 void RawViewport::setToneCurveMode(const QString& mode) {

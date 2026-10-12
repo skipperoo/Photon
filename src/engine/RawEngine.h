@@ -232,6 +232,10 @@ class RawEngine : public QObject {
                  setToneCurveSplitHighlights NOTIFY
                      toneCurveSplitHighlightsChanged)
   Q_PROPERTY(int toneLutVersion READ toneLutVersion NOTIFY toneLutVersionChanged)
+  Q_PROPERTY(int processVersion READ processVersion WRITE setProcessVersion
+                 NOTIFY processVersionChanged)
+  Q_PROPERTY(int currentProcessVersion READ currentProcessVersion CONSTANT)
+  Q_PROPERTY(QVariantList historySteps READ historySteps NOTIFY historyChanged)
   Q_PROPERTY(bool toneCurveActive READ toneCurveActive NOTIFY toneCurveActiveChanged)
 
   Q_PROPERTY(
@@ -542,6 +546,15 @@ class RawEngine : public QObject {
   float toneCurveSplitHighlights() const { return m_toneCurveSplitHighlights; }
   void setToneCurveSplitHighlights(float val);
   int toneLutVersion() const { return m_toneLutVersion; }
+
+  static constexpr int kHistoryLimit = 100;
+  static constexpr int kCurrentProcessVersion = 1;
+  int processVersion() const { return m_processVersion; }
+  void setProcessVersion(int version);
+  int currentProcessVersion() const { return kCurrentProcessVersion; }
+  QVariantList historySteps() const;
+  Q_INVOKABLE void jumpToHistory(int index);
+  Q_INVOKABLE void clearHistory();
   QImage toneLutImage() const { return m_toneLutImage; }
   bool toneCurveActive() const { return m_toneCurveActive; }
 
@@ -716,6 +729,8 @@ class RawEngine : public QObject {
   void cgHighlightsLuminanceChanged();
   void cgBalanceChanged();
   void cgBlendingChanged();
+  void processVersionChanged();
+  void historyChanged();
   void toneCurveModeChanged();
   void toneCurveLumaChanged();
   void toneCurveRedChanged();
@@ -774,6 +789,8 @@ class RawEngine : public QObject {
   float computeSceneWhite(const ushort* rgb, int width, int height,
                           int channels, float percentile = 0.97f);
   void updateProcessingParams();
+  void applyHistoryIndex(int index);
+  void persistEditStack();
   void rebuildToneLut();
   void refreshCalibrationMatrix();
   static std::vector<float> evalMonotonicSpline(const QVariantList& pts,
@@ -887,6 +904,8 @@ class RawEngine : public QObject {
   float m_cgBlending = 50.0f;
 
   // Tone Curve data
+  int m_processVersion = kCurrentProcessVersion;
+  QString m_pendingStepLabel;
   QString m_toneCurveMode = QStringLiteral("manual");
   QVariantList m_toneCurveLuma;
   QVariantList m_toneCurveRed;

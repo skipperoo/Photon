@@ -48,6 +48,10 @@ class RawViewport : public QQuickItem {
                  calibBlueHueChanged)
   Q_PROPERTY(float calibBlueSat READ calibBlueSat WRITE setCalibBlueSat NOTIFY
                  calibBlueSatChanged)
+  Q_PROPERTY(int processVersion READ processVersion WRITE setProcessVersion
+                 NOTIFY processVersionChanged)
+  Q_PROPERTY(int currentProcessVersion READ currentProcessVersion CONSTANT)
+  Q_PROPERTY(QVariantList historySteps READ historySteps NOTIFY historyChanged)
   Q_PROPERTY(QString toneCurveMode READ toneCurveMode WRITE setToneCurveMode
                  NOTIFY toneCurveModeChanged)
   Q_PROPERTY(float toneCurveShadows READ toneCurveShadows WRITE
@@ -325,6 +329,12 @@ class RawViewport : public QQuickItem {
   void setCalibBlueHue(float val);
   float calibBlueSat() const { return m_engine.calibBlueSat(); }
   void setCalibBlueSat(float val);
+  int processVersion() const { return m_engine.processVersion(); }
+  void setProcessVersion(int version);
+  int currentProcessVersion() const { return m_engine.currentProcessVersion(); }
+  QVariantList historySteps() const { return m_engine.historySteps(); }
+  Q_INVOKABLE void jumpToHistory(int index) { m_engine.jumpToHistory(index); }
+  Q_INVOKABLE void clearHistory() { m_engine.clearHistory(); }
   QString toneCurveMode() const { return m_engine.toneCurveMode(); }
   void setToneCurveMode(const QString& mode);
   float toneCurveShadows() const { return m_engine.toneCurveShadows(); }
@@ -620,6 +630,8 @@ class RawViewport : public QQuickItem {
   void calibBlueHueChanged();
   void calibBlueSatChanged();
   void calibrationMatrixChanged();
+  void processVersionChanged();
+  void historyChanged();
   void toneCurveModeChanged();
   void toneCurveShadowsChanged();
   void toneCurveDarksChanged();

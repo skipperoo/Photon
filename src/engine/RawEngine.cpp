@@ -3179,6 +3179,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
     }
     return arr;
   };
+  obj["processVersion"] = e->processVersion();
   obj["toneCurveMode"] = e->toneCurveMode();
   obj["toneCurveLuma"] = pointsToArray(e->toneCurveLuma());
   obj["toneCurveRed"] = pointsToArray(e->toneCurveRed());
@@ -3379,6 +3380,8 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     }
     return pts;
   };
+  if (obj.contains("processVersion"))
+    e->setProcessVersion(obj["processVersion"].toInt(1));
   if (obj.contains("toneCurveMode"))
     e->setToneCurveMode(obj["toneCurveMode"].toString());
   if (obj.contains("toneCurveLuma"))
@@ -3518,6 +3521,7 @@ static void resetToDefaults(RawEngine* e) {
   p1["x"] = 1.0;
   p1["y"] = 1.0;
   defaultPts << p0 << p1;
+  e->setProcessVersion(RawEngine::kCurrentProcessVersion);
   e->setToneCurveMode("manual");
   e->setToneCurveLuma(defaultPts);
   e->setToneCurveShadows(0.0f);
@@ -3573,17 +3577,32 @@ void RawEngine::loadEdits() {
     return;
   }
 
+  int savedIndex = -1;
   for (const auto& val : arr) {
-    m_editStack.append(val.toObject().toVariantMap());
+    const QJsonObject entry = val.toObject();
+    if (entry.contains(QStringLiteral("__index"))) {
+      savedIndex = entry.value(QStringLiteral("__index")).toInt(-1);
+      continue;
+    }
+    m_editStack.append(entry.toVariantMap());
   }
-  m_editIndex = m_editStack.size() - 1;
+  if (m_editStack.isEmpty()) {
+    resetToDefaults(this);
+    m_editIndex = -1;
+    commitEdit();
+    return;
+  }
+  m_editIndex = (savedIndex >= 0 && savedIndex < int(m_editStack.size()))
+                    ? savedIndex
+                    : int(m_editStack.size()) - 1;
 
   // Ensure a clean slate before applying loaded edits to avoid inheriting state
   // from previous photo
   resetToDefaults(this);
 
-  // Apply last state - this will trigger signals and update UI
-  QJsonObject lastState = arr.last().toObject();
+  // Apply the current history state - this will trigger signals and update UI
+  QJsonObject lastState =
+      QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap());
   LogManager::instance()->log(
       QString(
           "[ RawEngine ] - Loading edits: denoiseEnabled=%1, denoiseAmount=%2")
@@ -3598,6 +3617,286 @@ void RawEngine::loadEdits() {
   requestHistogramUpdate();
 }
 
+
+static QString historyLabelForKey(const QString& key) {
+  struct Exact {
+    const char* key;
+    const char* label;
+  };
+  static const Exact exact[] = {
+      {"exposure", "Exposure"},      {"contrast", "Contrast"},
+      {"highlights", "Highlights"},  {"shadows", "Shadows"},
+      {"whites", "Whites"},          {"blacks", "Blacks"},
+      {"temperature", "White Balance"}, {"tint", "White Balance"},
+      {"vibrance", "Presence"},      {"saturation", "Presence"},
+      {"profile", "Profile"},        {"adaptation", "Adaptation"},
+      {"clarity", "Clarity"},        {"dehaze", "Dehaze"},
+      {"structure", "Structure"},    {"centre", "Centre"},
+      {"sharpness", "Sharpening"},   {"sharpenMask", "Sharpen Masking"},
+      {"maskFeather", "Sharpen Feather"}, {"focusDetect", "Focus Detect"},
+      {"grainAmount", "Grain Amount"}, {"grainSize", "Grain Size"},
+      {"grainRoughness", "Grain Roughness"},
+      {"vignetteAmount", "Vignette Amount"},
+      {"vignetteMidpoint", "Vignette Midpoint"},
+      {"vignetteRoundness", "Vignette Roundness"},
+      {"vignetteFeather", "Vignette Feather"},
+      {"processVersion", "Process Version"},
+  };
+  for (const auto& e : exact) {
+    if (key == QLatin1String(e.key)) return QString::fromLatin1(e.label);
+  }
+
+  static const char* bands[] = {"Red",    "Orange", "Yellow", "Green",
+                                "Aqua",   "Blue",   "Purple", "Magenta"};
+  if (key.startsWith(QLatin1String("hsl"))) {
+    const QString rest = key.mid(3);
+    for (const char* band : bands) {
+      const QString bandName = QString::fromLatin1(band);
+      if (rest.startsWith(bandName)) {
+        const QString channel = rest.mid(bandName.size());
+        return QStringLiteral("HSL ") + channel + QStringLiteral(" (") +
+               bandName + QStringLiteral(")");
+      }
+    }
+    return QStringLiteral("Color Mixer");
+  }
+
+  static const char* regions[] = {"Shadows", "Midtones", "Highlights"};
+  if (key.startsWith(QLatin1String("cg"))) {
+    const QString rest = key.mid(2);
+    for (const char* region : regions) {
+      const QString regionName = QString::fromLatin1(region);
+      if (rest.startsWith(regionName)) {
+        const QString channel = rest.mid(regionName.size());
+        return QStringLiteral("Grading ") + channel + QStringLiteral(" (") +
+               regionName + QStringLiteral(")");
+      }
+    }
+    return QStringLiteral("Grading ") + rest;
+  }
+
+  if (key.startsWith(QLatin1String("calib"))) {
+    QString rest = key.mid(5);
+    if (rest == QLatin1String("ShadowsTint"))
+      return QStringLiteral("Calibration Shadows Tint");
+    for (const char* band : bands) {
+      const QString bandName = QString::fromLatin1(band);
+      if (rest.startsWith(bandName)) {
+        return QStringLiteral("Calibration ") + bandName +
+               rest.mid(bandName.size());
+      }
+    }
+    return QStringLiteral("Calibration");
+  }
+
+  if (key.startsWith(QLatin1String("bwMix"))) {
+    return QStringLiteral("B&W Mix (") + key.mid(5) + QStringLiteral(")");
+  }
+
+  if (key.startsWith(QLatin1String("toneCurve"))) {
+    const QString rest = key.mid(9);
+    if (rest == QLatin1String("Luma") || rest == QLatin1String("Red") ||
+        rest == QLatin1String("Green") || rest == QLatin1String("Blue"))
+      return QStringLiteral("Tone Curve Points");
+    if (rest.startsWith(QLatin1String("Split")))
+      return QStringLiteral("Parametric Splits");
+    if (rest == QLatin1String("Mode")) return QStringLiteral("Curve Mode");
+    return QStringLiteral("Parametric ") + rest;
+  }
+
+  if (key.startsWith(QLatin1String("denoise"))) return QStringLiteral("Denoise");
+  if (key.startsWith(QLatin1String("crop")) ||
+      key.startsWith(QLatin1String("straighten")) ||
+      key.startsWith(QLatin1String("orientation")) ||
+      key.startsWith(QLatin1String("flip")))
+    return QStringLiteral("Geometry");
+
+  if (key.startsWith(QLatin1String("scene"))) return QString();
+  return QStringLiteral("Edit");
+}
+
+static QString historyDeltaText(const QString& key, double delta) {
+  if (std::abs(delta) < 1e-9) return QString();
+  const bool negative = delta < 0.0;
+  const double magnitude = std::abs(delta);
+  QString number;
+  if (key == QLatin1String("contrast")) {
+    number = QString::number(magnitude * 200.0, 'f', 0);
+  } else if (key == QLatin1String("exposure")) {
+    number = QString::number(magnitude, 'f', 2);
+  } else if (key == QLatin1String("grainSize") ||
+             key == QLatin1String("grainRoughness")) {
+    number = QString::number(magnitude, 'f', 2);
+  } else {
+    number = QString::number(magnitude, 'f', 0);
+  }
+  return (negative ? QStringLiteral("-") : QStringLiteral("+")) + number;
+}
+
+struct HistoryStepInfo {
+  QString label;
+  QString delta;
+};
+
+static HistoryStepInfo historyStepForDiff(const QJsonObject& prev,
+                                          const QJsonObject& next) {
+  HistoryStepInfo info;
+  QStringList labels;
+  bool deltaSet = false;
+  for (auto it = next.begin(); it != next.end(); ++it) {
+    const QString key = it.key();
+    if (key.startsWith(QLatin1String("__"))) continue;
+    if (prev.value(key) == it.value()) continue;
+    const QString label = historyLabelForKey(key);
+    if (!deltaSet && it.value().isDouble() && prev.value(key).isDouble()) {
+      const QString delta = historyDeltaText(
+          key, it.value().toDouble() - prev.value(key).toDouble());
+      if (!delta.isEmpty()) {
+        info.delta = delta;
+        deltaSet = true;
+      }
+    }
+    if (label.isEmpty() || labels.contains(label)) continue;
+    labels << label;
+    if (labels.size() >= 3) break;
+  }
+  info.label = labels.isEmpty() ? QStringLiteral("Edit")
+                                : labels.join(QStringLiteral(", "));
+  return info;
+}
+
+void RawEngine::setProcessVersion(int version) {
+  if (version < 1) version = 1;
+  if (m_processVersion == version) return;
+  m_processVersion = version;
+  emit processVersionChanged();
+}
+
+QVariantList RawEngine::historySteps() const {
+  const int count = int(m_editStack.size());
+
+  // Derive labels/deltas for legacy steps that predate the metadata.
+  std::vector<QString> labels(count);
+  std::vector<QString> deltas(count);
+  for (int i = 0; i < count; ++i) {
+    const QJsonObject state =
+        QJsonObject::fromVariantMap(m_editStack[i].toMap());
+    QString label = state.value(QStringLiteral("__step")).toString();
+    QString delta = state.value(QStringLiteral("__delta")).toString();
+    if (label.isEmpty()) {
+      if (i == 0) {
+        label = QStringLiteral("Open");
+      } else {
+        QJsonObject prev =
+            QJsonObject::fromVariantMap(m_editStack[i - 1].toMap());
+        prev.remove(QStringLiteral("__step"));
+        prev.remove(QStringLiteral("__delta"));
+        const HistoryStepInfo info = historyStepForDiff(prev, state);
+        label = info.label;
+        delta = info.delta;
+      }
+    }
+    labels[i] = label;
+    deltas[i] = delta;
+  }
+
+  QVariantList out;
+  for (int i = count - 1; i >= 0; --i) {
+    QVariantMap entry;
+    entry["index"] = i;
+    entry["label"] = labels[i];
+    entry["delta"] = deltas[i];
+    entry["current"] = (i == m_editIndex);
+    entry["future"] = (i > m_editIndex);
+    out.append(entry);
+  }
+  // Persistent virtual step: the untouched original state.
+  QVariantMap original;
+  original["index"] = -1;
+  original["label"] = QStringLiteral("Original");
+  original["delta"] = QString();
+  original["current"] = false;
+  original["future"] = false;
+  out.append(original);
+  return out;
+}
+
+void RawEngine::applyHistoryIndex(int index) {
+  if (index < 0 || index >= int(m_editStack.size()) || index == m_editIndex)
+    return;
+  m_editIndex = index;
+  applyJsonToState(
+      this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
+  emit canUndoChanged();
+  emit canRedoChanged();
+  emit historyChanged();
+  emit isDefaultChanged();
+  requestHistogramUpdate();
+  persistEditStack();
+
+  if (!m_inCropMode && hasNonDefaultGeometry()) {
+    reloadWithGeometry();
+  } else if (!m_inCropMode && m_geometryBaked) {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    emit geometryBakedChanged();
+    emit imageLoaded();
+  }
+
+  m_previewRefreshTimer.start();
+}
+
+void RawEngine::jumpToHistory(int index) {
+  if (index < 0) {
+    resetToOriginal();
+    return;
+  }
+  applyHistoryIndex(index);
+}
+
+void RawEngine::clearHistory() {
+  if (m_editStack.isEmpty()) return;
+  QVariant state = m_editStack[m_editIndex];
+  QJsonObject obj = QJsonObject::fromVariantMap(state.toMap());
+  obj["__step"] = QStringLiteral("Current");
+  obj.remove(QStringLiteral("__delta"));
+  m_editStack.clear();
+  m_editStack.append(obj.toVariantMap());
+  m_editIndex = 0;
+  emit editStackChanged();
+  emit canUndoChanged();
+  emit canRedoChanged();
+  emit historyChanged();
+  persistEditStack();
+}
+
+void RawEngine::persistEditStack() {
+  if (m_source.isEmpty()) return;
+  QFileInfo fileInfo(m_source);
+  QString editsDir =
+      QDir::toNativeSeparators(fileInfo.absolutePath() + "/.PhotonData/edits");
+  QDir().mkpath(editsDir);
+  QString editsPath =
+      QDir::toNativeSeparators(editsDir + "/" + fileInfo.fileName() + ".json");
+
+  QJsonArray arr;
+  for (const auto& v : m_editStack) {
+    QJsonObject obj = QJsonObject::fromVariantMap(v.toMap());
+    obj.remove(QStringLiteral("__index"));
+    arr.append(obj);
+  }
+  QJsonObject marker;
+  marker["__index"] = m_editIndex;
+  arr.append(marker);
+
+  QFile file(editsPath);
+  if (file.open(QIODevice::WriteOnly)) {
+    file.write(QJsonDocument(arr).toJson());
+  }
+}
+
 void RawEngine::commitEdit() {
   if (m_source.isEmpty()) return;
 
@@ -3610,37 +3909,42 @@ void RawEngine::commitEdit() {
     }
   }
 
+  QString label = m_pendingStepLabel;
+  QString delta;
+  m_pendingStepLabel.clear();
+
   // Check if it's actually different from the last one in the stack
   if (!m_editStack.isEmpty()) {
     QJsonObject lastState =
         QJsonObject::fromVariantMap(m_editStack.last().toMap());
+    lastState.remove(QStringLiteral("__step"));
+    lastState.remove(QStringLiteral("__delta"));
     if (newState == lastState) return;
+    if (label.isEmpty()) {
+      const HistoryStepInfo info = historyStepForDiff(lastState, newState);
+      label = info.label;
+      delta = info.delta;
+    }
+  } else if (label.isEmpty()) {
+    label = QStringLiteral("Open");
   }
 
+  newState["__step"] = label;
+  if (!delta.isEmpty()) newState["__delta"] = delta;
   m_editStack.append(newState.toVariantMap());
+
+  // Keep the history bounded (oldest steps are dropped).
+  while (m_editStack.size() > kHistoryLimit) {
+    m_editStack.removeFirst();
+  }
   m_editIndex = m_editStack.size() - 1;
 
   emit editStackChanged();
   emit canUndoChanged();
   emit canRedoChanged();
+  emit historyChanged();
 
-  // Save full stack to file
-  QFileInfo fileInfo(m_source);
-  QString editsDir =
-      QDir::toNativeSeparators(fileInfo.absolutePath() + "/.PhotonData/edits");
-  QDir().mkpath(editsDir);
-  QString editsPath =
-      QDir::toNativeSeparators(editsDir + "/" + fileInfo.fileName() + ".json");
-
-  QJsonArray arr;
-  for (const auto& v : m_editStack) {
-    arr.append(QJsonObject::fromVariantMap(v.toMap()));
-  }
-
-  QFile file(editsPath);
-  if (file.open(QIODevice::WriteOnly)) {
-    file.write(QJsonDocument(arr).toJson());
-  }
+  persistEditStack();
 
   // Debounced preview refresh — avoids piling up heavy tasks on rapid edits
   m_previewRefreshTimer.start();
@@ -3650,56 +3954,16 @@ void RawEngine::commitEdit() {
 
 void RawEngine::undo() {
   if (!canUndo()) return;
-  m_editIndex--;
-  applyJsonToState(
-      this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
-  emit canUndoChanged();
-  emit canRedoChanged();
-  emit isDefaultChanged();
-  requestHistogramUpdate();
-
-  // Re-bake geometry if not in crop mode
-  if (!m_inCropMode && hasNonDefaultGeometry()) {
-    reloadWithGeometry();
-  } else if (!m_inCropMode && m_geometryBaked) {
-    // Was baked but no longer has geometry
-    m_geometryBaked = false;
-    m_geometryBuffer.clear();
-    m_geometryWidth = 0;
-    m_geometryHeight = 0;
-    emit geometryBakedChanged();
-    emit imageLoaded();
-  }
-
-  m_previewRefreshTimer.start();
+  applyHistoryIndex(m_editIndex - 1);
 }
 
 void RawEngine::redo() {
   if (!canRedo()) return;
-  m_editIndex++;
-  applyJsonToState(
-      this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
-  emit canUndoChanged();
-  emit canRedoChanged();
-  emit isDefaultChanged();
-  requestHistogramUpdate();
-
-  // Re-bake geometry if not in crop mode
-  if (!m_inCropMode && hasNonDefaultGeometry()) {
-    reloadWithGeometry();
-  } else if (!m_inCropMode && m_geometryBaked) {
-    m_geometryBaked = false;
-    m_geometryBuffer.clear();
-    m_geometryWidth = 0;
-    m_geometryHeight = 0;
-    emit geometryBakedChanged();
-    emit imageLoaded();
-  }
-
-  m_previewRefreshTimer.start();
+  applyHistoryIndex(m_editIndex + 1);
 }
 
 void RawEngine::applySettings(const QVariantMap& settings) {
+  m_pendingStepLabel = QStringLiteral("Preset");
   applyJsonToState(this, QJsonObject::fromVariantMap(settings));
   commitEdit();
 }
@@ -3716,7 +3980,29 @@ void RawEngine::resetToOriginal() {
     emit geometryBakedChanged();
   }
 
-  commitEdit();
+  // Reset appends a "Reset" step at the end of the history without
+  // discarding any existing entries (only Clear History removes steps).
+  QJsonObject state = stateToJson(this);
+  bool duplicate = false;
+  if (!m_editStack.isEmpty()) {
+    QJsonObject last = QJsonObject::fromVariantMap(m_editStack.last().toMap());
+    last.remove(QStringLiteral("__step"));
+    last.remove(QStringLiteral("__delta"));
+    duplicate = (state == last);
+  }
+  if (!duplicate) {
+    state["__step"] = QStringLiteral("Reset");
+    m_editStack.append(state.toVariantMap());
+    while (m_editStack.size() > kHistoryLimit) {
+      m_editStack.removeFirst();
+    }
+    emit editStackChanged();
+    emit historyChanged();
+  }
+  m_editIndex = int(m_editStack.size()) - 1;
+  persistEditStack();
+  emit canUndoChanged();
+  emit canRedoChanged();
   emit isDefaultChanged();
 
   // Force re-process to show clean original

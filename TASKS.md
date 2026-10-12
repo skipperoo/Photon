@@ -715,7 +715,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 
 | # | Task | Status | Commit |
 |---|------|--------|--------|
-| 40.1 | Calibration panel | AWAITING VISUAL CONFIRMATION | |
+| 40.1 | Calibration panel | DONE | `c116e1c` |
 | 40.2 | Before/after modes + split view | TODO | |
 | 40.3 | Parametric tone curve | TODO | |
 | 40.4 | Process version per photo + history panel | TODO | |
@@ -723,9 +723,9 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.6 | HDR merge (OpenCV alignment) | TODO | |
 | 40.7 | Camera-look fitting from embedded JPEG | TODO | |
 
-## 40.1 Calibration panel — AWAITING VISUAL CONFIRMATION
+## 40.1 Calibration panel — DONE
 
-> Implemented 2026-10-12 (uncommitted). Shared math in `src/engine/Calibration.h` (host-computed white-preserving primary matrix + shadows tint); GPU receives 3 matrix-row uniforms + normalized tint in `RawViewport.frag` (inserted after the tone-ranges pass, before Contrast); CPU export in `ImageDeveloper.cpp` and histogram in `RawEngine.cpp` use the shared header; UI section in `DevelopView.qml`; preset group in `SettingsSelectionDialog.qml`. Tests: `tst_RawEngine testCalibrationReferenceBehavior` (defaults identical, primaries keep neutrals, saturated red reacts, tint only in deep shadows). Full suite 3/3 green; AppImage builds and starts clean.
+> Implemented 2026-10-12, confirmed visually, committed `c116e1c`. Shared math in `src/engine/Calibration.h` (host-computed white-preserving primary matrix + shadows tint); GPU receives 3 matrix-row uniforms + normalized tint in `RawViewport.frag` (inserted after the tone-ranges pass, before Contrast); CPU export in `ImageDeveloper.cpp` and histogram in `RawEngine.cpp` use the shared header; UI section in `DevelopView.qml`; preset group in `SettingsSelectionDialog.qml`. Tests: `tst_RawEngine testCalibrationReferenceBehavior` (defaults identical, primaries keep neutrals, saturated red reacts, tint only in deep shadows). Full suite 3/3 green; AppImage builds and starts clean.
 
 **Goal:** Lightroom-Classic-style Calibration section: Shadows Tint + Red/Green/Blue primary Hue/Saturation (7 sliders, −100…+100, default 0).
 

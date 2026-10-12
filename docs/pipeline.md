@@ -32,6 +32,7 @@ Rule (see `AGENTS.md`): any pipeline change must be applied to all three, with t
 | 1 | White balance | temp/tint multipliers |
 | 2 | Exposure | + positive-EV highlight knee vs `sceneWhite` |
 | 2.5 | Photon001 tone ranges | Highlights/Shadows/Whites/Blacks/Clarity from the delta texture |
+| 2.75 | Calibration | white-preserving primary matrix + shadows tint (host-computed rows) |
 | 3 | Contrast | smoothstep S-curve on luma |
 | 4 | HSL 8-band | OKLab/OKLCh |
 | 5 | Color grading | 3 zones, OKLab |
@@ -52,6 +53,7 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 2. Two-scale Gaussian precompute
 3. WB + Exposure (same formulas)
 4. Photon001 tone ranges (`apply_photon001_tone_ranges_cpp`) with host-computed scene stats
+4b. Calibration (`photon::calibration::apply`)
 5. Contrast
 6. HSL 8-band
 7. Color grading
@@ -73,7 +75,7 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 
 | Feature | Where it plugs in | Status |
 |---|---|---|
-| Calibration panel (Phase 40.1) | scene-linear, before Contrast (before tone LUT once it exists) | planned |
+| Calibration panel (Phase 40.1) | scene-linear, before Contrast | DONE (`c116e1c`); moves in front of the tone LUT once that lands |
 | Before/after modes + split (40.2) | render layer (`App.qml` layout + final shader uniform/second chain) | planned |
 | Parametric tone curve (40.3) | tone-curve LUT stage, moving to display-encoded domain | planned |
 | Process version + history (40.4) | edit-stack JSON + all paths branch on version | planned |
@@ -95,3 +97,4 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 |---|---|---|---|
 | 2026-10-03 | v0.3.0 release: JPEG/TIFF support (libjpeg-turbo + libtiff + lcms2), B&W profile UI, crash fixes (use-after-free, stack overflow, crash reporter) | broaden input formats + stability | `TASKS.md` Phase 38/v0.3.0 notes |
 | 2026-10-12 | Phase 40 planning + docs (`pipeline.md`, `features.md`) | set up tracked enhancement workflow | `TASKS.md` Phase 40 |
+| 2026-10-12 | Calibration panel (7 sliders: shadows tint + RGB primary hue/sat), all three paths | colour-model trims (Phase 40.1) | commit `c116e1c` |

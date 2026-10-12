@@ -71,4 +71,15 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
-*Phase 40 features (calibration, before/after, parametric curve, process version/history, lensfun, HDR merge, camera-look fitting) will be appended here as they complete.*
+## Calibration panel (2026-10-12, Phase 40.1)
+
+- Purpose: Lightroom-Classic calibration — per-primary hue/saturation trims and a shadows tint, for fine colour-model adjustments without touching WB.
+- Algorithm: build a white-preserving 3×3 matrix in linear sRGB: each primary `(1,0,0)/(0,1,0)/(0,0,1)` → OkLab → OkLCh, hue rotated by `(hue/100)·0.5 rad`, chroma scaled by `1+(sat/100)·0.6`, back to linear; the matrix columns are then rescaled by `k = M⁻¹·(1,1,1)` so neutral maps to itself (`K=0.5`, `0.6` at ±100). Shadows tint: `Y0 = luma(c)`, `w = 1 − smoothstep(−5, −0.5, log2(Y0/0.18))`, `c.g *= 1 − 0.3·tint·w`, then luminance restored `c *= Y0/Y1`. Identity/neutral skips all work.
+- Pipeline placement: scene-linear, after the Photon001 tone-ranges pass and before Contrast, on all three paths (GPU matrix rows via uniforms, CPU export, live histogram).
+- Key constants: `kCalibHueRadians = 0.5`, `kCalibSatFactor = 0.6`, `kShadowTintFactor = 0.3`, middle grey 0.18; slider range ±100.
+- Files: `src/engine/Calibration.h`, `src/engine/RawEngine.{h,cpp}`, `src/engine/ImageDeveloper.cpp`, `src/components/RawViewport.{h,cpp,frag}`, `content/views/App.qml`, `content/views/DevelopView.qml`, `content/components/SettingsSelectionDialog.qml`, `tests/auto/tst_RawEngine.cpp` (`testCalibrationReferenceBehavior`).
+- Commit: `c116e1c`.
+
+---
+
+*Phase 40 features are appended here as they complete.*

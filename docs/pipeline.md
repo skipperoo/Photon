@@ -77,7 +77,7 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 |---|---|---|
 | Calibration panel (Phase 40.1) | scene-linear, before Contrast | DONE (`c116e1c`); moves in front of the tone LUT once that lands |
 | Colored slider component (40.2) | develop panel UI only (no pipeline effect) | DONE (`52f709c`) |
-| Before/after modes + split (40.3) | render layer (`App.qml` layout + final shader uniform/second chain) | planned |
+| Before/after modes + split (40.3) | final shader (`compareMode`/`splitPos` + remapped `canvasUV`) + QML overlay | DONE (`4e07a63`) |
 | Parametric tone curve (40.4) | tone-curve LUT stage, moving to display-encoded domain | planned |
 | Process version + history (40.5) | edit-stack JSON + all paths branch on version | planned |
 | Lensfun (40.6) | geometry stage, before crop (single resample) | planned |
@@ -100,3 +100,4 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | 2026-10-12 | Phase 40 planning + docs (`pipeline.md`, `features.md`) | set up tracked enhancement workflow | `TASKS.md` Phase 40 |
 | 2026-10-12 | Calibration panel (7 sliders: shadows tint + RGB primary hue/sat), all three paths | colour-model trims (Phase 40.1) | commit `c116e1c` |
 | 2026-10-12 | Colored slider component (gradient tracks, live-colour handle, centre-out bipolar fill, hue hints) | UI-only colour feedback (Phase 40.2) | commit `52f709c` |
+| 2026-10-12 | Before/after compare modes: side-by-side (visible-region fit per pane), draggable split wipe, exclusive full-original toggle | visual A/B comparison (Phase 40.3) | commit `4e07a63` |

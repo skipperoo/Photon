@@ -717,7 +717,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 |---|------|--------|--------|
 | 40.1 | Calibration panel | DONE | `c116e1c` |
 | 40.2 | Colored slider component | DONE | `52f709c` |
-| 40.3 | Before/after modes + split view | TODO | |
+| 40.3 | Before/after modes + split view | DONE | `4e07a63` |
 | 40.4 | Parametric tone curve | TODO | |
 | 40.5 | Process version per photo + history panel | TODO | |
 | 40.6 | Lensfun integration | TODO | |
@@ -767,7 +767,10 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 
 **Visual confirmation:** gradient tracks render smoothly; while dragging, the handle shows the live colour; neutral midpoints look neutral; Exposure/Highlights/etc. fill from the centre to the handle; HSL Hue shows the selected band's colours; all sliders still reset (double-click) and drag as before.
 
-## 40.3 Before/after modes + split view — TODO
+## 40.3 Before/after modes + split view — DONE
+
+> Implemented 2026-10-12, confirmed visually (including the zoom fix), committed `4e07a63`. Shader (`RawViewport.frag`): new `compareMode`/`splitPos` uniforms; side-by-side maps the base image into two panes in-shader (shared zoom/pan, all multipass tone/colour textures remapped via `canvasUV` so alignment holds); wipe shows the unedited base to the left of a divider. Because the pipeline at defaults is identity, the unedited base texture is exactly the "before" look (no second render chain). `App.qml`: compare state + `Y`/`Shift+Y` shortcuts, `B`/`\` unchanged (now mutually exclusive with compare modes), toolbar eye/compare/split buttons, draggable divider (double-click resets to centre), "Before"/"After" pane labels, toast status. New `compare.svg`/`split.svg` icons in CMake; pre-existing `AbstractButton.IconOnly` warnings fixed. C++ suite 3/3; AppImage builds and starts clean.
+> Fixed 2026-10-12 (zoom): the panes originally fitted the whole image at the shared zoom, which requests pixels outside the canvas window and produced vertical stripe artifacts at zoom > 1. Side-by-side now fits the **currently visible region** into each pane (same semantics as Lightroom); the wipe is unchanged. At fit zoom the framing is identical to the per-pane full-image fit.
 
 **Goal:** Lightroom-style comparison: `B`/`\` keep working (full-frame toggle), add **split wipe** (`Shift+Y`) and **side-by-side** (`Y`); "Before" must be the **unedited-looking baseline render** (import/incoming edit stack), not the raw embedded preview.
 

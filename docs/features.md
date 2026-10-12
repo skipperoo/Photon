@@ -93,4 +93,15 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
+## Before/after compare modes (2026-10-12, Phase 40.3)
+
+- Purpose: compare the edited image against the unedited development — full-frame toggle, side-by-side panes, and a draggable split wipe.
+- Algorithm: the unedited base texture *is* the pipeline at defaults (every stage is identity at neutral), so no second render chain is needed. The final shader gained `compareMode` (0 off, 1 wipe, 2 side-by-side) and `splitPos`; in side-by-side the currently visible region (`imageRect ∩ canvas`) is fitted into each half (left = before, right = after) and all multipass tone/colour textures are sampled through the remapped canvas position; the wipe shows the base to the left of a divider.
+- Pipeline placement: final pass only (`RawViewport.frag`); the underlying develop pipeline is untouched.
+- Key constants: 12 px gap between panes; divider clamped to 2%…98%, double-click recentres; wipe position is canvas-relative.
+- Files: `src/components/RawViewport.frag`, `content/views/App.qml` (`compareMode`/`splitPos`, `Y`/`Shift+Y`, overlay divider + labels, toolbar), `assets/icons/compare.svg`, `assets/icons/split.svg`, `CMakeLists.txt`.
+- Commit: `4e07a63`. Fix note: the first cut re-fitted the whole image at shared zoom, which sampled outside the captured canvas window (vertical stripe artifacts at zoom > 1); the panes now fit the visible region.
+
+---
+
 *Phase 40 features are appended here as they complete.*

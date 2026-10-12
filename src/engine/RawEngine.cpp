@@ -47,6 +47,11 @@ static float srgb_to_linear_hist(float c) {
                          : std::pow((c + 0.055f) / 1.055f, 2.4f);
 }
 
+static float linear_to_srgb_hist(float c) {
+  return (c <= 0.0031308f) ? (c * 12.92f)
+                           : (1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f);
+}
+
 struct HSV {
   float h, s, v;
 };
@@ -1801,6 +1806,17 @@ void RawEngine::setCgBlending(float val) {
 
 // --- Tone Curve ---
 
+void RawEngine::setToneCurveMode(const QString& mode) {
+  const QString normalized = mode == QLatin1String("parametric")
+                                 ? QStringLiteral("parametric")
+                                 : QStringLiteral("manual");
+  if (m_toneCurveMode == normalized) return;
+  m_toneCurveMode = normalized;
+  emit toneCurveModeChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
 void RawEngine::setToneCurveLuma(const QVariantList& pts) {
   m_toneCurveLuma = pts;
   emit toneCurveLumaChanged();
@@ -1824,6 +1840,108 @@ void RawEngine::setToneCurveBlue(const QVariantList& pts) {
   emit toneCurveBlueChanged();
   rebuildToneLut();
   emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveShadows(float val) {
+  if (qFuzzyCompare(m_toneCurveShadows, val)) return;
+  m_toneCurveShadows = val;
+  emit toneCurveShadowsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveDarks(float val) {
+  if (qFuzzyCompare(m_toneCurveDarks, val)) return;
+  m_toneCurveDarks = val;
+  emit toneCurveDarksChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveLights(float val) {
+  if (qFuzzyCompare(m_toneCurveLights, val)) return;
+  m_toneCurveLights = val;
+  emit toneCurveLightsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveHighlights(float val) {
+  if (qFuzzyCompare(m_toneCurveHighlights, val)) return;
+  m_toneCurveHighlights = val;
+  emit toneCurveHighlightsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveSplitShadows(float val) {
+  if (qFuzzyCompare(m_toneCurveSplitShadows, val)) return;
+  m_toneCurveSplitShadows = val;
+  emit toneCurveSplitShadowsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveSplitMid(float val) {
+  if (qFuzzyCompare(m_toneCurveSplitMid, val)) return;
+  m_toneCurveSplitMid = val;
+  emit toneCurveSplitMidChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveSplitHighlights(float val) {
+  if (qFuzzyCompare(m_toneCurveSplitHighlights, val)) return;
+  m_toneCurveSplitHighlights = val;
+  emit toneCurveSplitHighlightsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+static std::vector<float> evalParametricToneCurve(
+    int lutSize, float shadows, float darks, float lights, float highlights,
+    float splitShadows, float splitMid, float splitHighlights) {
+  std::vector<float> lut(lutSize);
+  const float s1 = splitShadows / 100.0f;
+  const float s2 = splitMid / 100.0f;
+  const float s3 = splitHighlights / 100.0f;
+  const float amounts[4] = {shadows / 100.0f, darks / 100.0f,
+                            lights / 100.0f, highlights / 100.0f};
+  const float bounds[5] = {0.0f, s1, s2, s3, 1.0f};
+  for (int i = 0; i < lutSize; ++i) {
+    const float x = float(i) / float(lutSize - 1);
+    float d = 0.0f;
+    for (int r = 0; r < 4; ++r) {
+      const float amt = amounts[r];
+      if (amt == 0.0f) continue;
+      const float a = bounds[r];
+      const float b = bounds[r + 1];
+      const float ctr = (a + b) * 0.5f;
+      const float half = (b - a) * 0.75f + 0.05f;
+      const float tt = std::clamp((x - ctr) / half, -1.0f, 1.0f);
+      const float win = 0.5f + 0.5f * std::cos(tt * 3.14159265358979f);
+      d += amt * 0.22f * win;
+    }
+    lut[i] = std::clamp(x + d * 4.0f * x * (1.0f - x), 0.0f, 1.0f);
+  }
+  for (int i = 1; i < lutSize; ++i) {
+    lut[i] = std::max(lut[i], lut[i - 1]);
+  }
+  return lut;
+}
+
+static std::vector<float> composeToneLut(const std::vector<float>& base,
+                                         const std::vector<float>& f) {
+  const int n = int(base.size());
+  std::vector<float> out(n);
+  for (int i = 0; i < n; ++i) {
+    const float t = std::clamp(base[i], 0.0f, 1.0f) * float(n - 1);
+    const int i0 = std::min(int(t), n - 1);
+    const int i1 = std::min(i0 + 1, n - 1);
+    const float fr = t - float(i0);
+    out[i] = f[i0] + (f[i1] - f[i0]) * fr;
+  }
+  return out;
 }
 
 // Crop & Geometry setters
@@ -1987,10 +2105,29 @@ void RawEngine::rebuildToneLut() {
   constexpr int kToneLutHeight =
       kToneLutRowsPerChannel * kToneLutChannels;  // 1024
 
-  auto lutL = evalMonotonicSpline(m_toneCurveLuma, kToneLutEntries);
-  auto lutR = evalMonotonicSpline(m_toneCurveRed, kToneLutEntries);
-  auto lutG = evalMonotonicSpline(m_toneCurveGreen, kToneLutEntries);
-  auto lutB = evalMonotonicSpline(m_toneCurveBlue, kToneLutEntries);
+  // The parametric region curve and the point curves are mutually exclusive:
+  // parametric mode applies only the region curve, manual mode only the point
+  // curves (parametric -> master -> RGB composition is used when both were
+  // allowed; kept here as a single builder for clarity).
+  const bool parametricMode = m_toneCurveMode == QLatin1String("parametric");
+  std::vector<float> lutL;
+  std::vector<float> lutR;
+  std::vector<float> lutG;
+  std::vector<float> lutB;
+  if (parametricMode) {
+    lutL = evalParametricToneCurve(
+        kToneLutEntries, m_toneCurveShadows, m_toneCurveDarks,
+        m_toneCurveLights, m_toneCurveHighlights, m_toneCurveSplitShadows,
+        m_toneCurveSplitMid, m_toneCurveSplitHighlights);
+    lutR = evalMonotonicSpline(QVariantList{}, kToneLutEntries);
+    lutG = lutR;
+    lutB = lutR;
+  } else {
+    lutL = evalMonotonicSpline(m_toneCurveLuma, kToneLutEntries);
+    lutR = evalMonotonicSpline(m_toneCurveRed, kToneLutEntries);
+    lutG = evalMonotonicSpline(m_toneCurveGreen, kToneLutEntries);
+    lutB = evalMonotonicSpline(m_toneCurveBlue, kToneLutEntries);
+  }
 
   // Check if any LUT deviates from identity after quantization to 16-bit.
   // This keeps toneCurveActive stable for near-identity curves while still
@@ -2027,6 +2164,11 @@ void RawEngine::rebuildToneLut() {
       line[x * 4 + 3] = 255;
     }
   }
+  m_toneLutL = std::make_shared<std::vector<float>>(lutL);
+  m_toneLutR = std::make_shared<std::vector<float>>(lutR);
+  m_toneLutG = std::make_shared<std::vector<float>>(lutG);
+  m_toneLutB = std::make_shared<std::vector<float>>(lutB);
+
   m_toneLutVersion++;
   if (auto* provider = ToneLutProvider::instance())
     provider->updateLut(m_toneLutImage);
@@ -2108,6 +2250,12 @@ void RawEngine::requestHistogramUpdate() {
   float temp = m_temperature / 100.0f;
   float tint = m_tint / 100.0f;
 
+  const bool toneCurveActive = m_toneCurveActive;
+  const auto toneLutL = m_toneLutL;
+  const auto toneLutR = m_toneLutR;
+  const auto toneLutG = m_toneLutG;
+  const auto toneLutB = m_toneLutB;
+
   photon::calibration::Params calibParams;
   calibParams.shadowsTint = m_calibShadowsTint;
   calibParams.redHue = m_calibRedHue;
@@ -2169,7 +2317,9 @@ void RawEngine::requestHistogramUpdate() {
                                          cgSS, cgSL, cgMH, cgMS, cgML, cgHH,
                                          cgHS, cgHL, cgBal, cgBlen, statsDetail,
                                          statsPin, statsComp, profileIndex,
-                                         bw_mix, calibParams]() {
+                                         bw_mix, calibParams, toneCurveActive,
+                                         toneLutL, toneLutR, toneLutG,
+                                         toneLutB]() {
     std::vector<uint32_t> r_bins(256, 0);
     std::vector<uint32_t> g_bins(256, 0);
     std::vector<uint32_t> b_bins(256, 0);
@@ -2371,9 +2521,40 @@ void RawEngine::requestHistogramUpdate() {
         b = std::max(0.0f, b);
       }
 
-      uint8_t r8 = static_cast<uint8_t>(std::clamp(r * 255.0f, 0.0f, 255.0f));
-      uint8_t g8 = static_cast<uint8_t>(std::clamp(g * 255.0f, 0.0f, 255.0f));
-      uint8_t b8 = static_cast<uint8_t>(std::clamp(b * 255.0f, 0.0f, 255.0f));
+      // Display-encoded values (matches the rendered preview), then the tone
+      // curve in the same domain as the GPU/CPU paths.
+      float sr = std::clamp(linear_to_srgb_hist(std::max(0.0f, r)), 0.0f, 1.0f);
+      float sg = std::clamp(linear_to_srgb_hist(std::max(0.0f, g)), 0.0f, 1.0f);
+      float sb = std::clamp(linear_to_srgb_hist(std::max(0.0f, b)), 0.0f, 1.0f);
+
+      if (toneCurveActive && toneLutL && toneLutR && toneLutG && toneLutB) {
+        constexpr int kEntries = 65536;
+        constexpr float kMaxIndex = float(kEntries - 1);
+        const float fMin = std::min({sr, sg, sb});
+        const float fMax = std::max({sr, sg, sb});
+        const int idxMin =
+            std::clamp(int(fMin * kMaxIndex + 0.5f), 0, kEntries - 1);
+        const int idxMax =
+            std::clamp(int(fMax * kMaxIndex + 0.5f), 0, kEntries - 1);
+        const float nMin = (*toneLutL)[idxMin];
+        const float nMax = (*toneLutL)[idxMax];
+        const float scale = (nMax - nMin) / (fMax - fMin + 0.00001f);
+        float cr = std::clamp((sr - fMin) * scale + nMin, 0.0f, 1.0f);
+        float cg = std::clamp((sg - fMin) * scale + nMin, 0.0f, 1.0f);
+        float cb = std::clamp((sb - fMin) * scale + nMin, 0.0f, 1.0f);
+        auto sampleLut = [](const std::vector<float>& lut, float v) {
+          const int idx =
+              std::clamp(int(v * kMaxIndex + 0.5f), 0, kEntries - 1);
+          return lut[idx];
+        };
+        sr = sampleLut(*toneLutR, cr);
+        sg = sampleLut(*toneLutG, cg);
+        sb = sampleLut(*toneLutB, cb);
+      }
+
+      uint8_t r8 = static_cast<uint8_t>(std::clamp(sr * 255.0f, 0.0f, 255.0f));
+      uint8_t g8 = static_cast<uint8_t>(std::clamp(sg * 255.0f, 0.0f, 255.0f));
+      uint8_t b8 = static_cast<uint8_t>(std::clamp(sb * 255.0f, 0.0f, 255.0f));
       uint8_t l8 =
           static_cast<uint8_t>(0.2126f * r8 + 0.7152f * g8 + 0.0722f * b8);
       r_bins[r8]++;
@@ -2998,10 +3179,18 @@ static QJsonObject stateToJson(const RawEngine* e) {
     }
     return arr;
   };
+  obj["toneCurveMode"] = e->toneCurveMode();
   obj["toneCurveLuma"] = pointsToArray(e->toneCurveLuma());
   obj["toneCurveRed"] = pointsToArray(e->toneCurveRed());
   obj["toneCurveGreen"] = pointsToArray(e->toneCurveGreen());
   obj["toneCurveBlue"] = pointsToArray(e->toneCurveBlue());
+  obj["toneCurveShadows"] = e->toneCurveShadows();
+  obj["toneCurveDarks"] = e->toneCurveDarks();
+  obj["toneCurveLights"] = e->toneCurveLights();
+  obj["toneCurveHighlights"] = e->toneCurveHighlights();
+  obj["toneCurveSplitShadows"] = e->toneCurveSplitShadows();
+  obj["toneCurveSplitMid"] = e->toneCurveSplitMid();
+  obj["toneCurveSplitHighlights"] = e->toneCurveSplitHighlights();
 
   // Crop & Geometry
   QJsonObject cropObj;
@@ -3190,6 +3379,8 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     }
     return pts;
   };
+  if (obj.contains("toneCurveMode"))
+    e->setToneCurveMode(obj["toneCurveMode"].toString());
   if (obj.contains("toneCurveLuma"))
     e->setToneCurveLuma(arrayToPoints(obj["toneCurveLuma"].toArray()));
   if (obj.contains("toneCurveRed"))
@@ -3198,6 +3389,20 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setToneCurveGreen(arrayToPoints(obj["toneCurveGreen"].toArray()));
   if (obj.contains("toneCurveBlue"))
     e->setToneCurveBlue(arrayToPoints(obj["toneCurveBlue"].toArray()));
+  if (obj.contains("toneCurveShadows"))
+    e->setToneCurveShadows(obj["toneCurveShadows"].toDouble());
+  if (obj.contains("toneCurveDarks"))
+    e->setToneCurveDarks(obj["toneCurveDarks"].toDouble());
+  if (obj.contains("toneCurveLights"))
+    e->setToneCurveLights(obj["toneCurveLights"].toDouble());
+  if (obj.contains("toneCurveHighlights"))
+    e->setToneCurveHighlights(obj["toneCurveHighlights"].toDouble());
+  if (obj.contains("toneCurveSplitShadows"))
+    e->setToneCurveSplitShadows(obj["toneCurveSplitShadows"].toDouble());
+  if (obj.contains("toneCurveSplitMid"))
+    e->setToneCurveSplitMid(obj["toneCurveSplitMid"].toDouble());
+  if (obj.contains("toneCurveSplitHighlights"))
+    e->setToneCurveSplitHighlights(obj["toneCurveSplitHighlights"].toDouble());
 
   // Crop & Geometry
   if (obj.contains("cropRect")) {
@@ -3313,7 +3518,15 @@ static void resetToDefaults(RawEngine* e) {
   p1["x"] = 1.0;
   p1["y"] = 1.0;
   defaultPts << p0 << p1;
+  e->setToneCurveMode("manual");
   e->setToneCurveLuma(defaultPts);
+  e->setToneCurveShadows(0.0f);
+  e->setToneCurveDarks(0.0f);
+  e->setToneCurveLights(0.0f);
+  e->setToneCurveHighlights(0.0f);
+  e->setToneCurveSplitShadows(25.0f);
+  e->setToneCurveSplitMid(50.0f);
+  e->setToneCurveSplitHighlights(75.0f);
   e->setToneCurveRed(defaultPts);
   e->setToneCurveGreen(defaultPts);
   e->setToneCurveBlue(defaultPts);
@@ -3614,10 +3827,18 @@ bool RawEngine::isDefault() const {
            qFuzzyCompare(p1["x"].toDouble(), 1.0) &&
            qFuzzyCompare(p1["y"].toDouble(), 1.0);
   };
+  if (m_toneCurveMode != QLatin1String("manual")) return false;
   if (!isIdentityCurve(m_toneCurveLuma)) return false;
   if (!isIdentityCurve(m_toneCurveRed)) return false;
   if (!isIdentityCurve(m_toneCurveGreen)) return false;
   if (!isIdentityCurve(m_toneCurveBlue)) return false;
+  if (!qFuzzyIsNull(m_toneCurveShadows)) return false;
+  if (!qFuzzyIsNull(m_toneCurveDarks)) return false;
+  if (!qFuzzyIsNull(m_toneCurveLights)) return false;
+  if (!qFuzzyIsNull(m_toneCurveHighlights)) return false;
+  if (!qFuzzyCompare(m_toneCurveSplitShadows, 25.0f)) return false;
+  if (!qFuzzyCompare(m_toneCurveSplitMid, 50.0f)) return false;
+  if (!qFuzzyCompare(m_toneCurveSplitHighlights, 75.0f)) return false;
 
   // Crop & geometry checks
   if (m_cropRect != QRectF(0, 0, 1, 1)) return false;

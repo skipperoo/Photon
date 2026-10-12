@@ -48,6 +48,23 @@ class RawViewport : public QQuickItem {
                  calibBlueHueChanged)
   Q_PROPERTY(float calibBlueSat READ calibBlueSat WRITE setCalibBlueSat NOTIFY
                  calibBlueSatChanged)
+  Q_PROPERTY(QString toneCurveMode READ toneCurveMode WRITE setToneCurveMode
+                 NOTIFY toneCurveModeChanged)
+  Q_PROPERTY(float toneCurveShadows READ toneCurveShadows WRITE
+                 setToneCurveShadows NOTIFY toneCurveShadowsChanged)
+  Q_PROPERTY(float toneCurveDarks READ toneCurveDarks WRITE setToneCurveDarks
+                 NOTIFY toneCurveDarksChanged)
+  Q_PROPERTY(float toneCurveLights READ toneCurveLights WRITE setToneCurveLights
+                 NOTIFY toneCurveLightsChanged)
+  Q_PROPERTY(float toneCurveHighlights READ toneCurveHighlights WRITE
+                 setToneCurveHighlights NOTIFY toneCurveHighlightsChanged)
+  Q_PROPERTY(float toneCurveSplitShadows READ toneCurveSplitShadows WRITE
+                 setToneCurveSplitShadows NOTIFY toneCurveSplitShadowsChanged)
+  Q_PROPERTY(float toneCurveSplitMid READ toneCurveSplitMid WRITE
+                 setToneCurveSplitMid NOTIFY toneCurveSplitMidChanged)
+  Q_PROPERTY(float toneCurveSplitHighlights READ toneCurveSplitHighlights WRITE
+                 setToneCurveSplitHighlights NOTIFY
+                     toneCurveSplitHighlightsChanged)
   Q_PROPERTY(QVector3D calibRowR READ calibRowR NOTIFY calibrationMatrixChanged)
   Q_PROPERTY(QVector3D calibRowG READ calibRowG NOTIFY calibrationMatrixChanged)
   Q_PROPERTY(QVector3D calibRowB READ calibRowB NOTIFY calibrationMatrixChanged)
@@ -308,6 +325,24 @@ class RawViewport : public QQuickItem {
   void setCalibBlueHue(float val);
   float calibBlueSat() const { return m_engine.calibBlueSat(); }
   void setCalibBlueSat(float val);
+  QString toneCurveMode() const { return m_engine.toneCurveMode(); }
+  void setToneCurveMode(const QString& mode);
+  float toneCurveShadows() const { return m_engine.toneCurveShadows(); }
+  void setToneCurveShadows(float val);
+  float toneCurveDarks() const { return m_engine.toneCurveDarks(); }
+  void setToneCurveDarks(float val);
+  float toneCurveLights() const { return m_engine.toneCurveLights(); }
+  void setToneCurveLights(float val);
+  float toneCurveHighlights() const { return m_engine.toneCurveHighlights(); }
+  void setToneCurveHighlights(float val);
+  float toneCurveSplitShadows() const { return m_engine.toneCurveSplitShadows(); }
+  void setToneCurveSplitShadows(float val);
+  float toneCurveSplitMid() const { return m_engine.toneCurveSplitMid(); }
+  void setToneCurveSplitMid(float val);
+  float toneCurveSplitHighlights() const {
+    return m_engine.toneCurveSplitHighlights();
+  }
+  void setToneCurveSplitHighlights(float val);
   QVector3D calibRowR() const { return m_engine.calibRowR(); }
   QVector3D calibRowG() const { return m_engine.calibRowG(); }
   QVector3D calibRowB() const { return m_engine.calibRowB(); }
@@ -585,6 +620,14 @@ class RawViewport : public QQuickItem {
   void calibBlueHueChanged();
   void calibBlueSatChanged();
   void calibrationMatrixChanged();
+  void toneCurveModeChanged();
+  void toneCurveShadowsChanged();
+  void toneCurveDarksChanged();
+  void toneCurveLightsChanged();
+  void toneCurveHighlightsChanged();
+  void toneCurveSplitShadowsChanged();
+  void toneCurveSplitMidChanged();
+  void toneCurveSplitHighlightsChanged();
   void profileChanged();
   void bwMixRedChanged();
   void bwMixOrangeChanged();

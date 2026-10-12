@@ -206,14 +206,31 @@ class RawEngine : public QObject {
                  cgBlendingChanged)
 
   // Tone Curve Properties (control points as [{x,y}, ...])
+  Q_PROPERTY(QString toneCurveMode READ toneCurveMode WRITE setToneCurveMode
+                 NOTIFY toneCurveModeChanged)
   Q_PROPERTY(QVariantList toneCurveLuma READ toneCurveLuma WRITE
                  setToneCurveLuma NOTIFY toneCurveLumaChanged)
   Q_PROPERTY(QVariantList toneCurveRed READ toneCurveRed WRITE setToneCurveRed
                  NOTIFY toneCurveRedChanged)
   Q_PROPERTY(QVariantList toneCurveGreen READ toneCurveGreen WRITE
                  setToneCurveGreen NOTIFY toneCurveGreenChanged)
-  Q_PROPERTY(QVariantList toneCurveBlue READ toneCurveBlue WRITE
-                 setToneCurveBlue NOTIFY toneCurveBlueChanged)
+  Q_PROPERTY(QVariantList toneCurveBlue READ toneCurveBlue WRITE setToneCurveBlue
+                 NOTIFY toneCurveBlueChanged)
+  Q_PROPERTY(float toneCurveShadows READ toneCurveShadows WRITE
+                 setToneCurveShadows NOTIFY toneCurveShadowsChanged)
+  Q_PROPERTY(float toneCurveDarks READ toneCurveDarks WRITE setToneCurveDarks
+                 NOTIFY toneCurveDarksChanged)
+  Q_PROPERTY(float toneCurveLights READ toneCurveLights WRITE setToneCurveLights
+                 NOTIFY toneCurveLightsChanged)
+  Q_PROPERTY(float toneCurveHighlights READ toneCurveHighlights WRITE
+                 setToneCurveHighlights NOTIFY toneCurveHighlightsChanged)
+  Q_PROPERTY(float toneCurveSplitShadows READ toneCurveSplitShadows WRITE
+                 setToneCurveSplitShadows NOTIFY toneCurveSplitShadowsChanged)
+  Q_PROPERTY(float toneCurveSplitMid READ toneCurveSplitMid WRITE
+                 setToneCurveSplitMid NOTIFY toneCurveSplitMidChanged)
+  Q_PROPERTY(float toneCurveSplitHighlights READ toneCurveSplitHighlights WRITE
+                 setToneCurveSplitHighlights NOTIFY
+                     toneCurveSplitHighlightsChanged)
   Q_PROPERTY(int toneLutVersion READ toneLutVersion NOTIFY toneLutVersionChanged)
   Q_PROPERTY(bool toneCurveActive READ toneCurveActive NOTIFY toneCurveActiveChanged)
 
@@ -498,6 +515,9 @@ class RawEngine : public QObject {
   void setCgBlending(float val);
 
   // Tone Curve
+  QString toneCurveMode() const { return m_toneCurveMode; }
+  void setToneCurveMode(const QString& mode);
+
   QVariantList toneCurveLuma() const { return m_toneCurveLuma; }
   void setToneCurveLuma(const QVariantList& pts);
   QVariantList toneCurveRed() const { return m_toneCurveRed; }
@@ -506,6 +526,21 @@ class RawEngine : public QObject {
   void setToneCurveGreen(const QVariantList& pts);
   QVariantList toneCurveBlue() const { return m_toneCurveBlue; }
   void setToneCurveBlue(const QVariantList& pts);
+
+  float toneCurveShadows() const { return m_toneCurveShadows; }
+  void setToneCurveShadows(float val);
+  float toneCurveDarks() const { return m_toneCurveDarks; }
+  void setToneCurveDarks(float val);
+  float toneCurveLights() const { return m_toneCurveLights; }
+  void setToneCurveLights(float val);
+  float toneCurveHighlights() const { return m_toneCurveHighlights; }
+  void setToneCurveHighlights(float val);
+  float toneCurveSplitShadows() const { return m_toneCurveSplitShadows; }
+  void setToneCurveSplitShadows(float val);
+  float toneCurveSplitMid() const { return m_toneCurveSplitMid; }
+  void setToneCurveSplitMid(float val);
+  float toneCurveSplitHighlights() const { return m_toneCurveSplitHighlights; }
+  void setToneCurveSplitHighlights(float val);
   int toneLutVersion() const { return m_toneLutVersion; }
   QImage toneLutImage() const { return m_toneLutImage; }
   bool toneCurveActive() const { return m_toneCurveActive; }
@@ -681,10 +716,18 @@ class RawEngine : public QObject {
   void cgHighlightsLuminanceChanged();
   void cgBalanceChanged();
   void cgBlendingChanged();
+  void toneCurveModeChanged();
   void toneCurveLumaChanged();
   void toneCurveRedChanged();
   void toneCurveGreenChanged();
   void toneCurveBlueChanged();
+  void toneCurveShadowsChanged();
+  void toneCurveDarksChanged();
+  void toneCurveLightsChanged();
+  void toneCurveHighlightsChanged();
+  void toneCurveSplitShadowsChanged();
+  void toneCurveSplitMidChanged();
+  void toneCurveSplitHighlightsChanged();
   void toneLutVersionChanged();
   void toneCurveActiveChanged();
   void histogramChanged();
@@ -844,10 +887,22 @@ class RawEngine : public QObject {
   float m_cgBlending = 50.0f;
 
   // Tone Curve data
+  QString m_toneCurveMode = QStringLiteral("manual");
   QVariantList m_toneCurveLuma;
   QVariantList m_toneCurveRed;
   QVariantList m_toneCurveGreen;
   QVariantList m_toneCurveBlue;
+  float m_toneCurveShadows = 0.0f;
+  float m_toneCurveDarks = 0.0f;
+  float m_toneCurveLights = 0.0f;
+  float m_toneCurveHighlights = 0.0f;
+  float m_toneCurveSplitShadows = 25.0f;
+  float m_toneCurveSplitMid = 50.0f;
+  float m_toneCurveSplitHighlights = 75.0f;
+  std::shared_ptr<std::vector<float>> m_toneLutL;
+  std::shared_ptr<std::vector<float>> m_toneLutR;
+  std::shared_ptr<std::vector<float>> m_toneLutG;
+  std::shared_ptr<std::vector<float>> m_toneLutB;
   QImage m_toneLutImage;
   int m_toneLutVersion = 0;
   bool m_toneCurveActive = false;

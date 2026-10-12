@@ -726,6 +726,52 @@ static Vec3fCpp apply_photon001_tone_ranges_cpp(
   return out;
 }
 
+static std::vector<float> evalParametricToneCurveCpp(
+    int lutSize, float shadows, float darks, float lights, float highlights,
+    float splitShadows, float splitMid, float splitHighlights) {
+  std::vector<float> lut(lutSize);
+  const float s1 = splitShadows / 100.0f;
+  const float s2 = splitMid / 100.0f;
+  const float s3 = splitHighlights / 100.0f;
+  const float amounts[4] = {shadows / 100.0f, darks / 100.0f,
+                            lights / 100.0f, highlights / 100.0f};
+  const float bounds[5] = {0.0f, s1, s2, s3, 1.0f};
+  for (int i = 0; i < lutSize; ++i) {
+    const float x = float(i) / float(lutSize - 1);
+    float d = 0.0f;
+    for (int r = 0; r < 4; ++r) {
+      const float amt = amounts[r];
+      if (amt == 0.0f) continue;
+      const float a = bounds[r];
+      const float b = bounds[r + 1];
+      const float ctr = (a + b) * 0.5f;
+      const float half = (b - a) * 0.75f + 0.05f;
+      const float tt = std::clamp((x - ctr) / half, -1.0f, 1.0f);
+      const float win = 0.5f + 0.5f * std::cos(tt * 3.14159265358979f);
+      d += amt * 0.22f * win;
+    }
+    lut[i] = std::clamp(x + d * 4.0f * x * (1.0f - x), 0.0f, 1.0f);
+  }
+  for (int i = 1; i < lutSize; ++i) {
+    lut[i] = std::max(lut[i], lut[i - 1]);
+  }
+  return lut;
+}
+
+static std::vector<float> composeToneLutCpp(const std::vector<float>& base,
+                                            const std::vector<float>& f) {
+  const int n = int(base.size());
+  std::vector<float> out(n);
+  for (int i = 0; i < n; ++i) {
+    const float t = std::clamp(base[i], 0.0f, 1.0f) * float(n - 1);
+    const int i0 = std::min(int(t), n - 1);
+    const int i1 = std::min(i0 + 1, n - 1);
+    const float fr = t - float(i0);
+    out[i] = f[i0] + (f[i1] - f[i0]) * fr;
+  }
+  return out;
+}
+
 static std::vector<float> evalMonotonicSplineLut(const QVariantList& pts,
                                                  int lutSize) {
   std::vector<float> lut(lutSize);
@@ -854,6 +900,19 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float temp = obj["temperature"].toDouble() / 100.0f;
   float tint = obj["tint"].toDouble() / 100.0f;
 
+  const QString tcMode =
+      obj.contains("toneCurveMode")
+          ? obj["toneCurveMode"].toString()
+          : QStringLiteral("manual");
+  const float tcShadows = obj["toneCurveShadows"].toDouble(0.0);
+  const float tcDarks = obj["toneCurveDarks"].toDouble(0.0);
+  const float tcLights = obj["toneCurveLights"].toDouble(0.0);
+  const float tcHighlights = obj["toneCurveHighlights"].toDouble(0.0);
+  const float tcSplitShadows = obj["toneCurveSplitShadows"].toDouble(25.0);
+  const float tcSplitMid = obj["toneCurveSplitMid"].toDouble(50.0);
+  const float tcSplitHighlights =
+      obj["toneCurveSplitHighlights"].toDouble(75.0);
+
   photon::calibration::Params calib;
   calib.shadowsTint = obj["calibShadowsTint"].toDouble();
   calib.redHue = obj["calibRedHue"].toDouble();
@@ -977,11 +1036,24 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
 
   constexpr int kToneLutEntries = 65536;
   constexpr float kToneLutMaxIndex = float(kToneLutEntries - 1);
-  std::vector<float> lutLuma = evalMonotonicSplineLut(tcLuma, kToneLutEntries);
-  std::vector<float> lutRed = evalMonotonicSplineLut(tcRed, kToneLutEntries);
-  std::vector<float> lutGreen =
-      evalMonotonicSplineLut(tcGreen, kToneLutEntries);
-  std::vector<float> lutBlue = evalMonotonicSplineLut(tcBlue, kToneLutEntries);
+  // Parametric and point curves are mutually exclusive (see RawEngine).
+  std::vector<float> lutLuma;
+  std::vector<float> lutRed;
+  std::vector<float> lutGreen;
+  std::vector<float> lutBlue;
+  if (tcMode == QLatin1String("parametric")) {
+    lutLuma = evalParametricToneCurveCpp(kToneLutEntries, tcShadows, tcDarks,
+                                         tcLights, tcHighlights, tcSplitShadows,
+                                         tcSplitMid, tcSplitHighlights);
+    lutRed = evalMonotonicSplineLut(QVariantList{}, kToneLutEntries);
+    lutGreen = lutRed;
+    lutBlue = lutRed;
+  } else {
+    lutLuma = evalMonotonicSplineLut(tcLuma, kToneLutEntries);
+    lutRed = evalMonotonicSplineLut(tcRed, kToneLutEntries);
+    lutGreen = evalMonotonicSplineLut(tcGreen, kToneLutEntries);
+    lutBlue = evalMonotonicSplineLut(tcBlue, kToneLutEntries);
+  }
   stage("tone curves");
 
   // Check if tone curve is identity (skip application if so), using 16-bit
@@ -1219,49 +1291,6 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         agx_tonemap(r, g, b);
       }
 
-      // 8.5. Tone Curve LUT
-      if (toneCurveActive) {
-        float cr = std::clamp(r, 0.0f, 1.0f);
-        float cg = std::clamp(g, 0.0f, 1.0f);
-        float cb = std::clamp(b, 0.0f, 1.0f);
-
-        // Reference-style luma curve: remap min/max through the same curve,
-        // then reproject channels between those new bounds.
-        float fMin = std::min({cr, cg, cb});
-        float fMax = std::max({cr, cg, cb});
-        int idxMin = std::clamp(int(fMin * kToneLutMaxIndex + 0.5f), 0,
-                                kToneLutEntries - 1);
-        int idxMax = std::clamp(int(fMax * kToneLutMaxIndex + 0.5f), 0,
-                                kToneLutEntries - 1);
-        float nMin = lutLuma[idxMin];
-        float nMax = lutLuma[idxMax];
-        float scale = (nMax - nMin) / (fMax - fMin + 0.00001f);
-        cr = (cr - fMin) * scale + nMin;
-        cg = (cg - fMin) * scale + nMin;
-        cb = (cb - fMin) * scale + nMin;
-
-        // Apply RGB channel curves after luma remap.
-        int idxR = std::clamp(int(std::clamp(cr, 0.0f, 1.0f) * kToneLutMaxIndex +
-                                  0.5f),
-                              0, kToneLutEntries - 1);
-        int idxG = std::clamp(int(std::clamp(cg, 0.0f, 1.0f) * kToneLutMaxIndex +
-                                  0.5f),
-                              0, kToneLutEntries - 1);
-        int idxB = std::clamp(int(std::clamp(cb, 0.0f, 1.0f) * kToneLutMaxIndex +
-                                  0.5f),
-                              0, kToneLutEntries - 1);
-        cr = lutRed[idxR];
-        cg = lutGreen[idxG];
-        cb = lutBlue[idxB];
-
-        // Blend: bypass for values > 1.0 in the unclamped working color.
-        float maxC = std::max({r, g, b});
-        float blendClip = (maxC > 1.001f) ? 1.0f : 0.0f;
-        r = mix(cr, r, blendClip);
-        g = mix(cg, g, blendClip);
-        b = mix(cb, b, blendClip);
-      }
-
       // 8.7. Black & White conversion with per-band luminance mix
       if (bw_enabled) {
         HSV bw_hsv = rgb_to_hsv(std::max(0.0f, r), std::max(0.0f, g),
@@ -1293,7 +1322,49 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       g = linear_to_srgb_f(g);
       b = linear_to_srgb_f(b);
 
-      // 10. Dithering
+      // 10. Tone Curve LUT (display-encoded domain, after sRGB encode)
+      if (toneCurveActive) {
+        float cr = std::clamp(r, 0.0f, 1.0f);
+        float cg = std::clamp(g, 0.0f, 1.0f);
+        float cb = std::clamp(b, 0.0f, 1.0f);
+
+        // Luma curve: remap the pixel's channel min/max through the curve,
+        // then reproject the channels between those bounds.
+        float fMin = std::min({cr, cg, cb});
+        float fMax = std::max({cr, cg, cb});
+        int idxMin = std::clamp(int(fMin * kToneLutMaxIndex + 0.5f), 0,
+                                kToneLutEntries - 1);
+        int idxMax = std::clamp(int(fMax * kToneLutMaxIndex + 0.5f), 0,
+                                kToneLutEntries - 1);
+        float nMin = lutLuma[idxMin];
+        float nMax = lutLuma[idxMax];
+        float scale = (nMax - nMin) / (fMax - fMin + 0.00001f);
+        cr = (cr - fMin) * scale + nMin;
+        cg = (cg - fMin) * scale + nMin;
+        cb = (cb - fMin) * scale + nMin;
+
+        // Apply RGB channel curves after the luma remap.
+        int idxR = std::clamp(int(std::clamp(cr, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
+        int idxG = std::clamp(int(std::clamp(cg, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
+        int idxB = std::clamp(int(std::clamp(cb, 0.0f, 1.0f) * kToneLutMaxIndex +
+                                  0.5f),
+                              0, kToneLutEntries - 1);
+        cr = lutRed[idxR];
+        cg = lutGreen[idxG];
+        cb = lutBlue[idxB];
+
+        // Bypass for values above 1.0 (HDR sources).
+        float blendClip = (std::max({r, g, b}) > 1.001f) ? 1.0f : 0.0f;
+        r = mix(cr, r, blendClip);
+        g = mix(cg, g, blendClip);
+        b = mix(cb, b, blendClip);
+      }
+
+      // 11. Dithering
       float d = dither_noise(x, y) / 255.0f;
       r += d;
       g += d;

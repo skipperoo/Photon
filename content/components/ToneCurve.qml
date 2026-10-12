@@ -9,6 +9,8 @@ Item {
     property var viewport
     property int activeChannel: 0 // 0=Luma, 1=Red, 2=Green, 3=Blue
 
+    readonly property bool parametricMode: root.viewport
+                                           && root.viewport.toneCurveMode === "parametric"
     readonly property var channelNames: ["L", "R", "G", "B"]
     readonly property var channelColors: ["#ffffff", "#ef4444", "#22c55e", "#3b82f6"]
     readonly property var channelKeys: ["toneCurveLuma", "toneCurveRed", "toneCurveGreen", "toneCurveBlue"]
@@ -43,7 +45,38 @@ Item {
 
     implicitHeight: channelTabs.height + canvas.height + 8
 
+    // Parametric region curve (matches RawEngine/ImageDeveloper): cosine-windowed
+    // amount per region, endpoint-pinned, monotone. Only active in parametric
+    // mode; the stored values are stashed while the point curve is used.
+    function evalParametric(x) {
+        if (!root.viewport || root.viewport.toneCurveMode !== "parametric") return x;
+        var s1 = root.viewport.toneCurveSplitShadows / 100.0;
+        var s2 = root.viewport.toneCurveSplitMid / 100.0;
+        var s3 = root.viewport.toneCurveSplitHighlights / 100.0;
+        var amounts = [root.viewport.toneCurveShadows / 100.0,
+                       root.viewport.toneCurveDarks / 100.0,
+                       root.viewport.toneCurveLights / 100.0,
+                       root.viewport.toneCurveHighlights / 100.0];
+        var bounds = [0.0, s1, s2, s3, 1.0];
+        var d = 0.0;
+        for (var r = 0; r < 4; r++) {
+            var amt = amounts[r];
+            if (amt === 0) continue;
+            var a = bounds[r];
+            var b = bounds[r + 1];
+            var ctr = (a + b) * 0.5;
+            var half = (b - a) * 0.75 + 0.05;
+            var tt = Math.max(-1, Math.min(1, (x - ctr) / half));
+            var win = 0.5 + 0.5 * Math.cos(tt * Math.PI);
+            d += amt * 0.22 * win;
+        }
+        return Math.max(0, Math.min(1, x + d * 4 * x * (1 - x)));
+    }
+
     function getPoints() {
+        // Parametric mode: the point curve is inactive (its data stays stored
+        // in the edit stack); show the identity curve.
+        if (root.parametricMode) return [{x: 0, y: 0}, {x: 1, y: 1}];
         // During drag, return pending points for smooth canvas rendering
         if (root._pendingPoints !== null) return root._pendingPoints;
         if (!root.viewport) return [{x: 0, y: 0}, {x: 1, y: 1}];
@@ -77,6 +110,8 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         spacing: 4
+        visible: !root.parametricMode
+        height: visible ? implicitHeight : 0
 
         Repeater {
             model: root.channelNames
@@ -150,20 +185,35 @@ Item {
             // Evaluate spline at many points for smooth curve
             var curvePoints = evalSpline(pts, 200);
 
+            // Compose the parametric region curve before the point curve so
+            // the drawn line matches the rendered result.
+            var composed = [];
+            var composedMax = 0.0;
+            for (var s = 0; s < curvePoints.length; s++) {
+                var xx = curvePoints[s].x;
+                var p = evalParametric(xx);
+                var idx = Math.max(0, Math.min(curvePoints.length - 1,
+                                               Math.round(p * (curvePoints.length - 1))));
+                var yy = Math.max(composedMax, curvePoints[idx].y);
+                composedMax = yy;
+                composed.push({x: xx, y: yy});
+            }
+
             // Draw curve
             var color = root.channelColors[root.activeChannel];
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             ctx.beginPath();
-            for (var i = 0; i < curvePoints.length; i++) {
-                var px = curvePoints[i].x * w;
-                var py = (1.0 - curvePoints[i].y) * h;
+            for (var i = 0; i < composed.length; i++) {
+                var px = composed[i].x * w;
+                var py = (1.0 - composed[i].y) * h;
                 if (i === 0) ctx.moveTo(px, py);
                 else ctx.lineTo(px, py);
             }
             ctx.stroke();
 
-            // Draw control points
+            // Draw control points (manual mode only)
+            if (root.parametricMode) return;
             for (var j = 0; j < pts.length; j++) {
                 var cx = pts[j].x * w;
                 var cy = (1.0 - pts[j].y) * h;
@@ -247,6 +297,7 @@ Item {
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton
             preventStealing: true
+            enabled: !root.parametricMode
 
             onPressed: function(mouse) {
                 mouse.accepted = true;
@@ -295,20 +346,18 @@ Item {
                 var h = canvas.height;
                 var my = Math.max(0, Math.min(1, 1.0 - mouse.y / h));
 
-                var isEndpoint = (canvas.dragIndex === 0 || canvas.dragIndex === pts.length - 1);
+                // Points move on both axes: interior points clamp between their
+                // neighbours, the endpoints can move inward (black/white point).
                 var newPts = [];
                 for (var i = 0; i < pts.length; i++) {
                     if (i === canvas.dragIndex) {
-                        if (isEndpoint) {
-                            // Endpoints: only vertical movement
-                            newPts.push({x: pts[i].x, y: my});
-                        } else {
-                            // Interior: constrained between neighbors
-                            var minX = pts[i-1].x + 0.005;
-                            var maxX = pts[i+1].x - 0.005;
-                            var mx = Math.max(minX, Math.min(maxX, mouse.x / w));
-                            newPts.push({x: mx, y: my});
-                        }
+                        var lo = (i === 0) ? 0.0 : pts[i-1].x + 0.01;
+                        var hi = (i + 1 >= pts.length) ? 1.0 : pts[i+1].x - 0.01;
+                        var nx = Math.max(0.0, Math.min(1.0, mouse.x / w));
+                        if (i === 0) nx = Math.min(nx, hi);
+                        else if (i + 1 >= pts.length) nx = Math.max(nx, lo);
+                        else nx = Math.max(lo, Math.min(hi, nx));
+                        newPts.push({x: nx, y: my});
                     } else {
                         newPts.push({x: pts[i].x, y: pts[i].y});
                     }
@@ -364,6 +413,14 @@ Item {
         function onToneCurveRedChanged() { if (root.activeChannel === 1) canvas.requestPaint(); }
         function onToneCurveGreenChanged() { if (root.activeChannel === 2) canvas.requestPaint(); }
         function onToneCurveBlueChanged() { if (root.activeChannel === 3) canvas.requestPaint(); }
+        function onToneCurveModeChanged() { canvas.requestPaint(); }
+        function onToneCurveShadowsChanged() { canvas.requestPaint(); }
+        function onToneCurveDarksChanged() { canvas.requestPaint(); }
+        function onToneCurveLightsChanged() { canvas.requestPaint(); }
+        function onToneCurveHighlightsChanged() { canvas.requestPaint(); }
+        function onToneCurveSplitShadowsChanged() { canvas.requestPaint(); }
+        function onToneCurveSplitMidChanged() { canvas.requestPaint(); }
+        function onToneCurveSplitHighlightsChanged() { canvas.requestPaint(); }
     }
 
     onActiveChannelChanged: canvas.requestPaint()

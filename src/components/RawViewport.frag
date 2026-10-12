@@ -917,30 +917,6 @@ void main()
         color = agx_tonemap(color);
     }
 
-    // 8. Tone Curve LUT (applied in linear, pre-sRGB)
-    // 256×1024 texture: 4 stacked 256×256 planes (Luma, R, G, B),
-    // each encoding 65536 entries packed as 16-bit RG bytes.
-    if (ubuf.toneCurveActive > 0.5) {
-        vec3 c = clamp(color, 0.0, 1.0);
-
-        // Reference-style luma curve: remap channel min/max through the same
-        // curve, then linearly reproject channel values between those bounds.
-        float fMin = min(min(c.r, c.g), c.b);
-        float fMax = max(max(c.r, c.g), c.b);
-        float nMin = sample_tone_lut_channel(fMin, 0);
-        float nMax = sample_tone_lut_channel(fMax, 0);
-        float scale = (nMax - nMin) / (fMax - fMin + 0.00001);
-        c = (c - vec3(fMin)) * scale + vec3(nMin);
-
-        // Apply RGB channel curves after luma remap.
-        c.r = sample_tone_lut_channel(clamp(c.r, 0.0, 1.0), 1);
-        c.g = sample_tone_lut_channel(clamp(c.g, 0.0, 1.0), 2);
-        c.b = sample_tone_lut_channel(clamp(c.b, 0.0, 1.0), 3);
-
-        // Keep highlight data above 1.0 from the unclamped working color.
-        color = mix(c, color, step(1.001, max(color.r, max(color.g, color.b))));
-    }
-
     // 8.5. Black & White conversion with per-band luminance mix
     if (ubuf.profileIndex > 1.5) {
         vec3 bwHsv = rgb_to_hsv(max(color, 0.0));
@@ -959,7 +935,31 @@ void main()
     color = max(color, 0.0);
     vec3 final_rgb = linear_to_srgb(color);
 
-    // 8. Creative: Film Grain
+    // 8. Tone Curve LUT (display-encoded domain, after sRGB encode)
+    // 256×1024 texture: 4 stacked 256×256 planes (Luma, R, G, B),
+    // each encoding 65536 entries packed as 16-bit RG bytes.
+    if (ubuf.toneCurveActive > 0.5) {
+        vec3 c = clamp(final_rgb, 0.0, 1.0);
+
+        // Luma curve: remap the pixel's channel min/max through the curve,
+        // then linearly reproject the channels between those bounds.
+        float fMin = min(min(c.r, c.g), c.b);
+        float fMax = max(max(c.r, c.g), c.b);
+        float nMin = sample_tone_lut_channel(fMin, 0);
+        float nMax = sample_tone_lut_channel(fMax, 0);
+        float scale = (nMax - nMin) / (fMax - fMin + 0.00001);
+        c = (c - vec3(fMin)) * scale + vec3(nMin);
+
+        // Apply RGB channel curves after the luma remap.
+        c.r = sample_tone_lut_channel(clamp(c.r, 0.0, 1.0), 1);
+        c.g = sample_tone_lut_channel(clamp(c.g, 0.0, 1.0), 2);
+        c.b = sample_tone_lut_channel(clamp(c.b, 0.0, 1.0), 3);
+
+        // Keep values above 1.0 (HDR sources) unclamped.
+        final_rgb = mix(c, final_rgb, step(1.001, max(final_rgb.r, max(final_rgb.g, final_rgb.b))));
+    }
+
+    // 9. Creative: Film Grain
     if (ubuf.grainAmount > 0.0) {
         vec2 grainCoord = imgCoord * ubuf.imageRect.zw; 
         float grain_frequency = (1.0 / max(ubuf.grainSize, 0.1));

@@ -154,13 +154,30 @@ T.Dialog {
             "label": "Tone Curve",
             "items": [
                 {
+                    "key": "toneCurveMode",
+                    "label": "Curve Mode"
+                },
+                {
                     "key": "toneCurve",
-                    "label": "Tone Curve",
+                    "label": "Point Curves",
                     "keys": [
                         "toneCurveLuma",
                         "toneCurveRed",
                         "toneCurveGreen",
                         "toneCurveBlue"
+                    ]
+                },
+                {
+                    "key": "toneCurveParametric",
+                    "label": "Parametric Curve",
+                    "keys": [
+                        "toneCurveShadows",
+                        "toneCurveDarks",
+                        "toneCurveLights",
+                        "toneCurveHighlights",
+                        "toneCurveSplitShadows",
+                        "toneCurveSplitMid",
+                        "toneCurveSplitHighlights"
                     ]
                 }
             ]

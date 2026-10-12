@@ -255,10 +255,61 @@ Control {
                         Layout.fillWidth: true
                         spacing: 8
 
+                        property bool parametricMode: root.viewport ? root.viewport.toneCurveMode === "parametric" : false
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 20
+                            Layout.alignment: Qt.AlignHCenter
+                            Repeater {
+                                model: [
+                                    { "label": "Points", "value": "manual" },
+                                    { "label": "Parametric", "value": "parametric" }
+                                ]
+                                Text {
+                                    required property var modelData
+                                    text: modelData.label
+                                    font: Theme.fontSmall
+                                    color: (root.viewport ? root.viewport.toneCurveMode : "manual") === modelData.value ? Theme.foreground : Theme.mutedFg
+                                    opacity: (root.viewport ? root.viewport.toneCurveMode : "manual") === modelData.value ? 1.0 : 0.6
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: {
+                                            if (root.viewport) {
+                                                root.viewport.toneCurveMode = modelData.value
+                                                root.viewport.commitEdit()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         ToneCurve {
                             Layout.fillWidth: true
                             viewport: root.viewport
                             onEditFinished: if (root.viewport) root.viewport.commitEdit()
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 16
+                            visible: parent.parametricMode
+
+                            Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                            Text { text: "Parametric"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                            ControlGroup { title: "Highlights"; value: root.viewport ? root.viewport.toneCurveHighlights : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.toneCurveHighlights = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                            ControlGroup { title: "Lights"; value: root.viewport ? root.viewport.toneCurveLights : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.toneCurveLights = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                            ControlGroup { title: "Darks"; value: root.viewport ? root.viewport.toneCurveDarks : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.toneCurveDarks = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                            ControlGroup { title: "Shadows"; value: root.viewport ? root.viewport.toneCurveShadows : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.toneCurveShadows = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+
+                            Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                            Text { text: "Splits"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                            ControlGroup { title: "Shadows Split"; value: root.viewport ? root.viewport.toneCurveSplitShadows : 25.0; from: 10; to: 70; defaultValue: 25.0; onMoved: (v) => { if(root.viewport) root.viewport.toneCurveSplitShadows = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                            ControlGroup { title: "Mid Split"; value: root.viewport ? root.viewport.toneCurveSplitMid : 50.0; from: 20; to: 80; defaultValue: 50.0; onMoved: (v) => { if(root.viewport) root.viewport.toneCurveSplitMid = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                            ControlGroup { title: "Highlights Split"; value: root.viewport ? root.viewport.toneCurveSplitHighlights : 75.0; from: 30; to: 90; defaultValue: 75.0; onMoved: (v) => { if(root.viewport) root.viewport.toneCurveSplitHighlights = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         }
                     }
                 }

@@ -94,6 +94,41 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit tintChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::toneCurveModeChanged, this, [this]() {
+    emit toneCurveModeChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveShadowsChanged, this,
+          [this]() {
+            emit toneCurveShadowsChanged();
+            update();
+          });
+  connect(&m_engine, &RawEngine::toneCurveDarksChanged, this, [this]() {
+    emit toneCurveDarksChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveLightsChanged, this, [this]() {
+    emit toneCurveLightsChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveHighlightsChanged, this, [this]() {
+    emit toneCurveHighlightsChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveSplitShadowsChanged, this,
+          [this]() {
+            emit toneCurveSplitShadowsChanged();
+            update();
+          });
+  connect(&m_engine, &RawEngine::toneCurveSplitMidChanged, this, [this]() {
+    emit toneCurveSplitMidChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveSplitHighlightsChanged, this,
+          [this]() {
+            emit toneCurveSplitHighlightsChanged();
+            update();
+          });
   connect(&m_engine, &RawEngine::calibShadowsTintChanged, this, [this]() {
     emit calibShadowsTintChanged();
     update();
@@ -573,6 +608,62 @@ void RawViewport::setTint(float val) {
   if (qFuzzyCompare(m_engine.tint(), val)) return;
   m_engine.setTint(val);
   emit tintChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveMode(const QString& mode) {
+  if (m_engine.toneCurveMode() == mode) return;
+  m_engine.setToneCurveMode(mode);
+  emit toneCurveModeChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveShadows(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveShadows(), val)) return;
+  m_engine.setToneCurveShadows(val);
+  emit toneCurveShadowsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveDarks(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveDarks(), val)) return;
+  m_engine.setToneCurveDarks(val);
+  emit toneCurveDarksChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveLights(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveLights(), val)) return;
+  m_engine.setToneCurveLights(val);
+  emit toneCurveLightsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveHighlights(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveHighlights(), val)) return;
+  m_engine.setToneCurveHighlights(val);
+  emit toneCurveHighlightsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveSplitShadows(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveSplitShadows(), val)) return;
+  m_engine.setToneCurveSplitShadows(val);
+  emit toneCurveSplitShadowsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveSplitMid(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveSplitMid(), val)) return;
+  m_engine.setToneCurveSplitMid(val);
+  emit toneCurveSplitMidChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveSplitHighlights(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveSplitHighlights(), val)) return;
+  m_engine.setToneCurveSplitHighlights(val);
+  emit toneCurveSplitHighlightsChanged();
   m_engine.requestHistogramUpdate();
 }
 

@@ -24,6 +24,8 @@ class TestRawEngine : public QObject {
   void testPhoton001MultipassUsesFloatTargets();
   void testPhoton001ToneRangesReferenceBehavior();
   void testCalibrationReferenceBehavior();
+  void testParametricToneCurveBehavior();
+  void testToneCurveModeStash();
   void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
   void testSwitchingSourceResetsExposureAndContrast();
@@ -505,6 +507,147 @@ void TestRawEngine::testCalibrationReferenceBehavior() {
 }
 
 
+void TestRawEngine::testParametricToneCurveBehavior() {
+  constexpr int w = 64;
+  constexpr int h = 4;
+
+  auto linearToSrgb16 = [](float linear) {
+    const float s = linear <= 0.0031308f
+                        ? linear * 12.92f
+                        : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+    return ushort(std::clamp(s, 0.0f, 1.0f) * 65535.0f + 0.5f);
+  };
+
+  std::vector<ushort> ramp(w * h * 3);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const float linear = 0.001f + 0.999f * float(x) / float(w - 1);
+      const ushort v = linearToSrgb16(linear);
+      const int i = (y * w + x) * 3;
+      ramp[i] = v;
+      ramp[i + 1] = v;
+      ramp[i + 2] = v;
+    }
+  }
+
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+
+  const QImage ref = photon::ImageDeveloper::develop(ramp.data(), w, h, base);
+  QVERIFY(!ref.isNull());
+
+  auto columnDelta = [](const QImage& a, const QImage& b, int fromX, int toX) {
+    float maxDiff = 0.0f;
+    for (int y = 0; y < a.height(); ++y) {
+      const uchar* sa = a.constScanLine(y);
+      const uchar* sb = b.constScanLine(y);
+      for (int x = fromX; x <= toX; ++x) {
+        for (int c = 0; c < 3; ++c) {
+          const float la = srgbToLinear(sa[x * 3 + c] / 255.0f);
+          const float lb = srgbToLinear(sb[x * 3 + c] / 255.0f);
+          maxDiff = std::max(maxDiff, std::abs(la - lb));
+        }
+      }
+    }
+    return maxDiff;
+  };
+
+  QJsonObject highlights = base;
+  highlights["toneCurveMode"] = "parametric";
+  highlights["toneCurveHighlights"] = 100.0;
+  const QImage hi =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, highlights);
+  QVERIFY(!hi.isNull());
+  QVERIFY(columnDelta(ref, hi, 56, w - 1) > 0.01f);
+  QVERIFY(columnDelta(ref, hi, 0, 8) < 0.002f);
+
+  for (int y = 0; y < hi.height(); ++y) {
+    const uchar* scan = hi.constScanLine(y);
+    float prev = -1.0f;
+    for (int x = 0; x < hi.width(); ++x) {
+      // Compare in display-encoded space (8-bit quantization = 1/255).
+      const float luma = (0.2126f * scan[x * 3 + 0] +
+                          0.7152f * scan[x * 3 + 1] +
+                          0.0722f * scan[x * 3 + 2]) /
+                         255.0f;
+      QVERIFY(luma + 0.01f >= prev);
+      prev = luma;
+    }
+  }
+
+  QJsonObject shadows = base;
+  shadows["toneCurveMode"] = "parametric";
+  shadows["toneCurveShadows"] = 100.0;
+  const QImage sh =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, shadows);
+  QVERIFY(!sh.isNull());
+  QVERIFY(columnDelta(ref, sh, 3, 6) > 0.005f);
+  QVERIFY(columnDelta(ref, sh, 28, w - 1) < 0.002f);
+
+  QJsonObject splits = base;
+  splits["toneCurveMode"] = "parametric";
+  splits["toneCurveShadows"] = 100.0;
+  splits["toneCurveSplitShadows"] = 70.0;
+  const QImage sp =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, splits);
+  QVERIFY(!sp.isNull());
+  QVERIFY(columnDelta(sh, sp, 24, 40) > 0.002f);
+
+  // Mutual exclusivity: parametric values are ignored in manual mode.
+  QJsonObject manualWithParametric = base;
+  manualWithParametric["toneCurveHighlights"] = 100.0;
+  manualWithParametric["toneCurveShadows"] = 100.0;
+  const QImage manualParam =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, manualWithParametric);
+  QVERIFY(!manualParam.isNull());
+  QVERIFY(columnDelta(ref, manualParam, 0, w - 1) < 0.002f);
+
+  // Mutual exclusivity: point curves are ignored in parametric mode.
+  QJsonObject parametricWithPoints = highlights;
+  parametricWithPoints["toneCurveLuma"] =
+      makeCurve({{0.0, 0.0}, {1.0, 0.5}});
+  const QImage parametricPoints = photon::ImageDeveloper::develop(
+      ramp.data(), w, h, parametricWithPoints);
+  QVERIFY(!parametricPoints.isNull());
+  QVERIFY(columnDelta(hi, parametricPoints, 0, w - 1) < 0.002f);
+}
+
+void TestRawEngine::testToneCurveModeStash() {
+  RawEngine engine;
+  QVariantList pts;
+  pts << QVariantMap{{"x", 0.0}, {"y", 0.0}}
+      << QVariantMap{{"x", 0.5}, {"y", 0.7}}
+      << QVariantMap{{"x", 1.0}, {"y", 1.0}};
+  engine.setToneCurveLuma(pts);
+  engine.setToneCurveMode("parametric");
+  engine.setToneCurveHighlights(80.0f);
+  engine.setToneCurveSplitMid(40.0f);
+
+  const QVariantMap saved = engine.currentSettings();
+
+  // Going back to Points keeps both data sets stashed.
+  engine.setToneCurveMode("manual");
+  QCOMPARE(engine.toneCurveHighlights(), 80.0f);
+  QCOMPARE(engine.toneCurveSplitMid(), 40.0f);
+  QVERIFY(engine.toneCurveLuma() == pts);
+
+  // Returning to Parametric restores the previous parametric settings.
+  engine.setToneCurveMode("parametric");
+  QCOMPARE(engine.toneCurveHighlights(), 80.0f);
+  QVERIFY(engine.toneCurveLuma() == pts);
+
+  // JSON round-trip (sidecar load) keeps mode and both data sets.
+  RawEngine reloaded;
+  reloaded.applySettings(saved);
+  QCOMPARE(reloaded.toneCurveMode(), QStringLiteral("parametric"));
+  QCOMPARE(reloaded.toneCurveHighlights(), 80.0f);
+  QCOMPARE(reloaded.toneCurveSplitMid(), 40.0f);
+  QVERIFY(reloaded.toneCurveLuma() == pts);
+}
+
 void TestRawEngine::testOklabCreativeOps() {
   auto oklabHueDeg = [](float r, float g, float b) {
     const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
@@ -716,11 +859,20 @@ void TestRawEngine::testToneCurveLumaMatchesReferenceMapping() {
   const double inLinG = srgbToLinear(inG / 65535.0f);
   const double inLinB = srgbToLinear(inB / 65535.0f);
 
-  // Reference shaderTemplate behavior for a linear luma curve y = 0.1 + 0.9x:
-  // map min/max through the same curve and reproject channels.
-  const double expectedR = 0.1 + 0.9 * inLinR;
-  const double expectedG = 0.1 + 0.9 * inLinG;
-  const double expectedB = 0.1 + 0.9 * inLinB;
+  // The curve runs in the display-encoded domain (after sRGB encode): the
+  // encoded input is mapped through y = 0.1 + 0.9x, then decoded back for the
+  // linear comparison. For a straight line the min/max reprojection is exact.
+  auto encode = [](double lin) {
+    return lin <= 0.0031308 ? lin * 12.92
+                            : 1.055 * std::pow(lin, 1.0 / 2.4) - 0.055;
+  };
+  auto decode = [](double enc) {
+    return enc <= 0.04045 ? enc / 12.92
+                          : std::pow((enc + 0.055) / 1.055, 2.4);
+  };
+  const double expectedR = decode(0.1 + 0.9 * encode(inLinR));
+  const double expectedG = decode(0.1 + 0.9 * encode(inLinG));
+  const double expectedB = decode(0.1 + 0.9 * encode(inLinB));
 
   QVERIFY(std::abs(avgR - expectedR) < 0.015);
   QVERIFY(std::abs(avgG - expectedG) < 0.015);

@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QtConcurrent>
 
+#include "../engine/CameraLook.h"
 #include "../engine/ImageDeveloper.h"
 #include "../engine/ImageDecoder.h"
 #include "../engine/RawEngine.h"
@@ -83,6 +84,17 @@ void ExportManager::processExport(const QStringList& paths,
       }
     }
 
+    // 1b. Camera look: feed the fitted tone curve from the per-photo cache so
+    //     the export matches the preview when the photo's look amount is set.
+    if (!ImageDecoder::isBitmap(path) &&
+        lastState.value("cameraLookAmount").toDouble(0.0) > 0.0) {
+      const photon::cameralook::CameraLook look =
+          photon::cameralook::loadCameraLook(path);
+      if (look.tone.valid)
+        lastState["cameraLook"] =
+            photon::cameralook::toneCurveToJson(look.tone);
+    }
+
     // 2. Load pixels: LibRaw for RAW, ImageDecoder for JPEG/TIFF
     QImage result;
     lastState["denoiseSecondPass"] = true;
@@ -105,6 +117,15 @@ void ExportManager::processExport(const QStringList& paths,
       processor.imgdata.params.auto_bright_thr = 0.01;
 
       if (processor.open_file(path.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
+        // Transient EXIF fields for lens-profile matching during develop.
+        lastState["exifMake"] =
+            QString::fromLocal8Bit(processor.imgdata.idata.make).trimmed();
+        lastState["exifModel"] =
+            QString::fromLocal8Bit(processor.imgdata.idata.model).trimmed();
+        lastState["exifLens"] =
+            QString::fromUtf8(processor.imgdata.lens.Lens).trimmed();
+        lastState["exifFocal"] = double(processor.imgdata.other.focal_len);
+        lastState["exifAperture"] = double(processor.imgdata.other.aperture);
         if (processor.unpack() == LIBRAW_SUCCESS) {
           if (processor.dcraw_process() == LIBRAW_SUCCESS) {
             int ret = 0;

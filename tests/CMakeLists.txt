@@ -11,6 +11,9 @@ add_executable(tst_RawEngine
     auto/tst_RawEngine.cpp
     ../src/engine/RawEngine.cpp
     ../src/engine/RawEngine.h
+    ../src/engine/CameraLook.cpp
+    ../src/engine/CameraLook.h
+    ../src/engine/CameraLookMath.h
     ../src/engine/Denoiser.cpp
     ../src/engine/Denoiser.h
  ../src/engine/GpuSearcher.cpp
@@ -21,6 +24,8 @@ add_executable(tst_RawEngine
  ../src/engine/ImageDeveloper.h
  ../src/engine/ImageDecoder.cpp
  ../src/engine/ImageDecoder.h
+ ../src/engine/LensFun.cpp
+ ../src/engine/LensFun.h
  ../src/engine/VulkanComputeContext.cpp
  ../src/engine/VulkanComputeContext.h
     ../src/managers/PreviewManager.cpp
@@ -75,7 +80,7 @@ target_include_directories(tst_RawEngine PRIVATE
     $<$<NOT:$<BOOL:${WIN32}>>:/usr/include/qt6/QtCore/6.10.1/QtCore>
     ${TIFF_INCLUDE_DIR}
     ${JPEG_INCLUDE_DIRS}
-)
+ ${OPENCV_INCLUDE_DIRS})
 
 if(WIN32)
     target_include_directories(tst_RawEngine PRIVATE ${LibRaw_INCLUDE_DIR})
@@ -87,6 +92,9 @@ add_executable(tst_AppStateManager
     auto/tst_AppStateManager.cpp
     ../src/managers/AppStateManager.cpp
     ../src/managers/AppStateManager.h
+    ../src/engine/CameraLook.cpp
+    ../src/engine/CameraLook.h
+    ../src/engine/CameraLookMath.h
     ../src/managers/LogManager.cpp
     ../src/managers/LogManager.h
     ../src/managers/PreviewManager.cpp
@@ -97,6 +105,8 @@ add_executable(tst_AppStateManager
     ../src/engine/ImageDeveloper.h
     ../src/engine/ImageDecoder.cpp
     ../src/engine/ImageDecoder.h
+    ../src/engine/LensFun.cpp
+    ../src/engine/LensFun.h
     ../src/managers/FileScanner.cpp
     ../src/managers/FileScanner.h
  ../src/engine/Denoiser.cpp

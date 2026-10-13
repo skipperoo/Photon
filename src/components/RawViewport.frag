@@ -79,6 +79,41 @@ layout(std140, binding = 0) uniform buf {
 
     // Before/After bypass
     float showOriginal;
+
+    // Calibration (host-computed matrix rows + normalized shadows tint)
+    vec3 calibRowR;
+    vec3 calibRowG;
+    vec3 calibRowB;
+    float calibShadowsTint;
+
+    // Before/after compare (0 = off, 1 = split wipe, 2 = side-by-side)
+    float compareMode;
+    float splitPos;
+
+    // Lens profile correction (real-time, baked-image space)
+    float lensActive;
+    vec2 lensCenter;
+    float lensHalfShort;
+    float lensHalfDiag;
+    float lensZoom;
+    float lensAmountDist;
+    float lensAmountCa;
+    float lensAmountVig;
+    float lensDistModel;
+    float lensDistK0;
+    float lensDistK1;
+    float lensDistK2;
+    float lensTcaModel;
+    float lensTcaVR;
+    float lensTcaCR;
+    float lensTcaBR;
+    float lensTcaVB;
+    float lensTcaCB;
+    float lensTcaBB;
+    float lensVigActive;
+    float lensVigK0;
+    float lensVigK1;
+    float lensVigK2;
 } ubuf;
 
 const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
@@ -497,6 +532,21 @@ vec3 apply_photon001_delta_stops(vec3 color, float deltaStops, float whitesStops
     return apply_luma_target(color, srcGrayLinear, targetLuma);
 }
 
+vec3 apply_calibration(vec3 color) {
+    color = max(vec3(dot(ubuf.calibRowR, color),
+                     dot(ubuf.calibRowG, color),
+                     dot(ubuf.calibRowB, color)), vec3(0.0));
+    if (abs(ubuf.calibShadowsTint) > 0.0001) {
+        float y0 = max(get_luma(color), 1e-7);
+        float x = clamp((log2(y0 / 0.18) + 5.0) / 4.5, 0.0, 1.0);
+        float w = 1.0 - x * x * (3.0 - 2.0 * x);
+        color.g *= max(1.0 - 0.3 * ubuf.calibShadowsTint * w, 0.0);
+        float y1 = max(get_luma(color), 1e-9);
+        color *= y0 / y1;
+    }
+    return color;
+}
+
 float sample_tone_lut_channel(float value, int channel) {
     int idx = int(clamp(floor(clamp(value, 0.0, 1.0) * 65535.0 + 0.5), 0.0, 65535.0));
     int x = idx & 255;
@@ -689,41 +739,135 @@ float dither(vec2 p) {
 void main()
 {
     vec2 pixelPos = qt_TexCoord0 * ubuf.viewportSize;
-    if (pixelPos.x < ubuf.imageRect.x || pixelPos.x > ubuf.imageRect.x + ubuf.imageRect.z ||
-        pixelPos.y < ubuf.imageRect.y || pixelPos.y > ubuf.imageRect.y + ubuf.imageRect.w) {
-        fragColor = ubuf.backgroundColor;
+    vec2 canvasUV = qt_TexCoord0;
+    vec2 imgCoord;
+    bool showBase = ubuf.showOriginal > 0.5;
+
+    if (ubuf.compareMode > 1.5) {
+        // Side by side: both panes show the currently visible region, left
+        // pane before, right pane after. Only pixels already inside the canvas
+        // exist in the base texture, so the visible window is fitted per pane.
+        vec2 canvas = ubuf.viewportSize;
+        float gap = 12.0;
+        float paneW = (canvas.x - gap) * 0.5;
+        float paneX = 0.0;
+        if (pixelPos.x >= paneW + gap * 0.5) {
+            paneX = paneW + gap;
+        } else {
+            showBase = true;
+        }
+        vec2 visMin = clamp(ubuf.imageRect.xy, vec2(0.0), canvas);
+        vec2 visMax = clamp(ubuf.imageRect.xy + ubuf.imageRect.zw, vec2(0.0), canvas);
+        vec2 visSize = max(visMax - visMin, vec2(1.0));
+        float scale = paneW / visSize.x;
+        vec2 size = visSize * scale;
+        vec2 origin = vec2(paneX + (paneW - size.x) * 0.5, (canvas.y - size.y) * 0.5);
+        imgCoord = (pixelPos - origin) / max(size, vec2(1.0));
+        if (imgCoord.x < 0.0 || imgCoord.x > 1.0 || imgCoord.y < 0.0 || imgCoord.y > 1.0) {
+            fragColor = ubuf.backgroundColor;
+            return;
+        }
+        canvasUV = (visMin + imgCoord * visSize) / canvas;
+    } else {
+        if (pixelPos.x < ubuf.imageRect.x || pixelPos.x > ubuf.imageRect.x + ubuf.imageRect.z ||
+            pixelPos.y < ubuf.imageRect.y || pixelPos.y > ubuf.imageRect.y + ubuf.imageRect.w) {
+            fragColor = ubuf.backgroundColor;
+            return;
+        }
+        imgCoord = (pixelPos - ubuf.imageRect.xy) / ubuf.imageRect.zw;
+        // Split wipe: before on the left of the divider.
+        if (ubuf.compareMode > 0.5 && pixelPos.x < ubuf.splitPos * ubuf.viewportSize.x) {
+            showBase = true;
+        }
+    }
+
+    // --- Lens profile correction (radial, in baked-image space) ---
+    vec2 baseCanvasUV = canvasUV;
+    vec2 canvasUVR = canvasUV;
+    vec2 canvasUVB = canvasUV;
+    float lensVigGain = 1.0;
+    if (ubuf.lensActive > 0.5) {
+        vec2 bakedSize = max(ubuf.sourceSize, vec2(2.0));
+        vec2 bakedPx = imgCoord * bakedSize;
+        vec2 d = bakedPx - ubuf.lensCenter;
+        float r = length(d) / max(ubuf.lensHalfShort, 1.0);
+
+        float ratio = 1.0;
+        if (ubuf.lensDistModel > 0.5) {
+            float model = 1.0;
+            if (ubuf.lensDistModel < 1.5) {
+                model = 1.0 + ubuf.lensDistK0 * r * r;
+            } else if (ubuf.lensDistModel < 2.5) {
+                float r2 = r * r;
+                model = 1.0 + ubuf.lensDistK0 * r2 + ubuf.lensDistK1 * r2 * r2;
+            } else {
+                model = 1.0 + ubuf.lensDistK2 * r + ubuf.lensDistK1 * r * r +
+                        ubuf.lensDistK0 * r * r * r;
+            }
+            ratio = 1.0 + (model - 1.0) * ubuf.lensAmountDist;
+        }
+        ratio /= max(ubuf.lensZoom, 1e-4);
+
+        float ratioR = ratio;
+        float ratioB = ratio;
+        if (ubuf.lensTcaModel > 0.5) {
+            float fr = ubuf.lensTcaModel > 1.5
+                           ? ubuf.lensTcaVR + ubuf.lensTcaCR * r +
+                                 ubuf.lensTcaBR * r * r
+                           : ubuf.lensTcaVR;
+            float fb = ubuf.lensTcaModel > 1.5
+                           ? ubuf.lensTcaVB + ubuf.lensTcaCB * r +
+                                 ubuf.lensTcaBB * r * r
+                           : ubuf.lensTcaVB;
+            ratioR *= 1.0 + (fr - 1.0) * ubuf.lensAmountCa;
+            ratioB *= 1.0 + (fb - 1.0) * ubuf.lensAmountCa;
+        }
+
+        vec2 corrR = (bakedPx + d * (ratioR - 1.0)) / bakedSize;
+        vec2 corrG = (bakedPx + d * (ratio - 1.0)) / bakedSize;
+        vec2 corrB = (bakedPx + d * (ratioB - 1.0)) / bakedSize;
+        canvasUVR = (ubuf.imageRect.xy + corrR * ubuf.imageRect.zw) / ubuf.viewportSize;
+        canvasUV = (ubuf.imageRect.xy + corrG * ubuf.imageRect.zw) / ubuf.viewportSize;
+        canvasUVB = (ubuf.imageRect.xy + corrB * ubuf.imageRect.zw) / ubuf.viewportSize;
+
+        if (ubuf.lensVigActive > 0.5) {
+            float rv = r * (ubuf.lensHalfShort / max(ubuf.lensHalfDiag, 1.0));
+            float rv2 = rv * rv;
+            float rv4 = rv2 * rv2;
+            float rv6 = rv4 * rv2;
+            float response = 1.0 + ubuf.lensVigK0 * rv2 + ubuf.lensVigK1 * rv4 +
+                             ubuf.lensVigK2 * rv6;
+            float gain = response > 1e-4 ? 1.0 / response : 1.0;
+            lensVigGain = 1.0 + (gain - 1.0) * ubuf.lensAmountVig;
+        }
+    }
+
+    vec4 tex = texture(source, canvasUV);
+    if (ubuf.lensActive > 0.5 && ubuf.lensTcaModel > 0.5) {
+        tex.r = texture(source, canvasUVR).r;
+        tex.b = texture(source, canvasUVB).b;
+    }
+
+    if (ubuf.isPreview > 0.5 || showBase) {
+        fragColor = texture(source, baseCanvasUV) * ubuf.qt_Opacity;
         return;
     }
-    vec2 imgCoord = (pixelPos - ubuf.imageRect.xy) / ubuf.imageRect.zw;
 
-    vec4 tex = texture(source, qt_TexCoord0);
-
-    if (ubuf.isPreview > 0.5) {
-        fragColor = vec4(tex.rgb, tex.a) * ubuf.qt_Opacity;
-        return;
-    }
-
-    // Before/After: show unprocessed RAW with only sRGB→linear→sRGB
-    if (ubuf.showOriginal > 0.5) {
-        fragColor = vec4(tex.rgb, tex.a) * ubuf.qt_Opacity;
-        return;
-    }
-
-    vec3 color = srgb_to_linear(tex.rgb);
+    vec3 color = srgb_to_linear(tex.rgb) * lensVigGain;
     
     // 0. Noise Reduction (Real-time GPU pass)
-    color = apply_gpu_denoise(color, qt_TexCoord0, source, ubuf.denoiseAmount);
+    color = apply_gpu_denoise(color, canvasUV, source, ubuf.denoiseAmount);
 
     // --- Approximated Blur for Local Contrast (Clarity, Structure, Sharpness) ---
     // Stronger two-scale blur with more taps to better emulate a single-pass local pyramid mask.
     vec2 texelSize = 1.0 / ubuf.sourceSize;
-    vec3 blurredFine = texture(colorBlurFine, qt_TexCoord0).rgb;
-    vec3 blurredCoarse = texture(colorBlurCoarse, qt_TexCoord0).rgb;
+    vec3 blurredFine = texture(colorBlurFine, canvasUV).rgb;
+    vec3 blurredCoarse = texture(colorBlurCoarse, canvasUV).rgb;
     vec3 blurred = mix(blurredFine, blurredCoarse, 0.35);
 
     // Compute edge mask with feathering, then gate by focus detection
-    float edgeMask = compute_edge_mask(source, qt_TexCoord0, texelSize, ubuf.sharpenMask, ubuf.maskFeather);
-    float focusGate = compute_focus_gate(source, qt_TexCoord0, texelSize, ubuf.focusDetect);
+    float edgeMask = compute_edge_mask(source, canvasUV, texelSize, ubuf.sharpenMask, ubuf.maskFeather);
+    float focusGate = compute_focus_gate(source, canvasUV, texelSize, ubuf.focusDetect);
     float finalMask = edgeMask * focusGate;
 
     // Alt+drag mask preview: show combined mask as grayscale and return early
@@ -770,10 +914,13 @@ void main()
         }
     }
     float sceneWhiteNorm = max(ubuf.sceneWhite * exposure, 1e-4);
-    vec4 deltaValue = texture(photon001Delta, qt_TexCoord0);
+    vec4 deltaValue = texture(photon001Delta, canvasUV);
     color = apply_photon001_delta_stops(color, deltaValue.x, deltaValue.y, sceneWhiteNorm);
     //color = davinci_tonemap(color, ubuf.adaptation);
     
+    // Calibration (scene-linear, before the tone curve)
+    color = apply_calibration(color);
+
     // 3. Contrast (perceptual S-curve on luma; 1.0 = identity)
     color = max(vec3(0.0), color);
     if (abs(ubuf.contrast - 1.0) > 0.001) {
@@ -860,30 +1007,6 @@ void main()
         color = agx_tonemap(color);
     }
 
-    // 8. Tone Curve LUT (applied in linear, pre-sRGB)
-    // 256×1024 texture: 4 stacked 256×256 planes (Luma, R, G, B),
-    // each encoding 65536 entries packed as 16-bit RG bytes.
-    if (ubuf.toneCurveActive > 0.5) {
-        vec3 c = clamp(color, 0.0, 1.0);
-
-        // Reference-style luma curve: remap channel min/max through the same
-        // curve, then linearly reproject channel values between those bounds.
-        float fMin = min(min(c.r, c.g), c.b);
-        float fMax = max(max(c.r, c.g), c.b);
-        float nMin = sample_tone_lut_channel(fMin, 0);
-        float nMax = sample_tone_lut_channel(fMax, 0);
-        float scale = (nMax - nMin) / (fMax - fMin + 0.00001);
-        c = (c - vec3(fMin)) * scale + vec3(nMin);
-
-        // Apply RGB channel curves after luma remap.
-        c.r = sample_tone_lut_channel(clamp(c.r, 0.0, 1.0), 1);
-        c.g = sample_tone_lut_channel(clamp(c.g, 0.0, 1.0), 2);
-        c.b = sample_tone_lut_channel(clamp(c.b, 0.0, 1.0), 3);
-
-        // Keep highlight data above 1.0 from the unclamped working color.
-        color = mix(c, color, step(1.001, max(color.r, max(color.g, color.b))));
-    }
-
     // 8.5. Black & White conversion with per-band luminance mix
     if (ubuf.profileIndex > 1.5) {
         vec3 bwHsv = rgb_to_hsv(max(color, 0.0));
@@ -902,7 +1025,31 @@ void main()
     color = max(color, 0.0);
     vec3 final_rgb = linear_to_srgb(color);
 
-    // 8. Creative: Film Grain
+    // 8. Tone Curve LUT (display-encoded domain, after sRGB encode)
+    // 256×1024 texture: 4 stacked 256×256 planes (Luma, R, G, B),
+    // each encoding 65536 entries packed as 16-bit RG bytes.
+    if (ubuf.toneCurveActive > 0.5) {
+        vec3 c = clamp(final_rgb, 0.0, 1.0);
+
+        // Luma curve: remap the pixel's channel min/max through the curve,
+        // then linearly reproject the channels between those bounds.
+        float fMin = min(min(c.r, c.g), c.b);
+        float fMax = max(max(c.r, c.g), c.b);
+        float nMin = sample_tone_lut_channel(fMin, 0);
+        float nMax = sample_tone_lut_channel(fMax, 0);
+        float scale = (nMax - nMin) / (fMax - fMin + 0.00001);
+        c = (c - vec3(fMin)) * scale + vec3(nMin);
+
+        // Apply RGB channel curves after the luma remap.
+        c.r = sample_tone_lut_channel(clamp(c.r, 0.0, 1.0), 1);
+        c.g = sample_tone_lut_channel(clamp(c.g, 0.0, 1.0), 2);
+        c.b = sample_tone_lut_channel(clamp(c.b, 0.0, 1.0), 3);
+
+        // Keep values above 1.0 (HDR sources) unclamped.
+        final_rgb = mix(c, final_rgb, step(1.001, max(final_rgb.r, max(final_rgb.g, final_rgb.b))));
+    }
+
+    // 9. Creative: Film Grain
     if (ubuf.grainAmount > 0.0) {
         vec2 grainCoord = imgCoord * ubuf.imageRect.zw; 
         float grain_frequency = (1.0 / max(ubuf.grainSize, 0.1));

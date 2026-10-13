@@ -16,6 +16,19 @@ Window {
     property bool showTopbar: true
     property bool altKeyPressed: KeyTracker.altPressed
     property bool showOriginal: false
+    property int compareMode: 0 // 0 = off, 1 = split wipe, 2 = side-by-side
+    property real splitPos: 0.5
+
+    function toggleCompareMode(mode) {
+        window.showOriginal = false
+        window.compareMode = window.compareMode === mode ? 0 : mode
+    }
+
+    function toggleCompareOriginal() {
+        window.showOriginal = !window.showOriginal
+        if (window.showOriginal)
+            window.compareMode = 0
+    }
 
     // Sort settings shared between library and filmstrip
     property int sortProperty: 0      // 0: Name, 1: Date, 2: Rating
@@ -45,6 +58,76 @@ Window {
       function onStitchCompleted(result) {
         toaster.show(result.message, result.success ? "info" : "error")
       }
+    }
+    Connections {
+      target: HdrMerge
+      function onMergeCompleted(result) {
+        toaster.show(result.message, result.success ? "info" : "error")
+      }
+    }
+
+    HdrDialog {
+        id: hdrDialog
+        photoCount: AppState.selectedImages.length
+        onMergeRequested: (align, deghost) => HdrMerge.mergeAsync(AppState.selectedImages, align, deghost)
+    }
+
+    // HDR merge busy indicator (covers the whole window while merging).
+    Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 140
+        z: 1001
+        visible: HdrMerge.busy
+        width: busyRow.implicitWidth + 28
+        height: 40
+        radius: Theme.radiusLg
+        color: Qt.rgba(0, 0, 0, 0.72)
+
+        RowLayout {
+            id: busyRow
+            anchors.centerIn: parent
+            spacing: 8
+
+            Rectangle {
+                width: 16
+                height: 16
+                color: "transparent"
+
+                Canvas {
+                    anchors.fill: parent
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.reset()
+                        ctx.lineWidth = 2
+                        ctx.strokeStyle = "white"
+                        ctx.beginPath()
+                        ctx.arc(8, 8, 6, 0, Math.PI / 2)
+                        ctx.stroke()
+                    }
+                }
+                RotationAnimation on rotation {
+                    from: 0; to: 360; duration: 1000
+                    loops: Animation.Infinite
+                    running: HdrMerge.busy
+                }
+            }
+
+            Text {
+                text: "Merging HDR..."
+                color: "white"
+                font: Theme.fontRegular
+            }
+        }
+    }
+
+    // Auto-scan: keep the filmstrip in sync when files are added/removed in the
+    // current folder (refreshFiles() is diff-based and preserves scroll).
+    Timer {
+        interval: AppState.scanIntervalSeconds * 1000
+        repeat: true
+        running: AppState.currentFolder !== ""
+        onTriggered: window.refreshFiles()
     }
 
     // List model to hold the RAW files
@@ -84,6 +167,7 @@ Window {
         onFlipHorizontalRequested: window.flipSelectionHorizontal()
         onFlipVerticalRequested: window.flipSelectionVertical()
         onCreatePanoramaRequested: Panorama.stitchAsync(AppState.selectedImages)
+        onCreateHdrMergeRequested: hdrDialog.open()
     }
 
     // Function to refresh the file list
@@ -338,8 +422,10 @@ Window {
         
         Shortcut { sequence: "Left"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(-1) }
         Shortcut { sequence: "Right"; context: Qt.WindowShortcut; onActivated: window.navigateFilmstrip(1) }
-        Shortcut { sequence: "\\"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
-        Shortcut { sequence: "B"; context: Qt.WindowShortcut; onActivated: window.showOriginal = !window.showOriginal }
+        Shortcut { sequence: "\\"; context: Qt.WindowShortcut; onActivated: window.toggleCompareOriginal() }
+        Shortcut { sequence: "B"; context: Qt.WindowShortcut; onActivated: window.toggleCompareOriginal() }
+        Shortcut { sequence: "Y"; context: Qt.WindowShortcut; onActivated: window.toggleCompareMode(2) }
+        Shortcut { sequence: "Shift+Y"; context: Qt.WindowShortcut; onActivated: window.toggleCompareMode(1) }
 
         // Crop panel: ESC to discard, Enter to apply
         Shortcut {
@@ -744,6 +830,31 @@ Window {
                             }
                             property real toneCurveActive: rawViewport.toneCurveActive ? 1.0 : 0.0
                             property real showOriginal: window.showOriginal ? 1.0 : 0.0
+                            property real compareMode: window.compareMode
+                            property real splitPos: window.splitPos
+                            property real lensActive: rawViewport.lensShader.active ? 1.0 : 0.0
+                            property vector2d lensCenter: Qt.vector2d(rawViewport.lensShader.centerX || 0, rawViewport.lensShader.centerY || 0)
+                            property real lensHalfShort: rawViewport.lensShader.halfShort || 0
+                            property real lensHalfDiag: rawViewport.lensShader.halfDiag || 0
+                            property real lensZoom: rawViewport.lensShader.zoom || 1
+                            property real lensAmountDist: rawViewport.lensShader.amountDist || 0
+                            property real lensAmountCa: rawViewport.lensShader.amountCa || 0
+                            property real lensAmountVig: rawViewport.lensShader.amountVig || 0
+                            property real lensDistModel: rawViewport.lensShader.distModel || 0
+                            property real lensDistK0: rawViewport.lensShader.distK0 || 0
+                            property real lensDistK1: rawViewport.lensShader.distK1 || 0
+                            property real lensDistK2: rawViewport.lensShader.distK2 || 0
+                            property real lensTcaModel: rawViewport.lensShader.tcaModel || 0
+                            property real lensTcaVR: rawViewport.lensShader.tcaVR || 1
+                            property real lensTcaCR: rawViewport.lensShader.tcaCR || 0
+                            property real lensTcaBR: rawViewport.lensShader.tcaBR || 0
+                            property real lensTcaVB: rawViewport.lensShader.tcaVB || 1
+                            property real lensTcaCB: rawViewport.lensShader.tcaCB || 0
+                            property real lensTcaBB: rawViewport.lensShader.tcaBB || 0
+                            property real lensVigActive: rawViewport.lensShader.vigActive ? 1.0 : 0.0
+                            property real lensVigK0: rawViewport.lensShader.vigK0 || 0
+                            property real lensVigK1: rawViewport.lensShader.vigK1 || 0
+                            property real lensVigK2: rawViewport.lensShader.vigK2 || 0
                             property real exposure: rawViewport.exposure
                             property real contrast: rawViewport.contrast
                             property real highlights: rawViewport.highlights
@@ -756,6 +867,10 @@ Window {
                             property real saturation: rawViewport.saturation
                             property real temperature: rawViewport.temperature
                             property real tint: rawViewport.tint
+                            property vector3d calibRowR: rawViewport.calibRowR
+                            property vector3d calibRowG: rawViewport.calibRowG
+                            property vector3d calibRowB: rawViewport.calibRowB
+                            property real calibShadowsTint: rawViewport.calibShadowsTint / 100.0
                             property real profileIndex: rawViewport.profileIndex
                             property real bwMixRed: rawViewport.bwMixRed
                             property real bwMixOrange: rawViewport.bwMixOrange
@@ -831,6 +946,74 @@ Window {
                             fragmentShader: "qrc:/Main/shaders/RawViewport.frag.qsb"
                             }
                         } // shaderClip
+
+                        // --- Before/After compare overlay ---
+                        Item {
+                            anchors.fill: rawViewport
+                            z: 50
+
+                            Rectangle {
+                                id: splitDivider
+                                visible: window.compareMode === 1
+                                x: Math.round(window.splitPos * parent.width) - 1
+                                width: 2
+                                height: parent.height
+                                color: "white"
+                                opacity: 0.85
+
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 14
+                                    height: 34
+                                    radius: 7
+                                    color: Qt.rgba(0, 0, 0, 0.55)
+                                    border.color: "white"
+                                    border.width: 1
+                                }
+                            }
+
+                            MouseArea {
+                                id: splitDragArea
+                                visible: window.compareMode === 1
+                                x: splitDivider.x - 10
+                                width: 22
+                                height: parent.height
+                                cursorShape: Qt.SplitHCursor
+                                preventStealing: true
+                                onPositionChanged: function(mouse) {
+                                    if (!pressed)
+                                        return
+                                    var px = x + mouse.x
+                                    window.splitPos = Math.max(0.02, Math.min(0.98, px / parent.width))
+                                }
+                                onDoubleClicked: window.splitPos = 0.5
+                            }
+
+                            Rectangle {
+                                visible: window.compareMode === 2
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.margins: 12
+                                width: 62
+                                height: 24
+                                radius: 12
+                                color: Qt.rgba(0, 0, 0, 0.6)
+                                Text { anchors.centerIn: parent; text: "Before"; color: "white"; font: Theme.fontSmall }
+                            }
+
+                            Rectangle {
+                                visible: window.compareMode === 2
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: 12
+                                width: 54
+                                height: 24
+                                radius: 12
+                                color: Qt.rgba(0, 0, 0, 0.6)
+                                Text { anchors.centerIn: parent; text: "After"; color: "white"; font: Theme.fontSmall }
+                            }
+                        }
 
                         // Crop overlay (axis-aligned, outside transform group)
                         CropOverlay {
@@ -1006,7 +1189,7 @@ Window {
                             Text {
                                 id: toastText
                                 anchors.centerIn: parent
-                                text: window.showOriginal ? "Before" : "After"
+                                text: window.showOriginal ? "Before" : (window.compareMode === 1 ? "Split View" : (window.compareMode === 2 ? "Side by Side" : "After"))
                                 color: "white"
                                 font: Theme.fontMedium
                             }
@@ -1018,6 +1201,11 @@ Window {
                             Connections {
                                 target: window
                                 function onShowOriginalChanged() {
+                                    toastFadeOut.stop();
+                                    toastFadeIn.start();
+                                    toastHideTimer.restart();
+                                }
+                                function onCompareModeChanged() {
                                     toastFadeOut.stop();
                                     toastFadeIn.start();
                                     toastHideTimer.restart();
@@ -1043,10 +1231,17 @@ Window {
                                 anchors.rightMargin: 20
                                 spacing: 12
 
-                                Image {
-                                    source: "qrc:/Main/assets/icons/search.svg"
-                                    sourceSize: Qt.size(16, 16)
-                                    opacity: 0.6
+                                T.Button {
+                                    icon.source: "qrc:/Main/assets/icons/search.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: Theme.mutedFg
+                                    implicitWidth: 20
+                                    implicitHeight: 20
+                                    flat: true
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
                                 }
 
                                 PhotonSlider {
@@ -1089,7 +1284,7 @@ Window {
                                     opacity: enabled ? 1.0 : 0.3
                                     T.ToolTip.visible: hovered
                                     T.ToolTip.text: "Undo"
-                                    display: AbstractButton.IconOnly
+                                    display: T.AbstractButton.IconOnly
                                     padding: 0
                                     background: null
                                 }
@@ -1108,7 +1303,7 @@ Window {
                                     opacity: enabled ? 1.0 : 0.3
                                     T.ToolTip.visible: hovered
                                     T.ToolTip.text: "Redo"
-                                    display: AbstractButton.IconOnly
+                                    display: T.AbstractButton.IconOnly
                                     padding: 0
                                     background: null
                                 }
@@ -1118,7 +1313,7 @@ Window {
                                     icon.source: "qrc:/Main/assets/icons/rotate-ccw.svg"
                                     icon.width: 16
                                     icon.height: 16
-                                    icon.color: "white"
+                                    icon.color: Theme.foreground
                                     implicitWidth: 24
                                     implicitHeight: 24
                                     onClicked: rawViewport.resetToOriginal()
@@ -1127,7 +1322,7 @@ Window {
                                     opacity: enabled ? 1.0 : 0.3
                                     T.ToolTip.visible: hovered
                                     T.ToolTip.text: "Restore to Original"
-                                    display: AbstractButton.IconOnly
+                                    display: T.AbstractButton.IconOnly
                                     padding: 0
                                     background: null
                                 }
@@ -1137,14 +1332,48 @@ Window {
                                     icon.source: "qrc:/Main/assets/icons/eye.svg"
                                     icon.width: 16
                                     icon.height: 16
-                                    icon.color: window.showOriginal ? Theme.accent : "white"
+                                    icon.color: window.showOriginal ? Theme.accent : Theme.foreground
                                     implicitWidth: 24
                                     implicitHeight: 24
-                                    onClicked: window.showOriginal = !window.showOriginal
+                                    onClicked: window.toggleCompareOriginal()
                                     flat: true
                                     T.ToolTip.visible: hovered
                                     T.ToolTip.text: "Before/After (B or \\)"
-                                    display: AbstractButton.IconOnly
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
+                                T.Button {
+                                    id: compareBtn
+                                    icon.source: "qrc:/Main/assets/icons/compare.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: window.compareMode === 2 ? Theme.accent : Theme.foreground
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: window.toggleCompareMode(2)
+                                    flat: true
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Side by Side (Y)"
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
+                                T.Button {
+                                    id: splitCompareBtn
+                                    icon.source: "qrc:/Main/assets/icons/split.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: window.compareMode === 1 ? Theme.accent : Theme.foreground
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: window.toggleCompareMode(1)
+                                    flat: true
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: "Before/After Split (Shift+Y)"
+                                    display: T.AbstractButton.IconOnly
                                     padding: 0
                                     background: null
                                 }
@@ -1200,10 +1429,9 @@ Window {
                                 }
 
                                 // 3: Lens
-                                Rectangle {
-                                    color: Theme.background
-                                    Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
-                                    Text { anchors.centerIn: parent; text: "Lens Correction (Coming Soon)"; color: Theme.mutedFg }
+                                LensPanel {
+                                    viewport: rawViewport
+                                    viewTopPadding: 10
                                 }
 
                                 // 4: Presets
@@ -1215,6 +1443,12 @@ Window {
                                 // 5: Export
                                 ExportPanel {
                                     Layout.fillHeight: true
+                                }
+
+                                // 6: History
+                                HistoryPanel {
+                                    viewport: rawViewport
+                                    viewTopPadding: 10
                                 }
                             }
 
@@ -1238,7 +1472,8 @@ Window {
                                         { icon: "crop", index: 2, tooltip: "Crop" },
                                         { icon: "telescope", index: 3, tooltip: "Lens" },
                                         { icon: "bookmark", index: 4, tooltip: "Presets" },
-                                        { icon: "download", index: 5, tooltip: "Export" }
+                                        { icon: "download", index: 5, tooltip: "Export" },
+                                        { icon: "history", index: 6, tooltip: "History" }
                                     ]
 
                                     Repeater {
@@ -1335,17 +1570,30 @@ Window {
                         id: filmstripList
                         anchors.fill: parent
                         orientation: ListView.Horizontal
-                        spacing: 10
+                        property real thumbWidth: 150
+                        property real thumbSpacing: 10
+                        spacing: thumbSpacing
                         model: rawFilesModel
                         T.ScrollBar.horizontal: PhotonScrollBar { orientation: Qt.Horizontal }
-                        
-                        // Handle mouse wheel for horizontal scrolling
+
+                        // Mouse wheel scrolls the filmstrip horizontally.
+                        // Delegates have a fixed size, so the exact content
+                        // width is derived from the current model count (never
+                        // stale after an auto-refresh).
                         MouseArea {
                             anchors.fill: parent
                             acceptedButtons: Qt.NoButton // Pass clicks to delegates
                             onWheel: (wheel) => {
-                                if (wheel.angleDelta.y !== 0) {
-                                    filmstripList.contentX = Math.max(0, Math.min(filmstripList.contentWidth - parent.width, filmstripList.contentX - wheel.angleDelta.y));
+                                var delta = wheel.angleDelta.y + wheel.angleDelta.x;
+                                if (delta !== 0) {
+                                    var count = filmstripList.count;
+                                    var contentW = count > 0
+                                        ? count * (filmstripList.thumbWidth + filmstripList.thumbSpacing)
+                                          - filmstripList.thumbSpacing
+                                        : 0;
+                                    var maxX = Math.max(0, contentW - filmstripList.width);
+                                    filmstripList.contentX =
+                                        Math.max(0, Math.min(maxX, filmstripList.contentX - delta));
                                     wheel.accepted = true;
                                 } else {
                                     wheel.accepted = false;
@@ -1354,7 +1602,7 @@ Window {
                         }
 
                         delegate: Rectangle {
-                            width: 150
+                            width: filmstripList.thumbWidth
                             height: 100
                             anchors.verticalCenter: parent.verticalCenter
                             color: Theme.secondary

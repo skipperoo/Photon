@@ -26,9 +26,11 @@
 #include "../managers/LogManager.h"
 #include "../managers/PreviewManager.h"
 #include "CrashReporter.h"
+#include "Calibration.h"
 #include "Denoiser.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
+#include "LensFun.h"
 #include "ImageDecoder.h"
 
 using namespace photon;
@@ -44,6 +46,11 @@ static float lerpF(float a, float b, float t) { return a + t * (b - a); }
 static float srgb_to_linear_hist(float c) {
   return (c <= 0.04045f) ? (c / 12.92f)
                          : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
+static float linear_to_srgb_hist(float c) {
+  return (c <= 0.0031308f) ? (c * 12.92f)
+                           : (1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f);
 }
 
 struct HSV {
@@ -679,6 +686,8 @@ RawEngine::RawEngine(QObject* parent)
                 return;
               }
 
+              loadCameraLookForSource();
+              updateLensShader();
               requestHistogramUpdate();
               if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
                 startAsyncDenoise();
@@ -703,6 +712,7 @@ RawEngine::RawEngine(QObject* parent)
                 m_geometryBaked = false;
               }
               emit geometryBakedChanged();
+              updateLensShader();
               requestHistogramUpdate();
               if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
                 startAsyncDenoise();
@@ -839,6 +849,10 @@ void RawEngine::setSource(const QString& source) {
   m_currentLoadId++;
 
   m_source = source;
+  const bool hadCameraLook = m_cameraLook.tone.valid;
+  m_cameraLook = photon::cameralook::CameraLook();
+  m_cameraLookSource.clear();
+  if (hadCameraLook) emit cameraLookAvailableChanged();
   emit sourceChanged();
 
   // Try to get existing preview immediately
@@ -871,6 +885,10 @@ void RawEngine::setSource(const QString& source) {
   m_geometryBuffer.clear();
   m_geometryWidth = 0;
   m_geometryHeight = 0;
+  m_lensBakeInfo = GeometryBakeInfo();
+  m_lensBakedWidth = 0;
+  m_lensBakedHeight = 0;
+  updateLensShader();
   m_inCropMode = false;
   emit geometryBakedChanged();
 
@@ -992,12 +1010,87 @@ void RawEngine::setTint(float val) {
   emit isDefaultChanged();
 }
 
+void RawEngine::setCalibShadowsTint(float val) {
+  if (qFuzzyCompare(m_calibShadowsTint, val)) return;
+  m_calibShadowsTint = val;
+  refreshCalibrationMatrix();
+  emit calibShadowsTintChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibRedHue(float val) {
+  if (qFuzzyCompare(m_calibRedHue, val)) return;
+  m_calibRedHue = val;
+  refreshCalibrationMatrix();
+  emit calibRedHueChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibRedSat(float val) {
+  if (qFuzzyCompare(m_calibRedSat, val)) return;
+  m_calibRedSat = val;
+  refreshCalibrationMatrix();
+  emit calibRedSatChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibGreenHue(float val) {
+  if (qFuzzyCompare(m_calibGreenHue, val)) return;
+  m_calibGreenHue = val;
+  refreshCalibrationMatrix();
+  emit calibGreenHueChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibGreenSat(float val) {
+  if (qFuzzyCompare(m_calibGreenSat, val)) return;
+  m_calibGreenSat = val;
+  refreshCalibrationMatrix();
+  emit calibGreenSatChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibBlueHue(float val) {
+  if (qFuzzyCompare(m_calibBlueHue, val)) return;
+  m_calibBlueHue = val;
+  refreshCalibrationMatrix();
+  emit calibBlueHueChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCalibBlueSat(float val) {
+  if (qFuzzyCompare(m_calibBlueSat, val)) return;
+  m_calibBlueSat = val;
+  refreshCalibrationMatrix();
+  emit calibBlueSatChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::refreshCalibrationMatrix() {
+  photon::calibration::Params params;
+  params.shadowsTint = m_calibShadowsTint;
+  params.redHue = m_calibRedHue;
+  params.redSat = m_calibRedSat;
+  params.greenHue = m_calibGreenHue;
+  params.greenSat = m_calibGreenSat;
+  params.blueHue = m_calibBlueHue;
+  params.blueSat = m_calibBlueSat;
+
+  const photon::calibration::Matrix mat =
+      photon::calibration::computeMatrix(params);
+  m_calibRowR = QVector3D(mat.m[0][0], mat.m[0][1], mat.m[0][2]);
+  m_calibRowG = QVector3D(mat.m[1][0], mat.m[1][1], mat.m[1][2]);
+  m_calibRowB = QVector3D(mat.m[2][0], mat.m[2][1], mat.m[2][2]);
+  emit calibrationMatrixChanged();
+}
+
 void RawEngine::setProfile(const QString& profile) {
   const QString normalized = develop::normalizeProfile(profile);
   if (m_profile == normalized) return;
   m_profile = normalized;
   emit profileChanged();
   emit isDefaultChanged();
+  rebuildToneLut();
 }
 
 void RawEngine::setBwMixRed(float val) {
@@ -1159,6 +1252,22 @@ void RawEngine::setDenoiseChromaBm3d(float val) {
   m_denoiseChromaBm3d = val;
   m_hasDenoisedResult = false;
   emit denoiseChromaBm3dChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCameraLookAmount(float val) {
+  val = std::clamp(val, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_cameraLookAmount, val)) return;
+  m_cameraLookAmount = val;
+  // The look is composed into the tone LUT, so changing the amount rebuilds it
+  // (the histogram follows on commit, like the other tone-curve controls).
+  rebuildToneLut();
+  // Opt-in: the fit runs when the amount is raised, not on every photo open.
+  if (m_cameraLookAmount > 0.0f && !m_cameraLook.tone.valid &&
+      !m_cameraLookFitting) {
+    startAsyncCameraLookFit();
+  }
+  emit cameraLookAmountChanged();
   emit isDefaultChanged();
 }
 
@@ -1726,6 +1835,17 @@ void RawEngine::setCgBlending(float val) {
 
 // --- Tone Curve ---
 
+void RawEngine::setToneCurveMode(const QString& mode) {
+  const QString normalized = mode == QLatin1String("parametric")
+                                 ? QStringLiteral("parametric")
+                                 : QStringLiteral("manual");
+  if (m_toneCurveMode == normalized) return;
+  m_toneCurveMode = normalized;
+  emit toneCurveModeChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
 void RawEngine::setToneCurveLuma(const QVariantList& pts) {
   m_toneCurveLuma = pts;
   emit toneCurveLumaChanged();
@@ -1749,6 +1869,108 @@ void RawEngine::setToneCurveBlue(const QVariantList& pts) {
   emit toneCurveBlueChanged();
   rebuildToneLut();
   emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveShadows(float val) {
+  if (qFuzzyCompare(m_toneCurveShadows, val)) return;
+  m_toneCurveShadows = val;
+  emit toneCurveShadowsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveDarks(float val) {
+  if (qFuzzyCompare(m_toneCurveDarks, val)) return;
+  m_toneCurveDarks = val;
+  emit toneCurveDarksChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveLights(float val) {
+  if (qFuzzyCompare(m_toneCurveLights, val)) return;
+  m_toneCurveLights = val;
+  emit toneCurveLightsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveHighlights(float val) {
+  if (qFuzzyCompare(m_toneCurveHighlights, val)) return;
+  m_toneCurveHighlights = val;
+  emit toneCurveHighlightsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveSplitShadows(float val) {
+  if (qFuzzyCompare(m_toneCurveSplitShadows, val)) return;
+  m_toneCurveSplitShadows = val;
+  emit toneCurveSplitShadowsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveSplitMid(float val) {
+  if (qFuzzyCompare(m_toneCurveSplitMid, val)) return;
+  m_toneCurveSplitMid = val;
+  emit toneCurveSplitMidChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setToneCurveSplitHighlights(float val) {
+  if (qFuzzyCompare(m_toneCurveSplitHighlights, val)) return;
+  m_toneCurveSplitHighlights = val;
+  emit toneCurveSplitHighlightsChanged();
+  rebuildToneLut();
+  emit isDefaultChanged();
+}
+
+static std::vector<float> evalParametricToneCurve(
+    int lutSize, float shadows, float darks, float lights, float highlights,
+    float splitShadows, float splitMid, float splitHighlights) {
+  std::vector<float> lut(lutSize);
+  const float s1 = splitShadows / 100.0f;
+  const float s2 = splitMid / 100.0f;
+  const float s3 = splitHighlights / 100.0f;
+  const float amounts[4] = {shadows / 100.0f, darks / 100.0f,
+                            lights / 100.0f, highlights / 100.0f};
+  const float bounds[5] = {0.0f, s1, s2, s3, 1.0f};
+  for (int i = 0; i < lutSize; ++i) {
+    const float x = float(i) / float(lutSize - 1);
+    float d = 0.0f;
+    for (int r = 0; r < 4; ++r) {
+      const float amt = amounts[r];
+      if (amt == 0.0f) continue;
+      const float a = bounds[r];
+      const float b = bounds[r + 1];
+      const float ctr = (a + b) * 0.5f;
+      const float half = (b - a) * 0.75f + 0.05f;
+      const float tt = std::clamp((x - ctr) / half, -1.0f, 1.0f);
+      const float win = 0.5f + 0.5f * std::cos(tt * 3.14159265358979f);
+      d += amt * 0.22f * win;
+    }
+    lut[i] = std::clamp(x + d * 4.0f * x * (1.0f - x), 0.0f, 1.0f);
+  }
+  for (int i = 1; i < lutSize; ++i) {
+    lut[i] = std::max(lut[i], lut[i - 1]);
+  }
+  return lut;
+}
+
+static std::vector<float> composeToneLut(const std::vector<float>& base,
+                                         const std::vector<float>& f) {
+  const int n = int(base.size());
+  std::vector<float> out(n);
+  for (int i = 0; i < n; ++i) {
+    const float t = std::clamp(base[i], 0.0f, 1.0f) * float(n - 1);
+    const int i0 = std::min(int(t), n - 1);
+    const int i1 = std::min(i0 + 1, n - 1);
+    const float fr = t - float(i0);
+    out[i] = f[i0] + (f[i1] - f[i0]) * fr;
+  }
+  return out;
 }
 
 // Crop & Geometry setters
@@ -1912,10 +2134,36 @@ void RawEngine::rebuildToneLut() {
   constexpr int kToneLutHeight =
       kToneLutRowsPerChannel * kToneLutChannels;  // 1024
 
-  auto lutL = evalMonotonicSpline(m_toneCurveLuma, kToneLutEntries);
-  auto lutR = evalMonotonicSpline(m_toneCurveRed, kToneLutEntries);
-  auto lutG = evalMonotonicSpline(m_toneCurveGreen, kToneLutEntries);
-  auto lutB = evalMonotonicSpline(m_toneCurveBlue, kToneLutEntries);
+  // The parametric region curve and the point curves are mutually exclusive:
+  // parametric mode applies only the region curve, manual mode only the point
+  // curves (parametric -> master -> RGB composition is used when both were
+  // allowed; kept here as a single builder for clarity).
+  const bool parametricMode = m_toneCurveMode == QLatin1String("parametric");
+  std::vector<float> lutL;
+  std::vector<float> lutR;
+  std::vector<float> lutG;
+  std::vector<float> lutB;
+  if (parametricMode) {
+    lutL = evalParametricToneCurve(
+        kToneLutEntries, m_toneCurveShadows, m_toneCurveDarks,
+        m_toneCurveLights, m_toneCurveHighlights, m_toneCurveSplitShadows,
+        m_toneCurveSplitMid, m_toneCurveSplitHighlights);
+    lutR = evalMonotonicSpline(QVariantList{}, kToneLutEntries);
+    lutG = lutR;
+    lutB = lutR;
+  } else {
+    lutL = evalMonotonicSpline(m_toneCurveLuma, kToneLutEntries);
+    lutR = evalMonotonicSpline(m_toneCurveRed, kToneLutEntries);
+    lutG = evalMonotonicSpline(m_toneCurveGreen, kToneLutEntries);
+    lutB = evalMonotonicSpline(m_toneCurveBlue, kToneLutEntries);
+  }
+
+  // The fitted camera look runs before the user curves, on luminance: it is
+  // composed into the luminance LUT only (the render maps the pixel's min/max
+  // through it before the per-channel curves).
+  if (cameraLookUsable())
+    photon::cameralook::prependToneCurveToLut(
+        lutL, m_cameraLook.tone, m_cameraLookAmount / 100.0f);
 
   // Check if any LUT deviates from identity after quantization to 16-bit.
   // This keeps toneCurveActive stable for near-identity curves while still
@@ -1952,6 +2200,11 @@ void RawEngine::rebuildToneLut() {
       line[x * 4 + 3] = 255;
     }
   }
+  m_toneLutL = std::make_shared<std::vector<float>>(lutL);
+  m_toneLutR = std::make_shared<std::vector<float>>(lutR);
+  m_toneLutG = std::make_shared<std::vector<float>>(lutG);
+  m_toneLutB = std::make_shared<std::vector<float>>(lutB);
+
   m_toneLutVersion++;
   if (auto* provider = ToneLutProvider::instance())
     provider->updateLut(m_toneLutImage);
@@ -1961,6 +2214,65 @@ void RawEngine::rebuildToneLut() {
     m_toneCurveActive = active;
     emit toneCurveActiveChanged();
   }
+}
+
+bool RawEngine::cameraLookUsable() const {
+  if (!m_cameraLook.tone.valid || m_cameraLookAmount <= 0.0f) return false;
+  // AgX is a full tone map of its own; the camera look would run on its
+  // output. It still applies to the normal and black & white profiles (for
+  // the latter it becomes the tone curve of the converted image).
+  return m_profile != QLatin1String(develop::kProfileAgx);
+}
+
+void RawEngine::loadCameraLookForSource() {
+  if (m_cameraLookSource == m_source) return;
+  m_cameraLook = photon::cameralook::CameraLook();
+  m_cameraLookSource = m_source;
+  if (m_source.isEmpty() || m_isBitmap) return;
+
+  photon::cameralook::CameraLook cached =
+      photon::cameralook::loadCameraLook(m_source);
+  if (cached.tone.valid) {
+    m_cameraLook = cached;
+    emit cameraLookAvailableChanged();
+    rebuildToneLut();
+    return;
+  }
+  // Opt-in: only fit when this photo already uses the look.
+  if (m_cameraLookAmount > 0.0f) startAsyncCameraLookFit();
+}
+
+void RawEngine::startAsyncCameraLookFit() {
+  const int loadId = m_currentLoadId.load();
+  const QString source = m_source;
+  if (source.isEmpty() || m_cameraLookFitting) return;
+  if (ImageDecoder::isBitmap(source)) return;
+  m_cameraLookFitting = true;
+
+  m_cameraLookWatcher.disconnect();
+  connect(&m_cameraLookWatcher,
+          &QFutureWatcher<photon::cameralook::CameraLook>::finished, this,
+          [this, loadId]() {
+            m_cameraLookFitting = false;
+            if (loadId != m_currentLoadId.load()) return;
+            const photon::cameralook::CameraLook look =
+                m_cameraLookWatcher.result();
+            if (!look.tone.valid) return;
+
+            m_cameraLook = look;
+            photon::cameralook::saveCameraLook(m_source, look);
+            emit cameraLookAvailableChanged();
+            LogManager::instance()->log(
+                QString("[ RawEngine ] - camera look ready for %1")
+                    .arg(m_source),
+                PHOTON_DEBUG);
+            rebuildToneLut();
+            requestHistogramUpdate();
+          });
+  m_cameraLookWatcher.setFuture(
+      QtConcurrent::run([source]() {
+        return photon::cameralook::fitCameraLook(source);
+      }));
 }
 
 void RawEngine::ensureHistogramBlurCache(const ushort* src, int width,
@@ -2033,6 +2345,21 @@ void RawEngine::requestHistogramUpdate() {
   float temp = m_temperature / 100.0f;
   float tint = m_tint / 100.0f;
 
+  const bool toneCurveActive = m_toneCurveActive;
+  const auto toneLutL = m_toneLutL;
+  const auto toneLutR = m_toneLutR;
+  const auto toneLutG = m_toneLutG;
+  const auto toneLutB = m_toneLutB;
+
+  photon::calibration::Params calibParams;
+  calibParams.shadowsTint = m_calibShadowsTint;
+  calibParams.redHue = m_calibRedHue;
+  calibParams.redSat = m_calibRedSat;
+  calibParams.greenHue = m_calibGreenHue;
+  calibParams.greenSat = m_calibGreenSat;
+  calibParams.blueHue = m_calibBlueHue;
+  calibParams.blueSat = m_calibBlueSat;
+
   // Capture HSL parameters (24 floats)
   std::vector<float> hsl_h = {m_hslRedHue,    m_hslOrangeHue, m_hslYellowHue,
                               m_hslGreenHue,  m_hslAquaHue,   m_hslBlueHue,
@@ -2085,7 +2412,9 @@ void RawEngine::requestHistogramUpdate() {
                                          cgSS, cgSL, cgMH, cgMS, cgML, cgHH,
                                          cgHS, cgHL, cgBal, cgBlen, statsDetail,
                                          statsPin, statsComp, profileIndex,
-                                         bw_mix]() {
+                                         bw_mix, calibParams, toneCurveActive,
+                                         toneLutL, toneLutR, toneLutG,
+                                         toneLutB]() {
     std::vector<uint32_t> r_bins(256, 0);
     std::vector<uint32_t> g_bins(256, 0);
     std::vector<uint32_t> b_bins(256, 0);
@@ -2095,6 +2424,10 @@ void RawEngine::requestHistogramUpdate() {
     float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
     float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
     float exp_mult = std::pow(2.0f, exp > 0.0f ? exp * 0.85f : exp);
+
+    const photon::calibration::Matrix calibMat =
+        photon::calibration::computeMatrix(calibParams);
+    const float calibTint = calibParams.shadowsTint / 100.0f;
 
     // HSL centers and widths matching shader
     float centers[8] = {358.0f, 25.0f,  60.0f,  115.0f,
@@ -2152,6 +2485,9 @@ void RawEngine::requestHistogramUpdate() {
       r = color.r;
       g = color.g;
       b = color.b;
+
+      photon::calibration::applyMatrix(calibMat, r, g, b);
+      photon::calibration::applyShadowsTint(r, g, b, calibTint);
 
       // 2. Contrast (perceptual S-curve on luma; 1.0 = identity)
       r = std::max(0.0f, r);
@@ -2280,9 +2616,40 @@ void RawEngine::requestHistogramUpdate() {
         b = std::max(0.0f, b);
       }
 
-      uint8_t r8 = static_cast<uint8_t>(std::clamp(r * 255.0f, 0.0f, 255.0f));
-      uint8_t g8 = static_cast<uint8_t>(std::clamp(g * 255.0f, 0.0f, 255.0f));
-      uint8_t b8 = static_cast<uint8_t>(std::clamp(b * 255.0f, 0.0f, 255.0f));
+      // Display-encoded values (matches the rendered preview), then the tone
+      // curve in the same domain as the GPU/CPU paths.
+      float sr = std::clamp(linear_to_srgb_hist(std::max(0.0f, r)), 0.0f, 1.0f);
+      float sg = std::clamp(linear_to_srgb_hist(std::max(0.0f, g)), 0.0f, 1.0f);
+      float sb = std::clamp(linear_to_srgb_hist(std::max(0.0f, b)), 0.0f, 1.0f);
+
+      if (toneCurveActive && toneLutL && toneLutR && toneLutG && toneLutB) {
+        constexpr int kEntries = 65536;
+        constexpr float kMaxIndex = float(kEntries - 1);
+        const float fMin = std::min({sr, sg, sb});
+        const float fMax = std::max({sr, sg, sb});
+        const int idxMin =
+            std::clamp(int(fMin * kMaxIndex + 0.5f), 0, kEntries - 1);
+        const int idxMax =
+            std::clamp(int(fMax * kMaxIndex + 0.5f), 0, kEntries - 1);
+        const float nMin = (*toneLutL)[idxMin];
+        const float nMax = (*toneLutL)[idxMax];
+        const float scale = (nMax - nMin) / (fMax - fMin + 0.00001f);
+        float cr = std::clamp((sr - fMin) * scale + nMin, 0.0f, 1.0f);
+        float cg = std::clamp((sg - fMin) * scale + nMin, 0.0f, 1.0f);
+        float cb = std::clamp((sb - fMin) * scale + nMin, 0.0f, 1.0f);
+        auto sampleLut = [](const std::vector<float>& lut, float v) {
+          const int idx =
+              std::clamp(int(v * kMaxIndex + 0.5f), 0, kEntries - 1);
+          return lut[idx];
+        };
+        sr = sampleLut(*toneLutR, cr);
+        sg = sampleLut(*toneLutG, cg);
+        sb = sampleLut(*toneLutB, cb);
+      }
+
+      uint8_t r8 = static_cast<uint8_t>(std::clamp(sr * 255.0f, 0.0f, 255.0f));
+      uint8_t g8 = static_cast<uint8_t>(std::clamp(sg * 255.0f, 0.0f, 255.0f));
+      uint8_t b8 = static_cast<uint8_t>(std::clamp(sb * 255.0f, 0.0f, 255.0f));
       uint8_t l8 =
           static_cast<uint8_t>(0.2126f * r8 + 0.7152f * g8 + 0.0722f * b8);
       r_bins[r8]++;
@@ -2607,6 +2974,8 @@ bool RawEngine::loadRawFileSync(const QString& path, int loadId) {
       m_processor->imgdata.other.focal_len > 0
           ? QString("%1mm").arg(m_processor->imgdata.other.focal_len, 0, 'f', 1)
           : "-";
+  meta["focalMm"] = double(m_processor->imgdata.other.focal_len);
+  meta["apertureF"] = double(m_processor->imgdata.other.aperture);
 
   QString lens = QString::fromUtf8(m_processor->imgdata.lens.Lens).trimmed();
   meta["lensModel"] = lens.isEmpty() ? "Unknown Lens" : lens;
@@ -2618,6 +2987,8 @@ bool RawEngine::loadRawFileSync(const QString& path, int loadId) {
   QDateTime dt =
       QDateTime::fromSecsSinceEpoch(m_processor->imgdata.other.timestamp);
   meta["timestamp"] = dt.isValid() ? dt.toString("yyyy-MM-dd HH:mm:ss") : "-";
+
+  resolveLensProfile();
 
   // Map LibRaw flip to EXIF orientation tag
   int flip = m_processor->imgdata.sizes.flip;
@@ -2819,6 +3190,13 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["saturation"] = e->saturation();
   obj["temperature"] = e->temperature();
   obj["tint"] = e->tint();
+  obj["calibShadowsTint"] = e->calibShadowsTint();
+  obj["calibRedHue"] = e->calibRedHue();
+  obj["calibRedSat"] = e->calibRedSat();
+  obj["calibGreenHue"] = e->calibGreenHue();
+  obj["calibGreenSat"] = e->calibGreenSat();
+  obj["calibBlueHue"] = e->calibBlueHue();
+  obj["calibBlueSat"] = e->calibBlueSat();
   obj["profile"] = e->profile();
   obj["bwMixRed"] = e->bwMixRed();
   obj["bwMixOrange"] = e->bwMixOrange();
@@ -2850,6 +3228,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["sharpenMask"] = e->sharpenMask();
   obj["maskFeather"] = e->maskFeather();
   obj["focusDetect"] = e->focusDetect();
+  obj["cameraLookAmount"] = e->cameraLookAmount();
 
   obj["hslRedHue"] = e->hslRedHue();
   obj["hslRedSaturation"] = e->hslRedSaturation();
@@ -2900,10 +3279,25 @@ static QJsonObject stateToJson(const RawEngine* e) {
     }
     return arr;
   };
+  obj["processVersion"] = e->processVersion();
+  obj["lensProfileEnabled"] = e->lensProfileEnabled();
+  obj["lensProfileDistortion"] = e->lensProfileDistortion();
+  obj["lensProfileVignetting"] = e->lensProfileVignetting();
+  obj["lensProfileCA"] = e->lensProfileCA();
+  obj["lensProfileMaker"] = e->lensProfileMaker();
+  obj["lensProfileLens"] = e->lensProfileLens();
+  obj["toneCurveMode"] = e->toneCurveMode();
   obj["toneCurveLuma"] = pointsToArray(e->toneCurveLuma());
   obj["toneCurveRed"] = pointsToArray(e->toneCurveRed());
   obj["toneCurveGreen"] = pointsToArray(e->toneCurveGreen());
   obj["toneCurveBlue"] = pointsToArray(e->toneCurveBlue());
+  obj["toneCurveShadows"] = e->toneCurveShadows();
+  obj["toneCurveDarks"] = e->toneCurveDarks();
+  obj["toneCurveLights"] = e->toneCurveLights();
+  obj["toneCurveHighlights"] = e->toneCurveHighlights();
+  obj["toneCurveSplitShadows"] = e->toneCurveSplitShadows();
+  obj["toneCurveSplitMid"] = e->toneCurveSplitMid();
+  obj["toneCurveSplitHighlights"] = e->toneCurveSplitHighlights();
 
   // Crop & Geometry
   QJsonObject cropObj;
@@ -2938,6 +3332,20 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
   if (obj.contains("temperature"))
     e->setTemperature(obj["temperature"].toDouble());
   if (obj.contains("tint")) e->setTint(obj["tint"].toDouble());
+  if (obj.contains("calibShadowsTint"))
+    e->setCalibShadowsTint(obj["calibShadowsTint"].toDouble());
+  if (obj.contains("calibRedHue"))
+    e->setCalibRedHue(obj["calibRedHue"].toDouble());
+  if (obj.contains("calibRedSat"))
+    e->setCalibRedSat(obj["calibRedSat"].toDouble());
+  if (obj.contains("calibGreenHue"))
+    e->setCalibGreenHue(obj["calibGreenHue"].toDouble());
+  if (obj.contains("calibGreenSat"))
+    e->setCalibGreenSat(obj["calibGreenSat"].toDouble());
+  if (obj.contains("calibBlueHue"))
+    e->setCalibBlueHue(obj["calibBlueHue"].toDouble());
+  if (obj.contains("calibBlueSat"))
+    e->setCalibBlueSat(obj["calibBlueSat"].toDouble());
   if (obj.contains("profile")) {
     e->setProfile(obj["profile"].toString());
   } else if (obj.contains("tonemappingEnabled")) {
@@ -2995,6 +3403,8 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setMaskFeather(obj["maskFeather"].toDouble());
   if (obj.contains("focusDetect"))
     e->setFocusDetect(obj["focusDetect"].toDouble());
+  if (obj.contains("cameraLookAmount"))
+    e->setCameraLookAmount(obj["cameraLookAmount"].toDouble());
 
   if (obj.contains("hslRedHue")) e->setHslRedHue(obj["hslRedHue"].toDouble());
   if (obj.contains("hslRedSaturation"))
@@ -3078,6 +3488,22 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     }
     return pts;
   };
+  if (obj.contains("lensProfileEnabled"))
+    e->setLensProfileEnabled(obj["lensProfileEnabled"].toBool());
+  if (obj.contains("lensProfileDistortion"))
+    e->setLensProfileDistortion(obj["lensProfileDistortion"].toDouble());
+  if (obj.contains("lensProfileVignetting"))
+    e->setLensProfileVignetting(obj["lensProfileVignetting"].toDouble());
+  if (obj.contains("lensProfileCA"))
+    e->setLensProfileCA(obj["lensProfileCA"].toDouble());
+  if (obj.contains("lensProfileMaker"))
+    e->setLensProfileMaker(obj["lensProfileMaker"].toString());
+  if (obj.contains("lensProfileLens"))
+    e->setLensProfileLens(obj["lensProfileLens"].toString());
+  if (obj.contains("processVersion"))
+    e->setProcessVersion(obj["processVersion"].toInt(1));
+  if (obj.contains("toneCurveMode"))
+    e->setToneCurveMode(obj["toneCurveMode"].toString());
   if (obj.contains("toneCurveLuma"))
     e->setToneCurveLuma(arrayToPoints(obj["toneCurveLuma"].toArray()));
   if (obj.contains("toneCurveRed"))
@@ -3086,6 +3512,20 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setToneCurveGreen(arrayToPoints(obj["toneCurveGreen"].toArray()));
   if (obj.contains("toneCurveBlue"))
     e->setToneCurveBlue(arrayToPoints(obj["toneCurveBlue"].toArray()));
+  if (obj.contains("toneCurveShadows"))
+    e->setToneCurveShadows(obj["toneCurveShadows"].toDouble());
+  if (obj.contains("toneCurveDarks"))
+    e->setToneCurveDarks(obj["toneCurveDarks"].toDouble());
+  if (obj.contains("toneCurveLights"))
+    e->setToneCurveLights(obj["toneCurveLights"].toDouble());
+  if (obj.contains("toneCurveHighlights"))
+    e->setToneCurveHighlights(obj["toneCurveHighlights"].toDouble());
+  if (obj.contains("toneCurveSplitShadows"))
+    e->setToneCurveSplitShadows(obj["toneCurveSplitShadows"].toDouble());
+  if (obj.contains("toneCurveSplitMid"))
+    e->setToneCurveSplitMid(obj["toneCurveSplitMid"].toDouble());
+  if (obj.contains("toneCurveSplitHighlights"))
+    e->setToneCurveSplitHighlights(obj["toneCurveSplitHighlights"].toDouble());
 
   // Crop & Geometry
   if (obj.contains("cropRect")) {
@@ -3117,6 +3557,13 @@ static void resetToDefaults(RawEngine* e) {
   e->setSaturation(0.0f);
   e->setTemperature(0.0f);
   e->setTint(0.0f);
+  e->setCalibShadowsTint(0.0f);
+  e->setCalibRedHue(0.0f);
+  e->setCalibRedSat(0.0f);
+  e->setCalibGreenHue(0.0f);
+  e->setCalibGreenSat(0.0f);
+  e->setCalibBlueHue(0.0f);
+  e->setCalibBlueSat(0.0f);
   e->setProfile(QString::fromLatin1(develop::kProfileNormal));
   e->setBwMixRed(0.0f);
   e->setBwMixOrange(0.0f);
@@ -3144,6 +3591,7 @@ static void resetToDefaults(RawEngine* e) {
   e->setDehaze(0.0f);
   e->setStructure(0.0f);
   e->setCentre(0.0f);
+  e->setCameraLookAmount(0.0f);
   e->setSharpness(0.0f);
   e->setSharpenMask(0.0f);
   e->setMaskFeather(0.0f);
@@ -3194,7 +3642,22 @@ static void resetToDefaults(RawEngine* e) {
   p1["x"] = 1.0;
   p1["y"] = 1.0;
   defaultPts << p0 << p1;
+  e->setLensProfileEnabled(false);
+  e->setLensProfileDistortion(50.0f);
+  e->setLensProfileVignetting(50.0f);
+  e->setLensProfileCA(50.0f);
+  e->setLensProfileMaker(QString());
+  e->setLensProfileLens(QString());
+  e->setProcessVersion(RawEngine::kCurrentProcessVersion);
+  e->setToneCurveMode("manual");
   e->setToneCurveLuma(defaultPts);
+  e->setToneCurveShadows(0.0f);
+  e->setToneCurveDarks(0.0f);
+  e->setToneCurveLights(0.0f);
+  e->setToneCurveHighlights(0.0f);
+  e->setToneCurveSplitShadows(25.0f);
+  e->setToneCurveSplitMid(50.0f);
+  e->setToneCurveSplitHighlights(75.0f);
   e->setToneCurveRed(defaultPts);
   e->setToneCurveGreen(defaultPts);
   e->setToneCurveBlue(defaultPts);
@@ -3241,17 +3704,32 @@ void RawEngine::loadEdits() {
     return;
   }
 
+  int savedIndex = -1;
   for (const auto& val : arr) {
-    m_editStack.append(val.toObject().toVariantMap());
+    const QJsonObject entry = val.toObject();
+    if (entry.contains(QStringLiteral("__index"))) {
+      savedIndex = entry.value(QStringLiteral("__index")).toInt(-1);
+      continue;
+    }
+    m_editStack.append(entry.toVariantMap());
   }
-  m_editIndex = m_editStack.size() - 1;
+  if (m_editStack.isEmpty()) {
+    resetToDefaults(this);
+    m_editIndex = -1;
+    commitEdit();
+    return;
+  }
+  m_editIndex = (savedIndex >= 0 && savedIndex < int(m_editStack.size()))
+                    ? savedIndex
+                    : int(m_editStack.size()) - 1;
 
   // Ensure a clean slate before applying loaded edits to avoid inheriting state
   // from previous photo
   resetToDefaults(this);
 
-  // Apply last state - this will trigger signals and update UI
-  QJsonObject lastState = arr.last().toObject();
+  // Apply the current history state - this will trigger signals and update UI
+  QJsonObject lastState =
+      QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap());
   LogManager::instance()->log(
       QString(
           "[ RawEngine ] - Loading edits: denoiseEnabled=%1, denoiseAmount=%2")
@@ -3266,6 +3744,518 @@ void RawEngine::loadEdits() {
   requestHistogramUpdate();
 }
 
+
+static QString historyLabelForKey(const QString& key) {
+  struct Exact {
+    const char* key;
+    const char* label;
+  };
+  static const Exact exact[] = {
+      {"exposure", "Exposure"},      {"contrast", "Contrast"},
+      {"highlights", "Highlights"},  {"shadows", "Shadows"},
+      {"whites", "Whites"},          {"blacks", "Blacks"},
+      {"temperature", "White Balance"}, {"tint", "White Balance"},
+      {"vibrance", "Presence"},      {"saturation", "Presence"},
+      {"profile", "Profile"},        {"adaptation", "Adaptation"},
+      {"clarity", "Clarity"},        {"dehaze", "Dehaze"},
+      {"structure", "Structure"},    {"centre", "Centre"},
+      {"cameraLookAmount", "Camera Look"},
+      {"sharpness", "Sharpening"},   {"sharpenMask", "Sharpen Masking"},
+      {"maskFeather", "Sharpen Feather"}, {"focusDetect", "Focus Detect"},
+      {"grainAmount", "Grain Amount"}, {"grainSize", "Grain Size"},
+      {"grainRoughness", "Grain Roughness"},
+      {"vignetteAmount", "Vignette Amount"},
+      {"vignetteMidpoint", "Vignette Midpoint"},
+      {"vignetteRoundness", "Vignette Roundness"},
+      {"vignetteFeather", "Vignette Feather"},
+      {"processVersion", "Process Version"},
+  };
+  for (const auto& e : exact) {
+    if (key == QLatin1String(e.key)) return QString::fromLatin1(e.label);
+  }
+
+  static const char* bands[] = {"Red",    "Orange", "Yellow", "Green",
+                                "Aqua",   "Blue",   "Purple", "Magenta"};
+  if (key.startsWith(QLatin1String("hsl"))) {
+    const QString rest = key.mid(3);
+    for (const char* band : bands) {
+      const QString bandName = QString::fromLatin1(band);
+      if (rest.startsWith(bandName)) {
+        const QString channel = rest.mid(bandName.size());
+        return QStringLiteral("HSL ") + channel + QStringLiteral(" (") +
+               bandName + QStringLiteral(")");
+      }
+    }
+    return QStringLiteral("Color Mixer");
+  }
+
+  static const char* regions[] = {"Shadows", "Midtones", "Highlights"};
+  if (key.startsWith(QLatin1String("cg"))) {
+    const QString rest = key.mid(2);
+    for (const char* region : regions) {
+      const QString regionName = QString::fromLatin1(region);
+      if (rest.startsWith(regionName)) {
+        const QString channel = rest.mid(regionName.size());
+        return QStringLiteral("Grading ") + channel + QStringLiteral(" (") +
+               regionName + QStringLiteral(")");
+      }
+    }
+    return QStringLiteral("Grading ") + rest;
+  }
+
+  if (key.startsWith(QLatin1String("calib"))) {
+    QString rest = key.mid(5);
+    if (rest == QLatin1String("ShadowsTint"))
+      return QStringLiteral("Calibration Shadows Tint");
+    for (const char* band : bands) {
+      const QString bandName = QString::fromLatin1(band);
+      if (rest.startsWith(bandName)) {
+        return QStringLiteral("Calibration ") + bandName +
+               rest.mid(bandName.size());
+      }
+    }
+    return QStringLiteral("Calibration");
+  }
+
+  if (key.startsWith(QLatin1String("bwMix"))) {
+    return QStringLiteral("B&W Mix (") + key.mid(5) + QStringLiteral(")");
+  }
+
+  if (key.startsWith(QLatin1String("toneCurve"))) {
+    const QString rest = key.mid(9);
+    if (rest == QLatin1String("Luma") || rest == QLatin1String("Red") ||
+        rest == QLatin1String("Green") || rest == QLatin1String("Blue"))
+      return QStringLiteral("Tone Curve Points");
+    if (rest.startsWith(QLatin1String("Split")))
+      return QStringLiteral("Parametric Splits");
+    if (rest == QLatin1String("Mode")) return QStringLiteral("Curve Mode");
+    return QStringLiteral("Parametric ") + rest;
+  }
+
+  if (key.startsWith(QLatin1String("denoise"))) return QStringLiteral("Denoise");
+  if (key.startsWith(QLatin1String("lens")))
+    return QStringLiteral("Lens Correction");
+  if (key.startsWith(QLatin1String("crop")) ||
+      key.startsWith(QLatin1String("straighten")) ||
+      key.startsWith(QLatin1String("orientation")) ||
+      key.startsWith(QLatin1String("flip")))
+    return QStringLiteral("Geometry");
+
+  if (key.startsWith(QLatin1String("scene"))) return QString();
+  return QStringLiteral("Edit");
+}
+
+static QString historyDeltaText(const QString& key, double delta) {
+  if (std::abs(delta) < 1e-9) return QString();
+  const bool negative = delta < 0.0;
+  const double magnitude = std::abs(delta);
+  QString number;
+  if (key == QLatin1String("contrast")) {
+    number = QString::number(magnitude * 200.0, 'f', 0);
+  } else if (key == QLatin1String("exposure")) {
+    number = QString::number(magnitude, 'f', 2);
+  } else if (key == QLatin1String("grainSize") ||
+             key == QLatin1String("grainRoughness")) {
+    number = QString::number(magnitude, 'f', 2);
+  } else {
+    number = QString::number(magnitude, 'f', 0);
+  }
+  return (negative ? QStringLiteral("-") : QStringLiteral("+")) + number;
+}
+
+struct HistoryStepInfo {
+  QString label;
+  QString delta;
+};
+
+static HistoryStepInfo historyStepForDiff(const QJsonObject& prev,
+                                          const QJsonObject& next) {
+  HistoryStepInfo info;
+  QStringList labels;
+  bool deltaSet = false;
+  for (auto it = next.begin(); it != next.end(); ++it) {
+    const QString key = it.key();
+    if (key.startsWith(QLatin1String("__"))) continue;
+    if (prev.value(key) == it.value()) continue;
+    const QString label = historyLabelForKey(key);
+    if (!deltaSet && it.value().isDouble() && prev.value(key).isDouble()) {
+      const QString delta = historyDeltaText(
+          key, it.value().toDouble() - prev.value(key).toDouble());
+      if (!delta.isEmpty()) {
+        info.delta = delta;
+        deltaSet = true;
+      }
+    }
+    if (label.isEmpty() || labels.contains(label)) continue;
+    labels << label;
+    if (labels.size() >= 3) break;
+  }
+  info.label = labels.isEmpty() ? QStringLiteral("Edit")
+                                : labels.join(QStringLiteral(", "));
+  return info;
+}
+
+void RawEngine::setLensProfileEnabled(bool enabled) {
+  if (m_lensProfileEnabled == enabled) return;
+  m_lensProfileEnabled = enabled;
+  if (enabled) resolveLensProfile();
+  updateLensShader();
+  emit lensProfileEnabledChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setLensProfileDistortion(float amount) {
+  amount = std::clamp(amount, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_lensProfileDistortion, amount)) return;
+  m_lensProfileDistortion = amount;
+  updateLensShader();
+  emit lensProfileDistortionChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setLensProfileVignetting(float amount) {
+  amount = std::clamp(amount, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_lensProfileVignetting, amount)) return;
+  m_lensProfileVignetting = amount;
+  updateLensShader();
+  emit lensProfileVignettingChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setLensProfileCA(float amount) {
+  amount = std::clamp(amount, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_lensProfileCA, amount)) return;
+  m_lensProfileCA = amount;
+  updateLensShader();
+  emit lensProfileCAChanged();
+  emit isDefaultChanged();
+}
+
+QStringList RawEngine::lensProfileMakers() {
+  photon::lensfun::Database::instance().ensureLoaded();
+  return photon::lensfun::Database::instance().makers();
+}
+
+QString RawEngine::lensProfileEffectiveLens() const {
+  if (!m_lensProfileLens.isEmpty()) return m_lensProfileLens;
+  return m_lensProfileResolved.valid ? m_lensProfileResolved.lensName
+                                     : QString();
+}
+
+QString RawEngine::lensProfileEffectiveMaker() const {
+  if (!m_lensProfileMaker.isEmpty()) return m_lensProfileMaker;
+  const QString lens = lensProfileEffectiveLens();
+  if (lens.isEmpty()) return QString();
+  return photon::lensfun::Database::instance().makerForLens(lens);
+}
+
+QStringList RawEngine::lensProfileLenses() {
+  photon::lensfun::Database::instance().ensureLoaded();
+  QString maker = lensProfileEffectiveMaker();
+  if (maker.isEmpty()) maker = m_metadata.value("make").toString();
+  return photon::lensfun::Database::instance().lensesForMaker(maker);
+}
+
+void RawEngine::setLensProfileMaker(const QString& maker) {
+  if (m_lensProfileMaker == maker) return;
+  m_lensProfileMaker = maker;
+  // Drop a lens selection that does not belong to the new brand.
+  if (!m_lensProfileLens.isEmpty() &&
+      !photon::lensfun::Database::instance().lensesForMaker(maker).contains(
+          m_lensProfileLens)) {
+    m_lensProfileLens.clear();
+    emit lensProfileLensChanged();
+  }
+  emit lensProfileMakerChanged();
+  emit lensProfileLensesChanged();
+  resolveLensProfile();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setLensProfileLens(const QString& lens) {
+  if (m_lensProfileLens == lens) return;
+  m_lensProfileLens = lens;
+  emit lensProfileLensChanged();
+  resolveLensProfile();
+  emit isDefaultChanged();
+}
+
+void RawEngine::autoDetectLensProfile() {
+  const bool hadManual =
+      !m_lensProfileMaker.isEmpty() || !m_lensProfileLens.isEmpty();
+  m_lensProfileMaker.clear();
+  m_lensProfileLens.clear();
+  emit lensProfileMakerChanged();
+  emit lensProfileLensChanged();
+  emit lensProfileLensesChanged();
+  resolveLensProfile();
+  if (hadManual) emit isDefaultChanged();
+}
+
+void RawEngine::resolveLensProfile() {
+  QString name = m_lensProfileLens;
+  if (name.isEmpty()) name = m_metadata.value("lensModel").toString();
+  m_lensProfileResolved = photon::lensfun::Profile();
+  if (!name.isEmpty()) {
+    photon::lensfun::Database::instance().ensureLoaded();
+    QString maker = m_lensProfileMaker;
+    if (maker.isEmpty()) maker = m_metadata.value("make").toString();
+    m_lensProfileResolved = photon::lensfun::Database::instance().match(
+        maker, m_metadata.value("model").toString(), name,
+        float(m_metadata.value("focalMm").toDouble()),
+        float(m_metadata.value("apertureF").toDouble()));
+  }
+  const QString resolved =
+      m_lensProfileResolved.valid ? m_lensProfileResolved.lensName : QString();
+  if (resolved != m_lensProfileName) {
+    m_lensProfileName = resolved;
+    emit lensProfileNameChanged();
+  }
+  emit lensProfileEffectiveChanged();
+  emit lensProfileLensesChanged();
+  updateLensShader();
+}
+
+void RawEngine::updateLensShader() {
+  const photon::lensfun::Profile& p = m_lensProfileResolved;
+  const bool hasDistortion = p.valid && !p.distortionModel.isEmpty();
+  const bool hasTca = p.valid && p.hasTca;
+  const bool hasVignetting = p.valid && p.hasVignetting;
+  const bool active = m_lensProfileEnabled &&
+                      (hasDistortion || hasTca || hasVignetting);
+
+  int origW = 0;
+  int origH = 0;
+  if (m_isBitmap) {
+    origW = m_customWidth;
+    origH = m_customHeight;
+  } else if (m_processedImage) {
+    origW = m_processedImage->width;
+    origH = m_processedImage->height;
+  }
+  if (origW <= 0 || origH <= 0) {
+    origW = m_geometryWidth;
+    origH = m_geometryHeight;
+  }
+  const int bakedW = m_lensBakedWidth > 0 ? m_lensBakedWidth : origW;
+  const int bakedH = m_lensBakedHeight > 0 ? m_lensBakedHeight : origH;
+  float centerX = 0.0f;
+  float centerY = 0.0f;
+  if (m_lensBakeInfo.preCropW > 0 && m_lensBakeInfo.preCropH > 0) {
+    centerX = (m_lensBakeInfo.preCropW - 1) * 0.5f - m_lensBakeInfo.cropLeft;
+    centerY = (m_lensBakeInfo.preCropH - 1) * 0.5f - m_lensBakeInfo.cropTop;
+  } else {
+    centerX = (bakedW - 1) * 0.5f;
+    centerY = (bakedH - 1) * 0.5f;
+  }
+
+  const float halfShort =
+      std::max(std::min(origW, origH) * 0.5f, 1.0f);
+  const float halfDiag =
+      std::max(std::hypot(float(origW), float(origH)) * 0.5f, 1.0f);
+  const float distAmount =
+      std::clamp(m_lensProfileDistortion, 0.0f, 100.0f) / 100.0f;
+  float zoom = 1.0f;
+  if (active && hasDistortion) {
+    const float dx = float(origW) * 0.5f;
+    const float dy = float(origH) * 0.5f;
+    const float samples[5] = {1.0f, dx / halfShort, dy / halfShort,
+                              std::hypot(dx, dy) / halfShort, 0.0f};
+    for (const float r : samples) {
+      float model = 1.0f;
+      const float k0 = p.distortionK[0];
+      const float k1 = p.distortionK[1];
+      const float k2 = p.distortionK[2];
+      if (p.distortionModel == QLatin1String("poly3")) {
+        model = 1.0f + k0 * r * r;
+      } else if (p.distortionModel == QLatin1String("poly5")) {
+        const float r2 = r * r;
+        model = 1.0f + k0 * r2 + k1 * r2 * r2;
+      } else if (p.distortionModel == QLatin1String("ptlens")) {
+        model = 1.0f + k2 * r + k1 * r * r + k0 * r * r * r;
+      }
+      zoom = std::max(zoom, 1.0f + (model - 1.0f) * distAmount);
+    }
+  }
+
+  int distModel = 0;
+  if (hasDistortion) {
+    distModel = p.distortionModel == QLatin1String("poly3")   ? 1
+                : p.distortionModel == QLatin1String("poly5") ? 2
+                                                              : 3;
+  }
+  int tcaModel = 0;
+  if (hasTca) tcaModel = p.tcaModel == QLatin1String("poly3") ? 2 : 1;
+
+  QVariantMap map;
+  map["active"] = active;
+  map["centerX"] = double(centerX);
+  map["centerY"] = double(centerY);
+  map["halfShort"] = double(halfShort);
+  map["halfDiag"] = double(halfDiag);
+  map["zoom"] = double(zoom);
+  map["amountDist"] = double(distAmount);
+  map["amountCa"] = double(std::clamp(m_lensProfileCA, 0.0f, 100.0f) / 100.0f);
+  map["amountVig"] =
+      double(std::clamp(m_lensProfileVignetting, 0.0f, 100.0f) / 100.0f);
+  map["distModel"] = distModel;
+  map["distK0"] = double(p.distortionK[0]);
+  map["distK1"] = double(p.distortionK[1]);
+  map["distK2"] = double(p.distortionK[2]);
+  map["tcaModel"] = tcaModel;
+  map["tcaVR"] = double(p.tcaR[0]);
+  map["tcaCR"] = double(p.tcaR[1]);
+  map["tcaBR"] = double(p.tcaR[2]);
+  map["tcaVB"] = double(p.tcaB[0]);
+  map["tcaCB"] = double(p.tcaB[1]);
+  map["tcaBB"] = double(p.tcaB[2]);
+  map["vigActive"] = hasVignetting;
+  map["vigK0"] = double(p.vignetting[0]);
+  map["vigK1"] = double(p.vignetting[1]);
+  map["vigK2"] = double(p.vignetting[2]);
+
+  if (map != m_lensShader) {
+    m_lensShader = map;
+    emit lensShaderChanged();
+  }
+}
+
+void RawEngine::setProcessVersion(int version) {
+  if (version < 1) version = 1;
+  if (m_processVersion == version) return;
+  m_processVersion = version;
+  emit processVersionChanged();
+}
+
+QVariantList RawEngine::historySteps() const {
+  const int count = int(m_editStack.size());
+
+  // Derive labels/deltas for legacy steps that predate the metadata.
+  std::vector<QString> labels(count);
+  std::vector<QString> deltas(count);
+  for (int i = 0; i < count; ++i) {
+    const QJsonObject state =
+        QJsonObject::fromVariantMap(m_editStack[i].toMap());
+    QString label = state.value(QStringLiteral("__step")).toString();
+    QString delta = state.value(QStringLiteral("__delta")).toString();
+    if (label.isEmpty()) {
+      if (i == 0) {
+        label = QStringLiteral("Open");
+      } else {
+        QJsonObject prev =
+            QJsonObject::fromVariantMap(m_editStack[i - 1].toMap());
+        prev.remove(QStringLiteral("__step"));
+        prev.remove(QStringLiteral("__delta"));
+        const HistoryStepInfo info = historyStepForDiff(prev, state);
+        label = info.label;
+        delta = info.delta;
+      }
+    }
+    labels[i] = label;
+    deltas[i] = delta;
+  }
+
+  QVariantList out;
+  for (int i = count - 1; i >= 0; --i) {
+    QVariantMap entry;
+    entry["index"] = i;
+    entry["label"] = labels[i];
+    entry["delta"] = deltas[i];
+    entry["current"] = (i == m_editIndex);
+    entry["future"] = (i > m_editIndex);
+    out.append(entry);
+  }
+  // Persistent virtual step: the untouched original state.
+  QVariantMap original;
+  original["index"] = -1;
+  original["label"] = QStringLiteral("Original");
+  original["delta"] = QString();
+  original["current"] = false;
+  original["future"] = false;
+  out.append(original);
+  return out;
+}
+
+void RawEngine::applyHistoryIndex(int index) {
+  if (index < 0 || index >= int(m_editStack.size()) || index == m_editIndex)
+    return;
+  m_editIndex = index;
+  applyJsonToState(
+      this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
+  emit canUndoChanged();
+  emit canRedoChanged();
+  emit historyChanged();
+  emit isDefaultChanged();
+  requestHistogramUpdate();
+  persistEditStack();
+
+  if (!m_inCropMode && hasNonDefaultGeometry()) {
+    reloadWithGeometry();
+  } else if (!m_inCropMode && m_geometryBaked) {
+    m_geometryBaked = false;
+    m_geometryBuffer.clear();
+    m_geometryWidth = 0;
+    m_geometryHeight = 0;
+    m_lensBakeInfo = GeometryBakeInfo();
+    m_lensBakedWidth = 0;
+    m_lensBakedHeight = 0;
+    updateLensShader();
+    emit geometryBakedChanged();
+    emit imageLoaded();
+  }
+
+  m_previewRefreshTimer.start();
+}
+
+void RawEngine::jumpToHistory(int index) {
+  if (index < 0) {
+    resetToOriginal();
+    return;
+  }
+  applyHistoryIndex(index);
+}
+
+void RawEngine::clearHistory() {
+  if (m_editStack.isEmpty()) return;
+  QVariant state = m_editStack[m_editIndex];
+  QJsonObject obj = QJsonObject::fromVariantMap(state.toMap());
+  obj["__step"] = QStringLiteral("Current");
+  obj.remove(QStringLiteral("__delta"));
+  m_editStack.clear();
+  m_editStack.append(obj.toVariantMap());
+  m_editIndex = 0;
+  emit editStackChanged();
+  emit canUndoChanged();
+  emit canRedoChanged();
+  emit historyChanged();
+  persistEditStack();
+}
+
+void RawEngine::persistEditStack() {
+  if (m_source.isEmpty()) return;
+  QFileInfo fileInfo(m_source);
+  QString editsDir =
+      QDir::toNativeSeparators(fileInfo.absolutePath() + "/.PhotonData/edits");
+  QDir().mkpath(editsDir);
+  QString editsPath =
+      QDir::toNativeSeparators(editsDir + "/" + fileInfo.fileName() + ".json");
+
+  QJsonArray arr;
+  for (const auto& v : m_editStack) {
+    QJsonObject obj = QJsonObject::fromVariantMap(v.toMap());
+    obj.remove(QStringLiteral("__index"));
+    arr.append(obj);
+  }
+  QJsonObject marker;
+  marker["__index"] = m_editIndex;
+  arr.append(marker);
+
+  QFile file(editsPath);
+  if (file.open(QIODevice::WriteOnly)) {
+    file.write(QJsonDocument(arr).toJson());
+  }
+}
+
 void RawEngine::commitEdit() {
   if (m_source.isEmpty()) return;
 
@@ -3278,37 +4268,42 @@ void RawEngine::commitEdit() {
     }
   }
 
+  QString label = m_pendingStepLabel;
+  QString delta;
+  m_pendingStepLabel.clear();
+
   // Check if it's actually different from the last one in the stack
   if (!m_editStack.isEmpty()) {
     QJsonObject lastState =
         QJsonObject::fromVariantMap(m_editStack.last().toMap());
+    lastState.remove(QStringLiteral("__step"));
+    lastState.remove(QStringLiteral("__delta"));
     if (newState == lastState) return;
+    if (label.isEmpty()) {
+      const HistoryStepInfo info = historyStepForDiff(lastState, newState);
+      label = info.label;
+      delta = info.delta;
+    }
+  } else if (label.isEmpty()) {
+    label = QStringLiteral("Open");
   }
 
+  newState["__step"] = label;
+  if (!delta.isEmpty()) newState["__delta"] = delta;
   m_editStack.append(newState.toVariantMap());
+
+  // Keep the history bounded (oldest steps are dropped).
+  while (m_editStack.size() > kHistoryLimit) {
+    m_editStack.removeFirst();
+  }
   m_editIndex = m_editStack.size() - 1;
 
   emit editStackChanged();
   emit canUndoChanged();
   emit canRedoChanged();
+  emit historyChanged();
 
-  // Save full stack to file
-  QFileInfo fileInfo(m_source);
-  QString editsDir =
-      QDir::toNativeSeparators(fileInfo.absolutePath() + "/.PhotonData/edits");
-  QDir().mkpath(editsDir);
-  QString editsPath =
-      QDir::toNativeSeparators(editsDir + "/" + fileInfo.fileName() + ".json");
-
-  QJsonArray arr;
-  for (const auto& v : m_editStack) {
-    arr.append(QJsonObject::fromVariantMap(v.toMap()));
-  }
-
-  QFile file(editsPath);
-  if (file.open(QIODevice::WriteOnly)) {
-    file.write(QJsonDocument(arr).toJson());
-  }
+  persistEditStack();
 
   // Debounced preview refresh — avoids piling up heavy tasks on rapid edits
   m_previewRefreshTimer.start();
@@ -3318,56 +4313,16 @@ void RawEngine::commitEdit() {
 
 void RawEngine::undo() {
   if (!canUndo()) return;
-  m_editIndex--;
-  applyJsonToState(
-      this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
-  emit canUndoChanged();
-  emit canRedoChanged();
-  emit isDefaultChanged();
-  requestHistogramUpdate();
-
-  // Re-bake geometry if not in crop mode
-  if (!m_inCropMode && hasNonDefaultGeometry()) {
-    reloadWithGeometry();
-  } else if (!m_inCropMode && m_geometryBaked) {
-    // Was baked but no longer has geometry
-    m_geometryBaked = false;
-    m_geometryBuffer.clear();
-    m_geometryWidth = 0;
-    m_geometryHeight = 0;
-    emit geometryBakedChanged();
-    emit imageLoaded();
-  }
-
-  m_previewRefreshTimer.start();
+  applyHistoryIndex(m_editIndex - 1);
 }
 
 void RawEngine::redo() {
   if (!canRedo()) return;
-  m_editIndex++;
-  applyJsonToState(
-      this, QJsonObject::fromVariantMap(m_editStack[m_editIndex].toMap()));
-  emit canUndoChanged();
-  emit canRedoChanged();
-  emit isDefaultChanged();
-  requestHistogramUpdate();
-
-  // Re-bake geometry if not in crop mode
-  if (!m_inCropMode && hasNonDefaultGeometry()) {
-    reloadWithGeometry();
-  } else if (!m_inCropMode && m_geometryBaked) {
-    m_geometryBaked = false;
-    m_geometryBuffer.clear();
-    m_geometryWidth = 0;
-    m_geometryHeight = 0;
-    emit geometryBakedChanged();
-    emit imageLoaded();
-  }
-
-  m_previewRefreshTimer.start();
+  applyHistoryIndex(m_editIndex + 1);
 }
 
 void RawEngine::applySettings(const QVariantMap& settings) {
+  m_pendingStepLabel = QStringLiteral("Preset");
   applyJsonToState(this, QJsonObject::fromVariantMap(settings));
   commitEdit();
 }
@@ -3381,10 +4336,36 @@ void RawEngine::resetToOriginal() {
     m_geometryBuffer.clear();
     m_geometryWidth = 0;
     m_geometryHeight = 0;
+    m_lensBakeInfo = GeometryBakeInfo();
+    m_lensBakedWidth = 0;
+    m_lensBakedHeight = 0;
+    updateLensShader();
     emit geometryBakedChanged();
   }
 
-  commitEdit();
+  // Reset appends a "Reset" step at the end of the history without
+  // discarding any existing entries (only Clear History removes steps).
+  QJsonObject state = stateToJson(this);
+  bool duplicate = false;
+  if (!m_editStack.isEmpty()) {
+    QJsonObject last = QJsonObject::fromVariantMap(m_editStack.last().toMap());
+    last.remove(QStringLiteral("__step"));
+    last.remove(QStringLiteral("__delta"));
+    duplicate = (state == last);
+  }
+  if (!duplicate) {
+    state["__step"] = QStringLiteral("Reset");
+    m_editStack.append(state.toVariantMap());
+    while (m_editStack.size() > kHistoryLimit) {
+      m_editStack.removeFirst();
+    }
+    emit editStackChanged();
+    emit historyChanged();
+  }
+  m_editIndex = int(m_editStack.size()) - 1;
+  persistEditStack();
+  emit canUndoChanged();
+  emit canRedoChanged();
   emit isDefaultChanged();
 
   // Force re-process to show clean original
@@ -3410,6 +4391,13 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_saturation)) return false;
   if (!qFuzzyIsNull(m_temperature)) return false;
   if (!qFuzzyIsNull(m_tint)) return false;
+  if (!qFuzzyIsNull(m_calibShadowsTint)) return false;
+  if (!qFuzzyIsNull(m_calibRedHue)) return false;
+  if (!qFuzzyIsNull(m_calibRedSat)) return false;
+  if (!qFuzzyIsNull(m_calibGreenHue)) return false;
+  if (!qFuzzyIsNull(m_calibGreenSat)) return false;
+  if (!qFuzzyIsNull(m_calibBlueHue)) return false;
+  if (!qFuzzyIsNull(m_calibBlueSat)) return false;
   if (m_profile != QLatin1String(develop::kProfileNormal)) return false;
   if (!qFuzzyIsNull(m_bwMixRed) || !qFuzzyIsNull(m_bwMixOrange) ||
       !qFuzzyIsNull(m_bwMixYellow) || !qFuzzyIsNull(m_bwMixGreen) ||
@@ -3432,6 +4420,7 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_dehaze)) return false;
   if (!qFuzzyIsNull(m_structure)) return false;
   if (!qFuzzyIsNull(m_centre)) return false;
+  if (!qFuzzyIsNull(m_cameraLookAmount)) return false;
   if (!qFuzzyIsNull(m_sharpness)) return false;
   if (!qFuzzyIsNull(m_sharpenMask)) return false;
   if (!qFuzzyIsNull(m_maskFeather)) return false;
@@ -3488,10 +4477,24 @@ bool RawEngine::isDefault() const {
            qFuzzyCompare(p1["x"].toDouble(), 1.0) &&
            qFuzzyCompare(p1["y"].toDouble(), 1.0);
   };
+  if (m_lensProfileEnabled) return false;
+  if (!qFuzzyCompare(m_lensProfileDistortion, 50.0f)) return false;
+  if (!qFuzzyCompare(m_lensProfileVignetting, 50.0f)) return false;
+  if (!qFuzzyCompare(m_lensProfileCA, 50.0f)) return false;
+  if (!m_lensProfileMaker.isEmpty() || !m_lensProfileLens.isEmpty())
+    return false;
+  if (m_toneCurveMode != QLatin1String("manual")) return false;
   if (!isIdentityCurve(m_toneCurveLuma)) return false;
   if (!isIdentityCurve(m_toneCurveRed)) return false;
   if (!isIdentityCurve(m_toneCurveGreen)) return false;
   if (!isIdentityCurve(m_toneCurveBlue)) return false;
+  if (!qFuzzyIsNull(m_toneCurveShadows)) return false;
+  if (!qFuzzyIsNull(m_toneCurveDarks)) return false;
+  if (!qFuzzyIsNull(m_toneCurveLights)) return false;
+  if (!qFuzzyIsNull(m_toneCurveHighlights)) return false;
+  if (!qFuzzyCompare(m_toneCurveSplitShadows, 25.0f)) return false;
+  if (!qFuzzyCompare(m_toneCurveSplitMid, 50.0f)) return false;
+  if (!qFuzzyCompare(m_toneCurveSplitHighlights, 75.0f)) return false;
 
   // Crop & geometry checks
   if (m_cropRect != QRectF(0, 0, 1, 1)) return false;
@@ -3516,7 +4519,8 @@ bool RawEngine::hasNonDefaultGeometry() const {
 QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
                                           bool flipH, bool flipV,
                                           double straighten,
-                                          const QRectF& cropRect) {
+                                          const QRectF& cropRect,
+                                          GeometryBakeInfo* bakeInfo) {
   const int inputW = input.width();
   const int inputH = input.height();
   QImage output = input;
@@ -3579,6 +4583,13 @@ QImage RawEngine::applyGeometryTransforms(const QImage& input, int orientSteps,
     }
   }
 
+  if (bakeInfo) {
+    bakeInfo->preCropW = preCropW;
+    bakeInfo->preCropH = preCropH;
+    bakeInfo->cropLeft = cropLeft;
+    bakeInfo->cropTop = cropTop;
+  }
+
   LogManager::instance()->log(
       QString("[ RawEngine.cpp ] - cropDebug applyGeometry in=%1x%2 orient=%3 "
               "flipH=%4 flipV=%5 straighten=%6 cropN=(%7,%8,%9,%10) "
@@ -3626,7 +4637,6 @@ void RawEngine::reloadWithGeometry() {
   double straighten = m_straightenAngle;
   QRectF crop = m_cropRect;
   bool hasGeom = hasNonDefaultGeometry();
-
   QFuture<LoadResult> future = QtConcurrent::run([this, path, loadId,
                                                   orientSteps, flipH, flipV,
                                                   straighten, crop, hasGeom]() {
@@ -3693,9 +4703,15 @@ void RawEngine::reloadWithGeometry() {
       }
     }
 
-    // Apply geometry transforms
+    // Apply geometry transforms. Lens corrections are applied on the GPU in
+    // real time (export applies them in ImageDeveloper).
+    GeometryBakeInfo bakeInfo;
     QImage transformed = applyGeometryTransforms(srcImg, orientSteps, flipH,
-                                                 flipV, straighten, crop);
+                                                 flipV, straighten, crop,
+                                                 &bakeInfo);
+    m_lensBakeInfo = bakeInfo;
+    m_lensBakedWidth = transformed.width();
+    m_lensBakedHeight = transformed.height();
 
     // Convert back to RGBA64 buffer for getProcessedImage
     transformed = transformed.convertToFormat(QImage::Format_RGBA64);
@@ -3728,6 +4744,10 @@ void RawEngine::enterCropMode() {
     m_geometryBuffer.clear();
     m_geometryWidth = 0;
     m_geometryHeight = 0;
+    m_lensBakeInfo = GeometryBakeInfo();
+    m_lensBakedWidth = 0;
+    m_lensBakedHeight = 0;
+    updateLensShader();
     emit geometryBakedChanged();
   }
 

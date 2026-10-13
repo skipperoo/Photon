@@ -94,6 +94,114 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit tintChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::lensProfileEnabledChanged, this, [this]() {
+    emit lensProfileEnabledChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::lensProfileDistortionChanged, this, [this]() {
+    emit lensProfileDistortionChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileVignettingChanged, this, [this]() {
+    emit lensProfileVignettingChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileCAChanged, this, [this]() {
+    emit lensProfileCAChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileNameChanged, this, [this]() {
+    emit lensProfileNameChanged();
+  });
+  connect(&m_engine, &RawEngine::lensShaderChanged, this, [this]() {
+    emit lensShaderChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::lensProfileMakerChanged, this, [this]() {
+    emit lensProfileMakerChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileLensChanged, this, [this]() {
+    emit lensProfileLensChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileMakersChanged, this, [this]() {
+    emit lensProfileMakersChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileLensesChanged, this, [this]() {
+    emit lensProfileLensesChanged();
+  });
+  connect(&m_engine, &RawEngine::lensProfileEffectiveChanged, this, [this]() {
+    emit lensProfileEffectiveChanged();
+  });
+  connect(&m_engine, &RawEngine::processVersionChanged, this, [this]() {
+    emit processVersionChanged();
+  });
+  connect(&m_engine, &RawEngine::historyChanged, this, [this]() {
+    emit historyChanged();
+  });
+  connect(&m_engine, &RawEngine::toneCurveModeChanged, this, [this]() {
+    emit toneCurveModeChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveShadowsChanged, this,
+          [this]() {
+            emit toneCurveShadowsChanged();
+            update();
+          });
+  connect(&m_engine, &RawEngine::toneCurveDarksChanged, this, [this]() {
+    emit toneCurveDarksChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveLightsChanged, this, [this]() {
+    emit toneCurveLightsChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveHighlightsChanged, this, [this]() {
+    emit toneCurveHighlightsChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveSplitShadowsChanged, this,
+          [this]() {
+            emit toneCurveSplitShadowsChanged();
+            update();
+          });
+  connect(&m_engine, &RawEngine::toneCurveSplitMidChanged, this, [this]() {
+    emit toneCurveSplitMidChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::toneCurveSplitHighlightsChanged, this,
+          [this]() {
+            emit toneCurveSplitHighlightsChanged();
+            update();
+          });
+  connect(&m_engine, &RawEngine::calibShadowsTintChanged, this, [this]() {
+    emit calibShadowsTintChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibRedHueChanged, this, [this]() {
+    emit calibRedHueChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibRedSatChanged, this, [this]() {
+    emit calibRedSatChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibGreenHueChanged, this, [this]() {
+    emit calibGreenHueChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibGreenSatChanged, this, [this]() {
+    emit calibGreenSatChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibBlueHueChanged, this, [this]() {
+    emit calibBlueHueChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibBlueSatChanged, this, [this]() {
+    emit calibBlueSatChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::calibrationMatrixChanged, this, [this]() {
+    emit calibrationMatrixChanged();
+    update();
+  });
   connect(&m_engine, &RawEngine::profileChanged, this, [this]() {
     emit profileChanged();
     update();
@@ -187,6 +295,13 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
   connect(&m_engine, &RawEngine::denoiseChromaBm3dChanged, this, [this]() {
     emit denoiseChromaBm3dChanged();
     update();
+  });
+  connect(&m_engine, &RawEngine::cameraLookAmountChanged, this, [this]() {
+    emit cameraLookAmountChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::cameraLookAvailableChanged, this, [this]() {
+    emit cameraLookAvailableChanged();
   });
   connect(&m_engine, &RawEngine::clarityChanged, this, [this]() {
     emit clarityChanged();
@@ -544,6 +659,153 @@ void RawViewport::setTint(float val) {
   m_engine.requestHistogramUpdate();
 }
 
+void RawViewport::setLensProfileMaker(const QString& maker) {
+  if (m_engine.lensProfileMaker() == maker) return;
+  m_engine.setLensProfileMaker(maker);
+  emit lensProfileMakerChanged();
+}
+
+void RawViewport::setLensProfileLens(const QString& lens) {
+  if (m_engine.lensProfileLens() == lens) return;
+  m_engine.setLensProfileLens(lens);
+  emit lensProfileLensChanged();
+}
+
+void RawViewport::setLensProfileEnabled(bool enabled) {
+  if (m_engine.lensProfileEnabled() == enabled) return;
+  m_engine.setLensProfileEnabled(enabled);
+  emit lensProfileEnabledChanged();
+}
+
+void RawViewport::setLensProfileDistortion(float amount) {
+  if (qFuzzyCompare(m_engine.lensProfileDistortion(), amount)) return;
+  m_engine.setLensProfileDistortion(amount);
+  emit lensProfileDistortionChanged();
+}
+
+void RawViewport::setLensProfileVignetting(float amount) {
+  if (qFuzzyCompare(m_engine.lensProfileVignetting(), amount)) return;
+  m_engine.setLensProfileVignetting(amount);
+  emit lensProfileVignettingChanged();
+}
+
+void RawViewport::setLensProfileCA(float amount) {
+  if (qFuzzyCompare(m_engine.lensProfileCA(), amount)) return;
+  m_engine.setLensProfileCA(amount);
+  emit lensProfileCAChanged();
+}
+
+void RawViewport::setProcessVersion(int version) {
+  if (m_engine.processVersion() == version) return;
+  m_engine.setProcessVersion(version);
+  emit processVersionChanged();
+}
+
+void RawViewport::setToneCurveMode(const QString& mode) {
+  if (m_engine.toneCurveMode() == mode) return;
+  m_engine.setToneCurveMode(mode);
+  emit toneCurveModeChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveShadows(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveShadows(), val)) return;
+  m_engine.setToneCurveShadows(val);
+  emit toneCurveShadowsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveDarks(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveDarks(), val)) return;
+  m_engine.setToneCurveDarks(val);
+  emit toneCurveDarksChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveLights(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveLights(), val)) return;
+  m_engine.setToneCurveLights(val);
+  emit toneCurveLightsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveHighlights(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveHighlights(), val)) return;
+  m_engine.setToneCurveHighlights(val);
+  emit toneCurveHighlightsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveSplitShadows(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveSplitShadows(), val)) return;
+  m_engine.setToneCurveSplitShadows(val);
+  emit toneCurveSplitShadowsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveSplitMid(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveSplitMid(), val)) return;
+  m_engine.setToneCurveSplitMid(val);
+  emit toneCurveSplitMidChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setToneCurveSplitHighlights(float val) {
+  if (qFuzzyCompare(m_engine.toneCurveSplitHighlights(), val)) return;
+  m_engine.setToneCurveSplitHighlights(val);
+  emit toneCurveSplitHighlightsChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibShadowsTint(float val) {
+  if (qFuzzyCompare(m_engine.calibShadowsTint(), val)) return;
+  m_engine.setCalibShadowsTint(val);
+  emit calibShadowsTintChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibRedHue(float val) {
+  if (qFuzzyCompare(m_engine.calibRedHue(), val)) return;
+  m_engine.setCalibRedHue(val);
+  emit calibRedHueChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibRedSat(float val) {
+  if (qFuzzyCompare(m_engine.calibRedSat(), val)) return;
+  m_engine.setCalibRedSat(val);
+  emit calibRedSatChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibGreenHue(float val) {
+  if (qFuzzyCompare(m_engine.calibGreenHue(), val)) return;
+  m_engine.setCalibGreenHue(val);
+  emit calibGreenHueChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibGreenSat(float val) {
+  if (qFuzzyCompare(m_engine.calibGreenSat(), val)) return;
+  m_engine.setCalibGreenSat(val);
+  emit calibGreenSatChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibBlueHue(float val) {
+  if (qFuzzyCompare(m_engine.calibBlueHue(), val)) return;
+  m_engine.setCalibBlueHue(val);
+  emit calibBlueHueChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setCalibBlueSat(float val) {
+  if (qFuzzyCompare(m_engine.calibBlueSat(), val)) return;
+  m_engine.setCalibBlueSat(val);
+  emit calibBlueSatChanged();
+  m_engine.requestHistogramUpdate();
+}
+
 void RawViewport::setProfile(const QString& profile) {
   if (m_engine.profile() == profile) return;
   m_engine.setProfile(profile);
@@ -702,6 +964,13 @@ void RawViewport::setDenoiseChromaBm3d(float val) {
   if (m_engine.hasDenoisedResult()) m_textureDirty = true;
   m_engine.setDenoiseChromaBm3d(val);
   emit denoiseChromaBm3dChanged();
+  update();
+}
+
+void RawViewport::setCameraLookAmount(float val) {
+  if (qFuzzyCompare(m_engine.cameraLookAmount(), val)) return;
+  m_engine.setCameraLookAmount(val);
+  emit cameraLookAmountChanged();
   update();
 }
 

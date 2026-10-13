@@ -167,7 +167,7 @@ Control {
                         Text { text: "Auto-Scan Interval (seconds)"; font: Theme.fontRegular; color: Theme.mutedFg }
                         RowLayout {
                             spacing: 12
-                            SpinBox {
+                            PhotonSpinBox {
                                 id: scanIntervalSpin
                                 from: 1; to: 300; value: AppState.scanIntervalSeconds
                                 editable: true

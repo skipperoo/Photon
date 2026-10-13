@@ -34,6 +34,67 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
                  temperatureChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
+  Q_PROPERTY(float calibShadowsTint READ calibShadowsTint WRITE
+                 setCalibShadowsTint NOTIFY calibShadowsTintChanged)
+  Q_PROPERTY(float calibRedHue READ calibRedHue WRITE setCalibRedHue NOTIFY
+                 calibRedHueChanged)
+  Q_PROPERTY(float calibRedSat READ calibRedSat WRITE setCalibRedSat NOTIFY
+                 calibRedSatChanged)
+  Q_PROPERTY(float calibGreenHue READ calibGreenHue WRITE setCalibGreenHue
+                 NOTIFY calibGreenHueChanged)
+  Q_PROPERTY(float calibGreenSat READ calibGreenSat WRITE setCalibGreenSat
+                 NOTIFY calibGreenSatChanged)
+  Q_PROPERTY(float calibBlueHue READ calibBlueHue WRITE setCalibBlueHue NOTIFY
+                 calibBlueHueChanged)
+  Q_PROPERTY(float calibBlueSat READ calibBlueSat WRITE setCalibBlueSat NOTIFY
+                 calibBlueSatChanged)
+  Q_PROPERTY(bool lensProfileEnabled READ lensProfileEnabled WRITE
+                 setLensProfileEnabled NOTIFY lensProfileEnabledChanged)
+  Q_PROPERTY(float lensProfileDistortion READ lensProfileDistortion WRITE
+                 setLensProfileDistortion NOTIFY lensProfileDistortionChanged)
+  Q_PROPERTY(float lensProfileVignetting READ lensProfileVignetting WRITE
+                 setLensProfileVignetting NOTIFY lensProfileVignettingChanged)
+  Q_PROPERTY(float lensProfileCA READ lensProfileCA WRITE setLensProfileCA
+                 NOTIFY lensProfileCAChanged)
+  Q_PROPERTY(QString lensProfileName READ lensProfileName NOTIFY
+                 lensProfileNameChanged)
+  Q_PROPERTY(QVariantMap lensShader READ lensShader NOTIFY lensShaderChanged)
+  Q_PROPERTY(QString lensProfileMaker READ lensProfileMaker WRITE
+                 setLensProfileMaker NOTIFY lensProfileMakerChanged)
+  Q_PROPERTY(QString lensProfileLens READ lensProfileLens WRITE
+                 setLensProfileLens NOTIFY lensProfileLensChanged)
+  Q_PROPERTY(QStringList lensProfileMakers READ lensProfileMakers NOTIFY
+                 lensProfileMakersChanged)
+  Q_PROPERTY(QStringList lensProfileLenses READ lensProfileLenses NOTIFY
+                 lensProfileLensesChanged)
+  Q_PROPERTY(QString lensProfileEffectiveMaker READ lensProfileEffectiveMaker
+                 NOTIFY lensProfileEffectiveChanged)
+  Q_PROPERTY(QString lensProfileEffectiveLens READ lensProfileEffectiveLens
+                 NOTIFY lensProfileEffectiveChanged)
+  Q_PROPERTY(int processVersion READ processVersion WRITE setProcessVersion
+                 NOTIFY processVersionChanged)
+  Q_PROPERTY(int currentProcessVersion READ currentProcessVersion CONSTANT)
+  Q_PROPERTY(QVariantList historySteps READ historySteps NOTIFY historyChanged)
+  Q_PROPERTY(QString toneCurveMode READ toneCurveMode WRITE setToneCurveMode
+                 NOTIFY toneCurveModeChanged)
+  Q_PROPERTY(float toneCurveShadows READ toneCurveShadows WRITE
+                 setToneCurveShadows NOTIFY toneCurveShadowsChanged)
+  Q_PROPERTY(float toneCurveDarks READ toneCurveDarks WRITE setToneCurveDarks
+                 NOTIFY toneCurveDarksChanged)
+  Q_PROPERTY(float toneCurveLights READ toneCurveLights WRITE setToneCurveLights
+                 NOTIFY toneCurveLightsChanged)
+  Q_PROPERTY(float toneCurveHighlights READ toneCurveHighlights WRITE
+                 setToneCurveHighlights NOTIFY toneCurveHighlightsChanged)
+  Q_PROPERTY(float toneCurveSplitShadows READ toneCurveSplitShadows WRITE
+                 setToneCurveSplitShadows NOTIFY toneCurveSplitShadowsChanged)
+  Q_PROPERTY(float toneCurveSplitMid READ toneCurveSplitMid WRITE
+                 setToneCurveSplitMid NOTIFY toneCurveSplitMidChanged)
+  Q_PROPERTY(float toneCurveSplitHighlights READ toneCurveSplitHighlights WRITE
+                 setToneCurveSplitHighlights NOTIFY
+                     toneCurveSplitHighlightsChanged)
+  Q_PROPERTY(QVector3D calibRowR READ calibRowR NOTIFY calibrationMatrixChanged)
+  Q_PROPERTY(QVector3D calibRowG READ calibRowG NOTIFY calibrationMatrixChanged)
+  Q_PROPERTY(QVector3D calibRowB READ calibRowB NOTIFY calibrationMatrixChanged)
   Q_PROPERTY(QString profile READ profile WRITE setProfile NOTIFY
                  profileChanged)
   Q_PROPERTY(int profileIndex READ profileIndex NOTIFY profileChanged)
@@ -80,6 +141,10 @@ class RawViewport : public QQuickItem {
                  setDenoiseChromaAmount NOTIFY denoiseChromaAmountChanged)
   Q_PROPERTY(float denoiseChromaBm3d READ denoiseChromaBm3d WRITE
                  setDenoiseChromaBm3d NOTIFY denoiseChromaBm3dChanged)
+  Q_PROPERTY(float cameraLookAmount READ cameraLookAmount WRITE
+                 setCameraLookAmount NOTIFY cameraLookAmountChanged)
+  Q_PROPERTY(bool cameraLookAvailable READ cameraLookAvailable NOTIFY
+                 cameraLookAvailableChanged)
   Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
   Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
   Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
@@ -277,6 +342,77 @@ class RawViewport : public QQuickItem {
   float tint() const { return m_engine.tint(); }
   void setTint(float val);
 
+  float calibShadowsTint() const { return m_engine.calibShadowsTint(); }
+  void setCalibShadowsTint(float val);
+  float calibRedHue() const { return m_engine.calibRedHue(); }
+  void setCalibRedHue(float val);
+  float calibRedSat() const { return m_engine.calibRedSat(); }
+  void setCalibRedSat(float val);
+  float calibGreenHue() const { return m_engine.calibGreenHue(); }
+  void setCalibGreenHue(float val);
+  float calibGreenSat() const { return m_engine.calibGreenSat(); }
+  void setCalibGreenSat(float val);
+  float calibBlueHue() const { return m_engine.calibBlueHue(); }
+  void setCalibBlueHue(float val);
+  float calibBlueSat() const { return m_engine.calibBlueSat(); }
+  void setCalibBlueSat(float val);
+  bool lensProfileEnabled() const { return m_engine.lensProfileEnabled(); }
+  void setLensProfileEnabled(bool enabled);
+  float lensProfileDistortion() const {
+    return m_engine.lensProfileDistortion();
+  }
+  void setLensProfileDistortion(float amount);
+  float lensProfileVignetting() const {
+    return m_engine.lensProfileVignetting();
+  }
+  void setLensProfileVignetting(float amount);
+  float lensProfileCA() const { return m_engine.lensProfileCA(); }
+  void setLensProfileCA(float amount);
+  QString lensProfileName() const { return m_engine.lensProfileName(); }
+  QVariantMap lensShader() const { return m_engine.lensShader(); }
+  QString lensProfileMaker() const { return m_engine.lensProfileMaker(); }
+  void setLensProfileMaker(const QString& maker);
+  QString lensProfileLens() const { return m_engine.lensProfileLens(); }
+  void setLensProfileLens(const QString& lens);
+  QStringList lensProfileMakers() { return m_engine.lensProfileMakers(); }
+  QStringList lensProfileLenses() { return m_engine.lensProfileLenses(); }
+  QString lensProfileEffectiveMaker() const {
+    return m_engine.lensProfileEffectiveMaker();
+  }
+  QString lensProfileEffectiveLens() const {
+    return m_engine.lensProfileEffectiveLens();
+  }
+  Q_INVOKABLE void autoDetectLensProfile() {
+    m_engine.autoDetectLensProfile();
+  }
+  int processVersion() const { return m_engine.processVersion(); }
+  void setProcessVersion(int version);
+  int currentProcessVersion() const { return m_engine.currentProcessVersion(); }
+  QVariantList historySteps() const { return m_engine.historySteps(); }
+  Q_INVOKABLE void jumpToHistory(int index) { m_engine.jumpToHistory(index); }
+  Q_INVOKABLE void clearHistory() { m_engine.clearHistory(); }
+  QString toneCurveMode() const { return m_engine.toneCurveMode(); }
+  void setToneCurveMode(const QString& mode);
+  float toneCurveShadows() const { return m_engine.toneCurveShadows(); }
+  void setToneCurveShadows(float val);
+  float toneCurveDarks() const { return m_engine.toneCurveDarks(); }
+  void setToneCurveDarks(float val);
+  float toneCurveLights() const { return m_engine.toneCurveLights(); }
+  void setToneCurveLights(float val);
+  float toneCurveHighlights() const { return m_engine.toneCurveHighlights(); }
+  void setToneCurveHighlights(float val);
+  float toneCurveSplitShadows() const { return m_engine.toneCurveSplitShadows(); }
+  void setToneCurveSplitShadows(float val);
+  float toneCurveSplitMid() const { return m_engine.toneCurveSplitMid(); }
+  void setToneCurveSplitMid(float val);
+  float toneCurveSplitHighlights() const {
+    return m_engine.toneCurveSplitHighlights();
+  }
+  void setToneCurveSplitHighlights(float val);
+  QVector3D calibRowR() const { return m_engine.calibRowR(); }
+  QVector3D calibRowG() const { return m_engine.calibRowG(); }
+  QVector3D calibRowB() const { return m_engine.calibRowB(); }
+
   QString profile() const { return m_engine.profile(); }
   void setProfile(const QString& profile);
   int profileIndex() const { return m_engine.profileIndex(); }
@@ -337,6 +473,10 @@ class RawViewport : public QQuickItem {
 
   float denoiseChromaBm3d() const { return m_engine.denoiseChromaBm3d(); }
   void setDenoiseChromaBm3d(float val);
+
+  float cameraLookAmount() const { return m_engine.cameraLookAmount(); }
+  void setCameraLookAmount(float val);
+  bool cameraLookAvailable() const { return m_engine.cameraLookAvailable(); }
 
   float clarity() const { return m_engine.clarity(); }
   void setClarity(float val);
@@ -542,6 +682,35 @@ class RawViewport : public QQuickItem {
   void saturationChanged();
   void temperatureChanged();
   void tintChanged();
+  void calibShadowsTintChanged();
+  void calibRedHueChanged();
+  void calibRedSatChanged();
+  void calibGreenHueChanged();
+  void calibGreenSatChanged();
+  void calibBlueHueChanged();
+  void calibBlueSatChanged();
+  void calibrationMatrixChanged();
+  void lensProfileEnabledChanged();
+  void lensProfileDistortionChanged();
+  void lensProfileVignettingChanged();
+  void lensProfileCAChanged();
+  void lensProfileNameChanged();
+  void lensShaderChanged();
+  void lensProfileMakerChanged();
+  void lensProfileLensChanged();
+  void lensProfileMakersChanged();
+  void lensProfileLensesChanged();
+  void lensProfileEffectiveChanged();
+  void processVersionChanged();
+  void historyChanged();
+  void toneCurveModeChanged();
+  void toneCurveShadowsChanged();
+  void toneCurveDarksChanged();
+  void toneCurveLightsChanged();
+  void toneCurveHighlightsChanged();
+  void toneCurveSplitShadowsChanged();
+  void toneCurveSplitMidChanged();
+  void toneCurveSplitHighlightsChanged();
   void profileChanged();
   void bwMixRedChanged();
   void bwMixOrangeChanged();
@@ -564,6 +733,8 @@ class RawViewport : public QQuickItem {
   void denoiseChromaRadiusChanged();
   void denoiseChromaAmountChanged();
   void denoiseChromaBm3dChanged();
+  void cameraLookAmountChanged();
+  void cameraLookAvailableChanged();
   void clarityChanged();
   void dehazeChanged();
   void structureChanged();

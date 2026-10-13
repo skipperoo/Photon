@@ -11,6 +11,10 @@
 #include "ExportManager.h"
 #include "FileScanner.h"
 #include "ImageDeveloper.h"
+#include "LensFun.h"
+#include "HdrMergeMath.h"
+#include "CameraLook.h"
+#include "CameraLookMath.h"
 #include "PreviewManager.h"
 #include "RawEngine.h"
 
@@ -23,6 +27,15 @@ class TestRawEngine : public QObject {
   void testProperties();
   void testPhoton001MultipassUsesFloatTargets();
   void testPhoton001ToneRangesReferenceBehavior();
+  void testCalibrationReferenceBehavior();
+  void testParametricToneCurveBehavior();
+  void testToneCurveModeStash();
+  void testHistoryStepsAndProcessVersion();
+  void testLensFunParserAndCorrection();
+  void testLensProfileEditState();
+  void testHdrMergeRadiometric();
+  void testCameraLookToneFit();
+  void testLensFunRealDatabase();
   void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
   void testSwitchingSourceResetsExposureAndContrast();
@@ -388,6 +401,706 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
   QVERIFY(downDiff < 2.0f * upDiff);
 }
 
+void TestRawEngine::testCalibrationReferenceBehavior() {
+  constexpr int w = 64;
+  constexpr int h = 4;
+
+  auto linearToSrgb16 = [](float linear) {
+    const float s = linear <= 0.0031308f
+                        ? linear * 12.92f
+                        : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+    return ushort(std::clamp(s, 0.0f, 1.0f) * 65535.0f + 0.5f);
+  };
+
+  auto maxLinearDiff = [](const QImage& a, const QImage& b) {
+    float maxDiff = 0.0f;
+    for (int y = 0; y < a.height(); ++y) {
+      const uchar* sa = a.constScanLine(y);
+      const uchar* sb = b.constScanLine(y);
+      for (int x = 0; x < a.width(); ++x) {
+        for (int c = 0; c < 3; ++c) {
+          const float la = srgbToLinear(sa[x * 3 + c] / 255.0f);
+          const float lb = srgbToLinear(sb[x * 3 + c] / 255.0f);
+          maxDiff = std::max(maxDiff, std::abs(la - lb));
+        }
+      }
+    }
+    return maxDiff;
+  };
+
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+
+  std::vector<ushort> ramp(w * h * 3);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const float linear = 0.001f + 0.999f * float(x) / float(w - 1);
+      const ushort v = linearToSrgb16(linear);
+      const int i = (y * w + x) * 3;
+      ramp[i] = v;
+      ramp[i + 1] = v;
+      ramp[i + 2] = v;
+    }
+  }
+
+  const QImage ref = photon::ImageDeveloper::develop(ramp.data(), w, h, base);
+  QVERIFY(!ref.isNull());
+
+  QJsonObject neutral = base;
+  neutral["calibShadowsTint"] = 0.0;
+  neutral["calibRedHue"] = 0.0;
+  neutral["calibRedSat"] = 0.0;
+  neutral["calibGreenHue"] = 0.0;
+  neutral["calibGreenSat"] = 0.0;
+  neutral["calibBlueHue"] = 0.0;
+  neutral["calibBlueSat"] = 0.0;
+  const QImage neutralImg =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, neutral);
+  QVERIFY(!neutralImg.isNull());
+  QVERIFY(maxLinearDiff(ref, neutralImg) < 1e-4f);
+
+  QJsonObject prim = base;
+  prim["calibRedHue"] = 100.0;
+  prim["calibRedSat"] = -100.0;
+  prim["calibGreenHue"] = -80.0;
+  prim["calibBlueSat"] = 100.0;
+  const QImage primImg =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, prim);
+  QVERIFY(!primImg.isNull());
+  QVERIFY(maxLinearDiff(ref, primImg) < 0.01f);
+
+  std::vector<ushort> colors(w * h * 3);
+  const ushort r16 = linearToSrgb16(0.62f);
+  const ushort g16 = linearToSrgb16(0.06f);
+  const ushort b16 = linearToSrgb16(0.06f);
+  for (int i = 0; i < w * h; ++i) {
+    colors[i * 3] = r16;
+    colors[i * 3 + 1] = g16;
+    colors[i * 3 + 2] = b16;
+  }
+  const QImage colorRef =
+      photon::ImageDeveloper::develop(colors.data(), w, h, base);
+  QVERIFY(!colorRef.isNull());
+  QJsonObject desat = base;
+  desat["calibRedSat"] = -100.0;
+  const QImage colorDesat =
+      photon::ImageDeveloper::develop(colors.data(), w, h, desat);
+  QVERIFY(!colorDesat.isNull());
+  QVERIFY(maxLinearDiff(colorRef, colorDesat) > 0.02f);
+
+  QJsonObject tint = base;
+  tint["calibShadowsTint"] = 100.0;
+  const QImage tintImg =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, tint);
+  QVERIFY(!tintImg.isNull());
+
+  float darkDelta = 0.0f;
+  float brightDelta = 0.0f;
+  for (int y = 0; y < h; ++y) {
+    const uchar* sa = ref.constScanLine(y);
+    const uchar* sb = tintImg.constScanLine(y);
+    for (int x = 0; x < w; ++x) {
+      for (int c = 0; c < 3; ++c) {
+        const float la = srgbToLinear(sa[x * 3 + c] / 255.0f);
+        const float lb = srgbToLinear(sb[x * 3 + c] / 255.0f);
+        const float diff = std::abs(la - lb);
+        if (x <= 4) darkDelta = std::max(darkDelta, diff);
+        if (x >= 16) brightDelta = std::max(brightDelta, diff);
+      }
+    }
+  }
+  QVERIFY(darkDelta > 0.001f);
+  QVERIFY(brightDelta < 0.002f);
+}
+
+
+void TestRawEngine::testParametricToneCurveBehavior() {
+  constexpr int w = 64;
+  constexpr int h = 4;
+
+  auto linearToSrgb16 = [](float linear) {
+    const float s = linear <= 0.0031308f
+                        ? linear * 12.92f
+                        : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+    return ushort(std::clamp(s, 0.0f, 1.0f) * 65535.0f + 0.5f);
+  };
+
+  std::vector<ushort> ramp(w * h * 3);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const float linear = 0.001f + 0.999f * float(x) / float(w - 1);
+      const ushort v = linearToSrgb16(linear);
+      const int i = (y * w + x) * 3;
+      ramp[i] = v;
+      ramp[i + 1] = v;
+      ramp[i + 2] = v;
+    }
+  }
+
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+
+  const QImage ref = photon::ImageDeveloper::develop(ramp.data(), w, h, base);
+  QVERIFY(!ref.isNull());
+
+  auto columnDelta = [](const QImage& a, const QImage& b, int fromX, int toX) {
+    float maxDiff = 0.0f;
+    for (int y = 0; y < a.height(); ++y) {
+      const uchar* sa = a.constScanLine(y);
+      const uchar* sb = b.constScanLine(y);
+      for (int x = fromX; x <= toX; ++x) {
+        for (int c = 0; c < 3; ++c) {
+          const float la = srgbToLinear(sa[x * 3 + c] / 255.0f);
+          const float lb = srgbToLinear(sb[x * 3 + c] / 255.0f);
+          maxDiff = std::max(maxDiff, std::abs(la - lb));
+        }
+      }
+    }
+    return maxDiff;
+  };
+
+  QJsonObject highlights = base;
+  highlights["toneCurveMode"] = "parametric";
+  highlights["toneCurveHighlights"] = 100.0;
+  const QImage hi =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, highlights);
+  QVERIFY(!hi.isNull());
+  QVERIFY(columnDelta(ref, hi, 56, w - 1) > 0.01f);
+  QVERIFY(columnDelta(ref, hi, 0, 8) < 0.002f);
+
+  for (int y = 0; y < hi.height(); ++y) {
+    const uchar* scan = hi.constScanLine(y);
+    float prev = -1.0f;
+    for (int x = 0; x < hi.width(); ++x) {
+      // Compare in display-encoded space (8-bit quantization = 1/255).
+      const float luma = (0.2126f * scan[x * 3 + 0] +
+                          0.7152f * scan[x * 3 + 1] +
+                          0.0722f * scan[x * 3 + 2]) /
+                         255.0f;
+      QVERIFY(luma + 0.01f >= prev);
+      prev = luma;
+    }
+  }
+
+  QJsonObject shadows = base;
+  shadows["toneCurveMode"] = "parametric";
+  shadows["toneCurveShadows"] = 100.0;
+  const QImage sh =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, shadows);
+  QVERIFY(!sh.isNull());
+  QVERIFY(columnDelta(ref, sh, 3, 6) > 0.005f);
+  QVERIFY(columnDelta(ref, sh, 28, w - 1) < 0.002f);
+
+  QJsonObject splits = base;
+  splits["toneCurveMode"] = "parametric";
+  splits["toneCurveShadows"] = 100.0;
+  splits["toneCurveSplitShadows"] = 70.0;
+  const QImage sp =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, splits);
+  QVERIFY(!sp.isNull());
+  QVERIFY(columnDelta(sh, sp, 24, 40) > 0.002f);
+
+  // Mutual exclusivity: parametric values are ignored in manual mode.
+  QJsonObject manualWithParametric = base;
+  manualWithParametric["toneCurveHighlights"] = 100.0;
+  manualWithParametric["toneCurveShadows"] = 100.0;
+  const QImage manualParam =
+      photon::ImageDeveloper::develop(ramp.data(), w, h, manualWithParametric);
+  QVERIFY(!manualParam.isNull());
+  QVERIFY(columnDelta(ref, manualParam, 0, w - 1) < 0.002f);
+
+  // Mutual exclusivity: point curves are ignored in parametric mode.
+  QJsonObject parametricWithPoints = highlights;
+  parametricWithPoints["toneCurveLuma"] =
+      makeCurve({{0.0, 0.0}, {1.0, 0.5}});
+  const QImage parametricPoints = photon::ImageDeveloper::develop(
+      ramp.data(), w, h, parametricWithPoints);
+  QVERIFY(!parametricPoints.isNull());
+  QVERIFY(columnDelta(hi, parametricPoints, 0, w - 1) < 0.002f);
+}
+
+void TestRawEngine::testToneCurveModeStash() {
+  RawEngine engine;
+  QVariantList pts;
+  pts << QVariantMap{{"x", 0.0}, {"y", 0.0}}
+      << QVariantMap{{"x", 0.5}, {"y", 0.7}}
+      << QVariantMap{{"x", 1.0}, {"y", 1.0}};
+  engine.setToneCurveLuma(pts);
+  engine.setToneCurveMode("parametric");
+  engine.setToneCurveHighlights(80.0f);
+  engine.setToneCurveSplitMid(40.0f);
+
+  const QVariantMap saved = engine.currentSettings();
+
+  // Going back to Points keeps both data sets stashed.
+  engine.setToneCurveMode("manual");
+  QCOMPARE(engine.toneCurveHighlights(), 80.0f);
+  QCOMPARE(engine.toneCurveSplitMid(), 40.0f);
+  QVERIFY(engine.toneCurveLuma() == pts);
+
+  // Returning to Parametric restores the previous parametric settings.
+  engine.setToneCurveMode("parametric");
+  QCOMPARE(engine.toneCurveHighlights(), 80.0f);
+  QVERIFY(engine.toneCurveLuma() == pts);
+
+  // JSON round-trip (sidecar load) keeps mode and both data sets.
+  RawEngine reloaded;
+  reloaded.applySettings(saved);
+  QCOMPARE(reloaded.toneCurveMode(), QStringLiteral("parametric"));
+  QCOMPARE(reloaded.toneCurveHighlights(), 80.0f);
+  QCOMPARE(reloaded.toneCurveSplitMid(), 40.0f);
+  QVERIFY(reloaded.toneCurveLuma() == pts);
+}
+
+void TestRawEngine::testHistoryStepsAndProcessVersion() {
+  QTemporaryDir tempDir;
+  QVERIFY(tempDir.isValid());
+
+  RawEngine engine;
+  engine.setSource(tempDir.filePath("history.arw"));
+
+  QCOMPARE(engine.processVersion(), 1);
+  QCOMPARE(engine.currentProcessVersion(), 1);
+
+  // loadEdits creates the initial "Open" step (plus the virtual Original).
+  QCOMPARE(engine.historySteps().size(), 2);
+  QCOMPARE(engine.historySteps()[0].toMap()["label"].toString(),
+           QStringLiteral("Open"));
+  QCOMPARE(engine.historySteps()[1].toMap()["label"].toString(),
+           QStringLiteral("Original"));
+
+  engine.setExposure(0.5f);
+  engine.commitEdit();
+  engine.setContrast(1.1f);
+  engine.commitEdit();
+
+  QVariantList steps = engine.historySteps();
+  QCOMPARE(steps.size(), 4);
+  QCOMPARE(steps[0].toMap()["label"].toString(), QStringLiteral("Contrast"));
+  QCOMPARE(steps[0].toMap()["delta"].toString(), QStringLiteral("+20"));
+  QVERIFY(steps[0].toMap()["current"].toBool());
+  QCOMPARE(steps[1].toMap()["label"].toString(), QStringLiteral("Exposure"));
+  QCOMPARE(steps[1].toMap()["delta"].toString(), QStringLiteral("+0.50"));
+  QCOMPARE(steps[2].toMap()["label"].toString(), QStringLiteral("Open"));
+  QCOMPARE(steps[3].toMap()["label"].toString(), QStringLiteral("Original"));
+  QCOMPARE(steps[3].toMap()["index"].toInt(), -1);
+
+  // Per-entity labels for the colour mixer.
+  engine.setHslRedHue(10.0f);
+  engine.commitEdit();
+  steps = engine.historySteps();
+  QCOMPARE(steps[0].toMap()["label"].toString(),
+           QStringLiteral("HSL Hue (Red)"));
+  QCOMPARE(steps[0].toMap()["delta"].toString(), QStringLiteral("+10"));
+
+  // Jumping back marks the newer steps as future and applies the state.
+  engine.jumpToHistory(0);
+  steps = engine.historySteps();
+  QCOMPARE(engine.exposure(), 0.0f);
+  QCOMPARE(engine.contrast(), 1.0f);
+  QVERIFY(steps[0].toMap()["future"].toBool());
+  QVERIFY(steps[3].toMap()["current"].toBool());
+
+  // Redo walks forward again.
+  engine.redo();
+  QCOMPARE(engine.exposure(), 0.5f);
+
+  // The virtual Original step resets every edit, keeps all entries and logs
+  // a single "Reset" step at the top.
+  engine.jumpToHistory(-1);
+  steps = engine.historySteps();
+  QCOMPARE(engine.exposure(), 0.0f);
+  QCOMPARE(engine.contrast(), 1.0f);
+  QCOMPARE(engine.hslRedHue(), 0.0f);
+  QCOMPARE(steps.size(), 6);
+  QCOMPARE(steps[0].toMap()["label"].toString(), QStringLiteral("Reset"));
+  QCOMPARE(steps[0].toMap()["delta"].toString(), QString());
+  QVERIFY(!steps[0].toMap()["future"].toBool());
+  QCOMPARE(steps[1].toMap()["label"].toString(),
+           QStringLiteral("HSL Hue (Red)"));
+  QCOMPARE(steps.last().toMap()["label"].toString(), QStringLiteral("Original"));
+
+  // Process version is stored/restored with the state.
+  engine.setProcessVersion(2);
+  QCOMPARE(engine.currentSettings().value("processVersion").toInt(), 2);
+  RawEngine reloaded;
+  reloaded.applySettings(engine.currentSettings());
+  QCOMPARE(reloaded.processVersion(), 2);
+
+  // Clear history keeps only the current state (plus the virtual Original).
+  engine.clearHistory();
+  steps = engine.historySteps();
+  QCOMPARE(steps.size(), 2);
+  QCOMPARE(steps[0].toMap()["label"].toString(), QStringLiteral("Current"));
+  QCOMPARE(steps[0].toMap()["delta"].toString(), QString());
+  QCOMPARE(steps[1].toMap()["label"].toString(), QStringLiteral("Original"));
+
+  // History is capped at kHistoryLimit, dropping the oldest steps.
+  for (int i = 1; i <= RawEngine::kHistoryLimit + 5; ++i) {
+    engine.setExposure(0.01f * i);
+    engine.commitEdit();
+  }
+  QCOMPARE(engine.historySteps().size(), RawEngine::kHistoryLimit + 1);
+  QCOMPARE(engine.exposure(), 0.01f * (RawEngine::kHistoryLimit + 5));
+
+  // Legacy sidecar steps (no metadata) get derived labels and deltas on load.
+  QTemporaryDir legacyDir;
+  QVERIFY(legacyDir.isValid());
+  QDir().mkpath(legacyDir.filePath(".PhotonData/edits"));
+  QJsonObject legacy0;
+  legacy0["exposure"] = 0.0;
+  legacy0["contrast"] = 1.0;
+  QJsonObject legacy1 = legacy0;
+  legacy1["exposure"] = 0.7;
+  QJsonArray legacyArr;
+  legacyArr.append(legacy0);
+  legacyArr.append(legacy1);
+  {
+    QFile legacyFile(legacyDir.filePath(".PhotonData/edits/legacy.arw.json"));
+    QVERIFY(legacyFile.open(QIODevice::WriteOnly));
+    legacyFile.write(QJsonDocument(legacyArr).toJson());
+  }
+  RawEngine legacy;
+  legacy.setSource(legacyDir.filePath("legacy.arw"));
+  const QVariantList legacySteps = legacy.historySteps();
+  QCOMPARE(legacySteps.size(), 3);
+  QCOMPARE(legacySteps[0].toMap()["label"].toString(),
+           QStringLiteral("Exposure"));
+  QCOMPARE(legacySteps[0].toMap()["delta"].toString(), QStringLiteral("+0.70"));
+  QCOMPARE(legacySteps[1].toMap()["label"].toString(),
+           QStringLiteral("Open"));
+  QCOMPARE(legacy.exposure(), 0.7f);
+
+  // Sidecar round-trip: steps carry labels and the current index marker.
+  QFile sidecar(tempDir.filePath(
+      ".PhotonData/edits/history.arw.json"));
+  QVERIFY(sidecar.open(QIODevice::ReadOnly));
+  const QJsonArray arr =
+      QJsonDocument::fromJson(sidecar.readAll()).array();
+  QVERIFY(!arr.isEmpty());
+  QVERIFY(arr.last().toObject().contains("__index"));
+  QVERIFY(arr.first().toObject().contains("__step"));
+}
+
+void TestRawEngine::testLensFunParserAndCorrection() {
+  const QByteArray xml = R"(<lensdatabase version="1">
+    <camera><maker>Sony</maker><model>Sony ILCE-7M2</model>
+      <mount>Sony E</mount><cropfactor>1.01</cropfactor></camera>
+    <lens><maker>Sony</maker><model>Sony FE 16-35mm f/4 ZA OSS</model>
+      <mount>Sony E</mount><cropfactor>1</cropfactor>
+      <calibration>
+        <distortion model="ptlens" focal="16" a="0.02" b="-0.03" c="0.01"/>
+        <distortion model="ptlens" focal="35" a="0.01" b="-0.02" c="0.0"/>
+        <tca model="poly3" focal="16" br="0.0001" vr="1.0002" bb="0.0001" vb="1.0001"/>
+        <vignetting model="pa" focal="16" aperture="4" distance="10" k1="-0.8" k2="0.15" k3="-0.05"/>
+      </calibration>
+    </lens>
+  </lensdatabase>)";
+
+  photon::lensfun::Database& db = photon::lensfun::Database::instance();
+  db.loadFromBuiltinXml({xml});
+
+  const photon::lensfun::Profile profile = db.match(
+      "Sony", "ILCE-7M2", "FE 16-35mm F4 ZA OSS", 24.0f, 4.0f);
+  QVERIFY(profile.valid);
+  QCOMPARE(profile.lensName, QStringLiteral("Sony FE 16-35mm f/4 ZA OSS"));
+  QCOMPARE(profile.distortionModel, QStringLiteral("ptlens"));
+  QVERIFY(profile.hasTca);
+  QVERIFY(profile.hasVignetting);
+  QCOMPARE(profile.crop, 1.01f);
+
+  // Interpolated between focal 16 and 35: t = 8/19.
+  const float t = 8.0f / 19.0f;
+  QVERIFY(std::abs(profile.distortionK[0] - (0.02f + (0.01f - 0.02f) * t)) <
+          1e-6f);
+  QVERIFY(std::abs(profile.vignetting[0] - (-0.8f)) < 1e-6f);
+
+  // Unknown lens is rejected.
+  const photon::lensfun::Profile unknown = db.match(
+      "Sony", "ILCE-7M2", "FE 70-200mm F2.8 GM", 70.0f, 2.8f);
+  QVERIFY(!unknown.valid);
+
+  // Vignetting correction brightens the corners (negative k1 = dark corners).
+  QImage flat(64, 64, QImage::Format_RGB888);
+  flat.fill(QColor(128, 128, 128));
+  const QImage corrected =
+      photon::lensfun::applyProfile(flat, profile, 0.0f, 0.0f, 100.0f);
+  QCOMPARE(corrected.size(), flat.size());
+  const int centre = corrected.constScanLine(32)[32 * 3 + 1];
+  const int corner = corrected.constScanLine(0)[0 * 3 + 1];
+  QVERIFY(corner > centre);
+  QVERIFY(centre >= 126 && centre <= 130);
+
+  // Distortion correction (barrel) keeps the centre and moves edge detail.
+  QImage grid(64, 64, QImage::Format_RGB888);
+  grid.fill(Qt::black);
+  for (int y = 0; y < 64; ++y)
+    for (int x = 0; x < 64; ++x) {
+      uchar* px = grid.scanLine(y) + x * 3;
+      px[0] = px[1] = px[2] = (x % 8 == 0 || y % 8 == 0) ? 255 : 0;
+    }
+  const QImage undistorted = photon::lensfun::applyProfile(
+      grid, profile, 100.0f, 0.0f, 0.0f);
+  QCOMPARE(undistorted.size(), grid.size());
+  const uchar* centreRow = undistorted.constScanLine(32);
+  QVERIFY(centreRow[32 * 3 + 1] >= 0);
+}
+
+void TestRawEngine::testLensProfileEditState() {
+  QTemporaryDir tempDir;
+  QVERIFY(tempDir.isValid());
+
+  RawEngine engine;
+  engine.setSource(tempDir.filePath("lens.arw"));
+
+  QVERIFY(!engine.lensProfileEnabled());
+  QCOMPARE(engine.lensProfileDistortion(), 50.0f);
+  QCOMPARE(engine.lensProfileVignetting(), 50.0f);
+  QCOMPARE(engine.lensProfileCA(), 50.0f);
+  QVERIFY(engine.isDefault());
+
+  engine.setLensProfileEnabled(true);
+  engine.setLensProfileDistortion(60.0f);
+  QVERIFY(engine.lensProfileEnabled());
+  QVERIFY(!engine.isDefault());
+
+  const QVariantMap saved = engine.currentSettings();
+  QCOMPARE(saved.value("lensProfileEnabled").toBool(), true);
+  QCOMPARE(saved.value("lensProfileDistortion").toFloat(), 60.0f);
+
+  RawEngine reloaded;
+  reloaded.setSource(tempDir.filePath("lens2.arw"));
+  reloaded.applySettings(saved);
+  QVERIFY(reloaded.lensProfileEnabled());
+  QCOMPARE(reloaded.lensProfileDistortion(), 60.0f);
+  QCOMPARE(reloaded.lensProfileVignetting(), 50.0f);
+
+  // Manual selection resolves a lens even without matching EXIF data.
+  QVERIFY(engine.lensProfileMakers().contains(QStringLiteral("Sony")));
+  engine.setLensProfileMaker(QStringLiteral("Sony"));
+  QVERIFY(engine.lensProfileLenses().contains(
+      QStringLiteral("Sony FE 16-35mm f/4 ZA OSS")));
+  engine.setLensProfileLens(QStringLiteral("Sony FE 16-35mm f/4 ZA OSS"));
+  QCOMPARE(engine.lensProfileName(),
+           QStringLiteral("Sony FE 16-35mm f/4 ZA OSS"));
+
+  const QVariantMap manual = engine.currentSettings();
+  QCOMPARE(manual.value("lensProfileLens").toString(),
+           QStringLiteral("Sony FE 16-35mm f/4 ZA OSS"));
+
+  engine.autoDetectLensProfile();
+  QCOMPARE(engine.lensProfileLens(), QString());
+  QCOMPARE(engine.lensProfileName(), QString());
+}
+
+void TestRawEngine::testLensFunRealDatabase() {
+  // Optional: validate the parser against a full lensfun database when one is
+  // installed on the host (the bundled copy lives in the app resources).
+  const QString dbDir = QStringLiteral("/usr/share/lensfun/version_1");
+  if (!QDir(dbDir).exists())
+    QSKIP("no system lensfun database available");
+
+  QVector<QByteArray> docs;
+  const QStringList files =
+      QDir(dbDir).entryList(QStringList() << "*.xml", QDir::Files);
+  for (const QString& name : files) {
+    QFile file(QDir(dbDir).filePath(name));
+    if (file.open(QIODevice::ReadOnly)) docs.append(file.readAll());
+  }
+  QVERIFY(!docs.isEmpty());
+
+  photon::lensfun::Database& db = photon::lensfun::Database::instance();
+  db.loadFromBuiltinXml(docs);
+  std::fprintf(stderr, "DEBUG lensfun: %d cameras, %d lenses, %d docs\n",
+               db.cameraCount(), db.lensCount(), docs.size());
+
+  // A well-known combination must resolve from the real database.
+  const photon::lensfun::Profile profile = db.match(
+      "Sony", "ILCE-7M2", "FE 16-35mm F4 ZA OSS", 24.0f, 4.0f);
+  QVERIFY(profile.valid);
+  QVERIFY(profile.lensName.contains("16-35"));
+  QVERIFY(!profile.distortionModel.isEmpty());
+  QVERIFY(profile.hasVignetting);
+  QVERIFY(db.makers().contains(QStringLiteral("Sony")));
+  QVERIFY(db.lensesForMaker(QStringLiteral("Sony"))
+              .contains(QStringLiteral("FE 16-35mm f/4 ZA OSS")));
+
+  // And an unknown lens must not resolve.
+  const photon::lensfun::Profile unknown = db.match(
+      "Sony", "ILCE-7M2", "Totally Fake Lens 12-24mm", 12.0f, 2.8f);
+  QVERIFY(!unknown.valid);
+}
+
+void TestRawEngine::testHdrMergeRadiometric() {
+  // Synthetic scene spanning 0.01..8.0 radiance, three brackets at 1x, 1/4x
+  // and 1/16x exposure with a 0.98 clip level.
+  constexpr int N = 100;
+  std::vector<std::vector<float>> frames(3, std::vector<float>(N));
+  const std::vector<float> gains = {1.0f, 4.0f, 16.0f};
+  const std::vector<float> exposures = {1.0f, 0.25f, 0.0625f};
+  std::vector<float> scene(N);
+  for (int p = 0; p < N; ++p) {
+    scene[p] = 0.01f * std::pow(800.0f, float(p) / float(N - 1));
+    for (int i = 0; i < 3; ++i)
+      frames[i][p] = std::min(scene[p] * exposures[i], 0.98f);
+  }
+
+  const std::vector<float> merged =
+      photon::hdrmath::mergeRadiometric(frames, gains, 0.99f);
+  QCOMPARE(int(merged.size()), N);
+
+  // Highlights recovered from the darkest frame (others are clipped).
+  QVERIFY(merged[N - 1] > 6.0f);
+  // Deep shadows come from the brightest frame.
+  QVERIFY(merged[0] > 0.005f && merged[0] < 0.02f);
+  // Midtones track the true scene.
+  const int mid = N / 2;
+  QVERIFY(std::abs(merged[mid] - scene[mid]) / scene[mid] < 0.1f);
+  // Monotone response.
+  for (int p = 1; p < N; ++p) QVERIFY(merged[p] >= merged[p - 1] * 0.98f);
+}
+
+void TestRawEngine::testCameraLookToneFit() {
+  // A synthetic monotone camera tone. Quantile matching maps each quantile of
+  // the scene to the same quantile of the JPEG, so a deterministic monotone
+  // transform must come back out of the fit (within interpolation error).
+  const auto camera = [](float scene) {
+    return 0.02f + 0.9f * std::pow(scene, 1.25f);
+  };
+  constexpr int kCount = 3000;
+  std::vector<std::pair<float, float>> pairs;
+  pairs.reserve(kCount);
+  for (int i = 0; i < kCount; ++i) {
+    const float scene =
+        0.002f * std::pow(500.0f, float(i) / float(kCount - 1));
+    pairs.emplace_back(scene, camera(scene));
+  }
+
+  const photon::cameralook::CameraToneCurve curve =
+      photon::cameralook::fitCameraToneCurve(pairs);
+  QVERIFY(curve.valid);
+  for (float scene : {0.01f, 0.05f, 0.18f, 0.5f, 0.9f})
+    QVERIFY(std::abs(curve.apply(scene) - camera(scene)) < 0.02f);
+
+  // Monotone response over the whole range.
+  float previous = -1.0f;
+  for (int i = 0; i <= 100; ++i) {
+    const float y =
+        curve.apply(0.002f * std::pow(500.0f, float(i) / 100.0f));
+    QVERIFY(y >= previous - 1e-5f);
+    previous = y;
+  }
+
+  // Fewer samples than the minimum: rejected.
+  {
+    std::vector<std::pair<float, float>> small(pairs.begin(),
+                                               pairs.begin() + 100);
+    QVERIFY(!photon::cameralook::fitCameraToneCurve(small).valid);
+  }
+  // An unrelated picture (shuffled targets) fails the rank-correlation gate.
+  {
+    std::vector<std::pair<float, float>> shuffled;
+    shuffled.reserve(pairs.size());
+    for (std::size_t i = 0; i < pairs.size(); ++i)
+      shuffled.emplace_back(pairs[i].first,
+                            pairs[(i * 7919) % pairs.size()].second);
+    QVERIFY(!photon::cameralook::fitCameraToneCurve(shuffled).valid);
+  }
+  // Too little scene range (knots[31] < knots[0] * 1.5): rejected.
+  {
+    std::vector<std::pair<float, float>> narrow;
+    narrow.reserve(kCount);
+    for (int i = 0; i < kCount; ++i) {
+      const float scene = 0.10f + 0.01f * std::sin(float(i));
+      narrow.emplace_back(scene, camera(scene));
+    }
+    QVERIFY(!photon::cameralook::fitCameraToneCurve(narrow).valid);
+  }
+
+  // Composing into a display-encoded tone LUT reproduces decode -> curve ->
+  // encode, and an invalid curve leaves the LUT untouched.
+  {
+    std::vector<float> lut(4096);
+    for (std::size_t i = 0; i < lut.size(); ++i)
+      lut[i] = float(i) / float(lut.size() - 1);
+    std::vector<float> composed = lut;
+    photon::cameralook::prependToneCurveToLut(composed, curve);
+    for (std::size_t i = 0; i < composed.size(); i += 17) {
+      const float display = float(i) / float(composed.size() - 1);
+      const float expected = photon::cameralook::linearToSrgbF(
+          curve.apply(photon::cameralook::srgbToLinearF(display)));
+      QVERIFY(std::abs(composed[i] - expected) < 0.005f);
+    }
+    photon::cameralook::CameraToneCurve invalid;
+    std::vector<float> untouched = lut;
+    photon::cameralook::prependToneCurveToLut(untouched, invalid);
+    QVERIFY(untouched == lut);
+  }
+
+  // Highlight protection: a curve fitted on a narrow scene range continues
+  // straight to display white at scene white, so the RAW headroom above the
+  // fitted range keeps its spread instead of collapsing just below white.
+  {
+    std::vector<std::pair<float, float>> low;
+    low.reserve(kCount);
+    for (int i = 0; i < kCount; ++i) {
+      const float scene =
+          0.002f * std::pow(250.0f, float(i) / float(kCount - 1));
+      low.emplace_back(scene, 0.02f + 0.7f * std::pow(scene, 1.2f));
+    }
+    const photon::cameralook::CameraToneCurve lowCurve =
+        photon::cameralook::fitCameraToneCurve(low);
+    QVERIFY(lowCurve.valid);
+    QVERIFY(std::abs(lowCurve.apply(1.0f) - 1.0f) < 1e-4f);
+    QVERIFY(lowCurve.apply(0.9f) > 0.75f);
+    float previousLow = -1.0f;
+    for (int i = 0; i <= 100; ++i) {
+      const float y = lowCurve.apply(0.002f + 0.998f * float(i) / 100.0f);
+      QVERIFY(y >= previousLow - 1e-4f);
+      previousLow = y;
+    }
+  }
+
+  // The amount blend interpolates the look with the current rendering and
+  // keeps white fixed; amount 0 leaves the LUT untouched.
+  {
+    std::vector<float> lut(1024);
+    for (std::size_t i = 0; i < lut.size(); ++i)
+      lut[i] = float(i) / float(lut.size() - 1);
+    std::vector<float> half = lut;
+    photon::cameralook::prependToneCurveToLut(half, curve, 0.5f);
+    for (std::size_t i = 0; i < half.size(); i += 13) {
+      const float display = float(i) / float(half.size() - 1);
+      const float scene = photon::cameralook::srgbToLinearF(display);
+      const float expected = photon::cameralook::linearToSrgbF(
+          scene + 0.5f * (curve.apply(scene) - scene));
+      QVERIFY(std::abs(half[i] - expected) < 0.005f);
+    }
+    QVERIFY(std::abs(half.back() - 1.0f) < 1e-3f);
+    std::vector<float> zero = lut;
+    photon::cameralook::prependToneCurveToLut(zero, curve, 0.0f);
+    QVERIFY(zero == lut);
+  }
+
+  // JSON round-trip (per-photo cache and the export-side composition).
+  {
+    const QJsonObject json = photon::cameralook::toneCurveToJson(curve);
+    const photon::cameralook::CameraToneCurve restored =
+        photon::cameralook::toneCurveFromJson(json);
+    QVERIFY(restored.valid);
+    for (int i = 0; i < photon::cameralook::kToneKnots; ++i) {
+      QVERIFY(std::abs(restored.knots[i][0] - curve.knots[i][0]) < 1e-6f);
+      QVERIFY(std::abs(restored.knots[i][1] - curve.knots[i][1]) < 1e-6f);
+    }
+  }
+}
+
 void TestRawEngine::testOklabCreativeOps() {
   auto oklabHueDeg = [](float r, float g, float b) {
     const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
@@ -599,11 +1312,20 @@ void TestRawEngine::testToneCurveLumaMatchesReferenceMapping() {
   const double inLinG = srgbToLinear(inG / 65535.0f);
   const double inLinB = srgbToLinear(inB / 65535.0f);
 
-  // Reference shaderTemplate behavior for a linear luma curve y = 0.1 + 0.9x:
-  // map min/max through the same curve and reproject channels.
-  const double expectedR = 0.1 + 0.9 * inLinR;
-  const double expectedG = 0.1 + 0.9 * inLinG;
-  const double expectedB = 0.1 + 0.9 * inLinB;
+  // The curve runs in the display-encoded domain (after sRGB encode): the
+  // encoded input is mapped through y = 0.1 + 0.9x, then decoded back for the
+  // linear comparison. For a straight line the min/max reprojection is exact.
+  auto encode = [](double lin) {
+    return lin <= 0.0031308 ? lin * 12.92
+                            : 1.055 * std::pow(lin, 1.0 / 2.4) - 0.055;
+  };
+  auto decode = [](double enc) {
+    return enc <= 0.04045 ? enc / 12.92
+                          : std::pow((enc + 0.055) / 1.055, 2.4);
+  };
+  const double expectedR = decode(0.1 + 0.9 * encode(inLinR));
+  const double expectedG = decode(0.1 + 0.9 * encode(inLinG));
+  const double expectedB = decode(0.1 + 0.9 * encode(inLinB));
 
   QVERIFY(std::abs(avgR - expectedR) < 0.015);
   QVERIFY(std::abs(avgG - expectedG) < 0.015);

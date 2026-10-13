@@ -32,6 +32,7 @@ T.Menu {
     signal flipHorizontalRequested()
     signal flipVerticalRequested()
     signal createPanoramaRequested()
+    signal createHdrMergeRequested()
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
  
@@ -231,7 +232,7 @@ T.Menu {
         StyledMenuItem {
             text: "HDR"
             icon.source: "qrc:/Main/assets/icons/hdr.svg"
-            enabled: false
+            onTriggered: { root.createHdrMergeRequested(); root.close() }
         }
     }
 

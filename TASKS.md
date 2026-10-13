@@ -722,7 +722,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.5 | Process version per photo + history panel | DONE | `2fbdc2c` |
 | 40.6 | Lensfun integration | DONE | `9f1df25` |
 | 40.7 | HDR merge (OpenCV alignment) | DONE | `d538d7f` |
-| 40.8 | Camera-look fitting from embedded JPEG | TODO | |
+| 40.8 | Camera-look fitting from embedded JPEG | DONE | `8531c59` |
 
 ## 40.1 Calibration panel — DONE
 
@@ -872,22 +872,25 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** open a 3-shot bracket — HDR DNG opens in Photon with recovered highlights and clean shadows; no double edges with deghost Medium; alignment fixes small handheld offsets.
 
-## 40.8 Camera-look fitting from embedded JPEG — TODO
+## 40.8 Camera-look fitting from embedded JPEG — DONE
+
+> Implemented 2026-10-13, confirmed visually (including the highlight-protection and opt-in default fixes from review), committed `8531c59`. New `src/engine/CameraLook.{h,cpp}` + `CameraLookMath.h` (pure math, unit-tested): the raw is decoded with the render's exact LibRaw parameters at half size and paired with the embedded camera JPEG (`unpack_thumb`/`dcraw_make_mem_thumb`, same orientation mapping as the filmstrip) — fixed 192 px proxies, 2 % aspect gate, midtone filters (scene 0.001–1.5, JPEG 0.004–0.98, luma 0.015–0.85). The tone curve is a **quantile-matched 32-knot monotone curve** (reference algorithm: knot `i` = median of the i-th 1/32 of the sorted scene/JPEG luminances) with submission gates: ties-aware rank correlation ≥ 0.5 and a ≥ 30 % cut of the held-out error vs the current rendering, in linear and gamma-encoded values. **Highlight protection (divergence from the reference):** above the last fitted knot the curve runs straight to display white at scene white instead of the exponential shoulder — visual review found highlight-heavy photos burned and not recoverable otherwise. Application: blended with the current rendering by a per-photo amount and composed into the existing display-domain tone LUT as a pre-curve on luminance (`decode → curve → encode`), so GPU preview, CPU export and histogram agree with no shader change; skipped for the AgX profile. Per-photo **Camera Look → Amount** (0–100, opt-in default 0): edit JSON key `cameraLookAmount`, history label "Camera Look", reset/isDefault, preset/copy-settings group, export composition with the same amount; the fit runs lazily on the first raise and caches in `.PhotonData/cache/looks/<file>.json` (`kCameraLookVersion`). Develop panel got the requested order (Light, Presence, Tone Curve, HSL — renamed from Color, Black & White Mix, Color Grading, Detail, Creative, Effects, Camera Look, Calibration). Tests: synthetic quantile-fit recovery, shuffled/narrow rejection, white anchor, amount blend, JSON round-trip; suite 30/30, ctest 3/3, AppImage builds and starts clean.
+> Scope note (2026-10-13): on the tone-only cut the user chose to ship the luminance curve alone; the **full look** (chroma curve + colour matrix/hue-sat tables, per-model profile store) moved to Future work — the tone curve was the dominant ingredient and the colour fit needs pooled profiles.
 
 **Goal:** out-of-the-box rendering reminiscent of the camera JPEG by fitting a per-photo tone curve from the embedded preview, so the classic sliders start from a familiar baseline.
 
 **Algorithm:**
-- Extract the embedded JPEG (LibRaw `dcraw_make_mem_thumb`) + its tone: quantile-match camera-JPEG luminance against the developed RAW luminance.
-- Fit a **32-knot monotone curve** in scene-luminance → display-luminance space (log-spaced knots over ~12 stops), applied inside the tone stage **before** the user sliders (sliders remain additive/relative on top).
-- **Scope (decided 2026-10-12): full look** — tone curve + chroma curve + colour (per-model matrix/hue-sat tables fitted from the previews). If the result looks off in visual review, we revert to tone-only or disable it.
-- Fallback to current rendering when no JPEG preview exists; user can disable the look.
+- Extract the embedded JPEG (LibRaw `dcraw_make_mem_thumb`) + its tone: quantile-match camera-JPEG luminance against the developed RAW luminance (implemented as quantile-matched knots, see the note above).
+- Fit a **32-knot monotone curve** in scene-luminance → display-luminance space, applied inside the tone stage **before** the user sliders (sliders remain additive/relative on top).
+- **Scope (revised 2026-10-13):** tone curve shipped (opt-in per photo); chroma curve + colour fitting deferred to Future work.
+- Fallback to current rendering when no JPEG preview exists; the look is off by default (opt-in).
 
-- [ ] Preview extraction + fitting (worker thread, cached in `.PhotonData`).
-- [ ] Tone curve + chroma curve application in GPU tone stage + CPU export + histogram.
-- [ ] Colour fitting: chromaticity matrix + hue/sat table per camera model, profile store on disk.
-- [ ] Toggle in Develop/Preferences + tests on synthetic pairs.
+- [x] Preview extraction + fitting (worker thread, cached in `.PhotonData`).
+- [x] Tone curve application in the tone stage + CPU export + histogram (per-photo amount).
+- [ ] Colour fitting: chromaticity matrix + hue/sat table per camera model, profile store on disk → moved to Future work.
+- [x] Per-photo toggle (Camera Look → Amount, opt-in default) + tests on synthetic pairs.
 
-**Visual confirmation:** RAW vs camera JPEG of the same shot — default rendering is close in contrast/tonality/colour; sliders behave relative to the fitted baseline; disabling the look returns to today's rendering.
+**Visual confirmation:** RAW vs camera JPEG of the same shot — the fitted rendering is close in contrast/tonality with highlight detail preserved; sliders behave relative to the fitted baseline; amount 0 returns to today's rendering.
 
 ## Future work - To Be Discussed
 
@@ -897,6 +900,7 @@ Deferred (candidates, not scheduled; priorities to be discussed):
 - [ ] **Denoise product cache** — full-res result computed once, disk-cached, Amount as blend of two buffers; keeps BM3D, no ML dependency.
 - [ ] **AI denoise (ONNX U-Net)** — needs an inference runtime + model licensing review (weights are GPL-3.0, user-installed).
 - [ ] **Panorama finishing** — boundary warp, auto crop, fill edges; enable gain compensation by default.
+- [ ] **Camera-look full model** — chroma curve (colourfulness by display luminance) and colour fitting (per-photo chromaticity matrix, per-model hue/sat tables, profile store pooled from previews). The shipped cut (Phase 40.8) is the opt-in fitted luminance curve with white-anchored highlights.
 - [ ] **Profiles browser** — live thumbnails, hover preview, `.cube` LUT import, Amount slider.
 - [ ] **XMP sidecar interoperability** — read/write `crs:` settings so edits survive round-trips with LR.
 - [ ] **Monitor ICC profiles + soft proofing** — currently ICC is decode-only; display rarely sRGB.

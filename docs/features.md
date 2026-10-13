@@ -149,4 +149,15 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
+## Camera look from the embedded camera JPEG (2026-10-13, Phase 40.8)
+
+- Purpose: an optional per-photo tone curve fitted from the camera's own JPEG, so the classic sliders can start from a rendering close to the camera's look (opt-in: per-photo Camera Look → Amount 0–100, default 0).
+- Algorithm: the raw is decoded with the render's exact LibRaw parameters at half size and paired with the embedded camera JPEG (`unpack_thumb`/`dcraw_make_mem_thumb`, same orientation mapping as the filmstrip); fixed 192 px proxies, 2 % aspect gate, midtone filters (scene 0.001–1.5, JPEG 0.004–0.98, luma 0.015–0.85). `fitCameraToneCurve` builds a 32-knot monotone curve by quantile matching (median of the i-th 1/32 of the sorted scene luminances against the sorted JPEG luminances) and enforces submission gates: ties-aware rank correlation ≥ 0.5 and a ≥ 30 % cut of the held-out error vs the current rendering, in linear and gamma-encoded values. Above the last fitted knot the curve runs straight to display white at scene white (highlight protection — divergence from the reference's exponential shoulder, which crushed highlight detail and removed slider headroom). Application blends the curve with the current rendering by the amount and composes it into the display-encoded tone LUT as a pre-curve on luminance (`decode → curve → encode`), so the existing GPU LUT stage, CPU export and histogram all agree without shader changes; skipped for the AgX profile.
+- Pipeline placement: inside the existing tone-curve LUT stage (luminance plane only), before the user curves; the fit itself is a tool before the pipeline, cached per photo in `.PhotonData/cache/looks/<file>.json` (`kCameraLookVersion`) and run lazily on the first Amount raise.
+- Key constants: proxy 192 px; 32 knots; gates 0.5 / 0.7; amount default 0 (opt-in), range 0–100; look version 1.
+- Files: `src/engine/CameraLook.{h,cpp}`, `src/engine/CameraLookMath.h`, `src/engine/RawEngine.{h,cpp}`, `src/engine/ImageDeveloper.cpp`, `src/managers/ExportManager.cpp`, `src/components/RawViewport.{h,cpp}`, `content/views/DevelopView.qml`, `content/components/SettingsSelectionDialog.qml`, `tests/auto/tst_RawEngine.cpp`.
+- Commit: `8531c59`. Scope note: the chroma curve and colour fitting (per-photo matrix, per-model hue/sat tables, pooled profile store) are deferred to Future work — the tone curve was the dominant ingredient of the look.
+
+---
+
 *Phase 40 features are appended here as they complete.*

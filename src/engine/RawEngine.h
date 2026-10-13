@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 
+#include "CameraLook.h"
 #include "DevelopProfile.h"
 #include "LensFun.h"
 
@@ -108,6 +109,10 @@ class RawEngine : public QObject {
                  setDenoiseChromaAmount NOTIFY denoiseChromaAmountChanged)
   Q_PROPERTY(float denoiseChromaBm3d READ denoiseChromaBm3d WRITE
                  setDenoiseChromaBm3d NOTIFY denoiseChromaBm3dChanged)
+  Q_PROPERTY(float cameraLookAmount READ cameraLookAmount WRITE
+                 setCameraLookAmount NOTIFY cameraLookAmountChanged)
+  Q_PROPERTY(bool cameraLookAvailable READ cameraLookAvailable NOTIFY
+                 cameraLookAvailableChanged)
   Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
   Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
   Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
@@ -437,6 +442,10 @@ class RawEngine : public QObject {
   float denoiseChromaBm3d() const { return m_denoiseChromaBm3d; }
   void setDenoiseChromaBm3d(float val);
 
+  float cameraLookAmount() const { return m_cameraLookAmount; }
+  void setCameraLookAmount(float val);
+  bool cameraLookAvailable() const { return m_cameraLook.tone.valid; }
+
   float clarity() const { return m_clarity; }
   void setClarity(float val);
 
@@ -736,6 +745,8 @@ class RawEngine : public QObject {
   void denoiseChromaRadiusChanged();
   void denoiseChromaAmountChanged();
   void denoiseChromaBm3dChanged();
+  void cameraLookAmountChanged();
+  void cameraLookAvailableChanged();
   void clarityChanged();
   void dehazeChanged();
   void structureChanged();
@@ -859,6 +870,9 @@ class RawEngine : public QObject {
   void applyHistoryIndex(int index);
   void persistEditStack();
   void rebuildToneLut();
+  void loadCameraLookForSource();
+  void startAsyncCameraLookFit();
+  bool cameraLookUsable() const;
   void refreshCalibrationMatrix();
   static std::vector<float> evalMonotonicSpline(const QVariantList& pts,
                                                  int lutSize = 256);
@@ -921,6 +935,7 @@ class RawEngine : public QObject {
   int m_denoiseChromaRadius = 4;
   float m_denoiseChromaAmount = 50.0f;
   float m_denoiseChromaBm3d = 50.0f;
+  float m_cameraLookAmount = 0.0f;
   float m_clarity = 0.0f;
   float m_dehaze = 0.0f;
   float m_structure = 0.0f;
@@ -1064,6 +1079,10 @@ class RawEngine : public QObject {
   QFutureWatcher<QImage> m_denoiseWatcher;
   QFutureWatcher<QImage> m_previewWatcher;
   QFutureWatcher<LoadResult> m_geometryLoadWatcher;
+  QFutureWatcher<photon::cameralook::CameraLook> m_cameraLookWatcher;
+  photon::cameralook::CameraLook m_cameraLook;
+  QString m_cameraLookSource;
+  bool m_cameraLookFitting = false;
   QFuture<void> m_histogramFuture;
 
   // Debounce timer for preview refresh (avoid piling up heavy tasks)

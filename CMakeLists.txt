@@ -72,6 +72,9 @@ qt_add_executable(Photon
     src/engine/LensFun.h
     src/engine/HdrMerge.cpp
     src/engine/HdrMerge.h
+    src/engine/CameraLook.cpp
+    src/engine/CameraLook.h
+    src/engine/CameraLookMath.h
     src/engine/DevelopProfile.h
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h

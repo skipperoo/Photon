@@ -11,6 +11,9 @@ add_executable(tst_RawEngine
     auto/tst_RawEngine.cpp
     ../src/engine/RawEngine.cpp
     ../src/engine/RawEngine.h
+    ../src/engine/CameraLook.cpp
+    ../src/engine/CameraLook.h
+    ../src/engine/CameraLookMath.h
     ../src/engine/Denoiser.cpp
     ../src/engine/Denoiser.h
  ../src/engine/GpuSearcher.cpp
@@ -89,6 +92,9 @@ add_executable(tst_AppStateManager
     auto/tst_AppStateManager.cpp
     ../src/managers/AppStateManager.cpp
     ../src/managers/AppStateManager.h
+    ../src/engine/CameraLook.cpp
+    ../src/engine/CameraLook.h
+    ../src/engine/CameraLookMath.h
     ../src/managers/LogManager.cpp
     ../src/managers/LogManager.h
     ../src/managers/PreviewManager.cpp

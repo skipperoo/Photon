@@ -686,6 +686,7 @@ RawEngine::RawEngine(QObject* parent)
                 return;
               }
 
+              loadCameraLookForSource();
               updateLensShader();
               requestHistogramUpdate();
               if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
@@ -848,6 +849,10 @@ void RawEngine::setSource(const QString& source) {
   m_currentLoadId++;
 
   m_source = source;
+  const bool hadCameraLook = m_cameraLook.tone.valid;
+  m_cameraLook = photon::cameralook::CameraLook();
+  m_cameraLookSource.clear();
+  if (hadCameraLook) emit cameraLookAvailableChanged();
   emit sourceChanged();
 
   // Try to get existing preview immediately
@@ -1085,6 +1090,7 @@ void RawEngine::setProfile(const QString& profile) {
   m_profile = normalized;
   emit profileChanged();
   emit isDefaultChanged();
+  rebuildToneLut();
 }
 
 void RawEngine::setBwMixRed(float val) {
@@ -1246,6 +1252,22 @@ void RawEngine::setDenoiseChromaBm3d(float val) {
   m_denoiseChromaBm3d = val;
   m_hasDenoisedResult = false;
   emit denoiseChromaBm3dChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setCameraLookAmount(float val) {
+  val = std::clamp(val, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_cameraLookAmount, val)) return;
+  m_cameraLookAmount = val;
+  // The look is composed into the tone LUT, so changing the amount rebuilds it
+  // (the histogram follows on commit, like the other tone-curve controls).
+  rebuildToneLut();
+  // Opt-in: the fit runs when the amount is raised, not on every photo open.
+  if (m_cameraLookAmount > 0.0f && !m_cameraLook.tone.valid &&
+      !m_cameraLookFitting) {
+    startAsyncCameraLookFit();
+  }
+  emit cameraLookAmountChanged();
   emit isDefaultChanged();
 }
 
@@ -2136,6 +2158,13 @@ void RawEngine::rebuildToneLut() {
     lutB = evalMonotonicSpline(m_toneCurveBlue, kToneLutEntries);
   }
 
+  // The fitted camera look runs before the user curves, on luminance: it is
+  // composed into the luminance LUT only (the render maps the pixel's min/max
+  // through it before the per-channel curves).
+  if (cameraLookUsable())
+    photon::cameralook::prependToneCurveToLut(
+        lutL, m_cameraLook.tone, m_cameraLookAmount / 100.0f);
+
   // Check if any LUT deviates from identity after quantization to 16-bit.
   // This keeps toneCurveActive stable for near-identity curves while still
   // honoring the full 65536-level LUT precision.
@@ -2185,6 +2214,65 @@ void RawEngine::rebuildToneLut() {
     m_toneCurveActive = active;
     emit toneCurveActiveChanged();
   }
+}
+
+bool RawEngine::cameraLookUsable() const {
+  if (!m_cameraLook.tone.valid || m_cameraLookAmount <= 0.0f) return false;
+  // AgX is a full tone map of its own; the camera look would run on its
+  // output. It still applies to the normal and black & white profiles (for
+  // the latter it becomes the tone curve of the converted image).
+  return m_profile != QLatin1String(develop::kProfileAgx);
+}
+
+void RawEngine::loadCameraLookForSource() {
+  if (m_cameraLookSource == m_source) return;
+  m_cameraLook = photon::cameralook::CameraLook();
+  m_cameraLookSource = m_source;
+  if (m_source.isEmpty() || m_isBitmap) return;
+
+  photon::cameralook::CameraLook cached =
+      photon::cameralook::loadCameraLook(m_source);
+  if (cached.tone.valid) {
+    m_cameraLook = cached;
+    emit cameraLookAvailableChanged();
+    rebuildToneLut();
+    return;
+  }
+  // Opt-in: only fit when this photo already uses the look.
+  if (m_cameraLookAmount > 0.0f) startAsyncCameraLookFit();
+}
+
+void RawEngine::startAsyncCameraLookFit() {
+  const int loadId = m_currentLoadId.load();
+  const QString source = m_source;
+  if (source.isEmpty() || m_cameraLookFitting) return;
+  if (ImageDecoder::isBitmap(source)) return;
+  m_cameraLookFitting = true;
+
+  m_cameraLookWatcher.disconnect();
+  connect(&m_cameraLookWatcher,
+          &QFutureWatcher<photon::cameralook::CameraLook>::finished, this,
+          [this, loadId]() {
+            m_cameraLookFitting = false;
+            if (loadId != m_currentLoadId.load()) return;
+            const photon::cameralook::CameraLook look =
+                m_cameraLookWatcher.result();
+            if (!look.tone.valid) return;
+
+            m_cameraLook = look;
+            photon::cameralook::saveCameraLook(m_source, look);
+            emit cameraLookAvailableChanged();
+            LogManager::instance()->log(
+                QString("[ RawEngine ] - camera look ready for %1")
+                    .arg(m_source),
+                PHOTON_DEBUG);
+            rebuildToneLut();
+            requestHistogramUpdate();
+          });
+  m_cameraLookWatcher.setFuture(
+      QtConcurrent::run([source]() {
+        return photon::cameralook::fitCameraLook(source);
+      }));
 }
 
 void RawEngine::ensureHistogramBlurCache(const ushort* src, int width,
@@ -3140,6 +3228,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["sharpenMask"] = e->sharpenMask();
   obj["maskFeather"] = e->maskFeather();
   obj["focusDetect"] = e->focusDetect();
+  obj["cameraLookAmount"] = e->cameraLookAmount();
 
   obj["hslRedHue"] = e->hslRedHue();
   obj["hslRedSaturation"] = e->hslRedSaturation();
@@ -3314,6 +3403,8 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setMaskFeather(obj["maskFeather"].toDouble());
   if (obj.contains("focusDetect"))
     e->setFocusDetect(obj["focusDetect"].toDouble());
+  if (obj.contains("cameraLookAmount"))
+    e->setCameraLookAmount(obj["cameraLookAmount"].toDouble());
 
   if (obj.contains("hslRedHue")) e->setHslRedHue(obj["hslRedHue"].toDouble());
   if (obj.contains("hslRedSaturation"))
@@ -3500,6 +3591,7 @@ static void resetToDefaults(RawEngine* e) {
   e->setDehaze(0.0f);
   e->setStructure(0.0f);
   e->setCentre(0.0f);
+  e->setCameraLookAmount(0.0f);
   e->setSharpness(0.0f);
   e->setSharpenMask(0.0f);
   e->setMaskFeather(0.0f);
@@ -3667,6 +3759,7 @@ static QString historyLabelForKey(const QString& key) {
       {"profile", "Profile"},        {"adaptation", "Adaptation"},
       {"clarity", "Clarity"},        {"dehaze", "Dehaze"},
       {"structure", "Structure"},    {"centre", "Centre"},
+      {"cameraLookAmount", "Camera Look"},
       {"sharpness", "Sharpening"},   {"sharpenMask", "Sharpen Masking"},
       {"maskFeather", "Sharpen Feather"}, {"focusDetect", "Focus Detect"},
       {"grainAmount", "Grain Amount"}, {"grainSize", "Grain Size"},
@@ -4327,6 +4420,7 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_dehaze)) return false;
   if (!qFuzzyIsNull(m_structure)) return false;
   if (!qFuzzyIsNull(m_centre)) return false;
+  if (!qFuzzyIsNull(m_cameraLookAmount)) return false;
   if (!qFuzzyIsNull(m_sharpness)) return false;
   if (!qFuzzyIsNull(m_sharpenMask)) return false;
   if (!qFuzzyIsNull(m_maskFeather)) return false;

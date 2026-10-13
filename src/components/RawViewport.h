@@ -141,6 +141,10 @@ class RawViewport : public QQuickItem {
                  setDenoiseChromaAmount NOTIFY denoiseChromaAmountChanged)
   Q_PROPERTY(float denoiseChromaBm3d READ denoiseChromaBm3d WRITE
                  setDenoiseChromaBm3d NOTIFY denoiseChromaBm3dChanged)
+  Q_PROPERTY(float cameraLookAmount READ cameraLookAmount WRITE
+                 setCameraLookAmount NOTIFY cameraLookAmountChanged)
+  Q_PROPERTY(bool cameraLookAvailable READ cameraLookAvailable NOTIFY
+                 cameraLookAvailableChanged)
   Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
   Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
   Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
@@ -470,6 +474,10 @@ class RawViewport : public QQuickItem {
   float denoiseChromaBm3d() const { return m_engine.denoiseChromaBm3d(); }
   void setDenoiseChromaBm3d(float val);
 
+  float cameraLookAmount() const { return m_engine.cameraLookAmount(); }
+  void setCameraLookAmount(float val);
+  bool cameraLookAvailable() const { return m_engine.cameraLookAvailable(); }
+
   float clarity() const { return m_engine.clarity(); }
   void setClarity(float val);
 
@@ -725,6 +733,8 @@ class RawViewport : public QQuickItem {
   void denoiseChromaRadiusChanged();
   void denoiseChromaAmountChanged();
   void denoiseChromaBm3dChanged();
+  void cameraLookAmountChanged();
+  void cameraLookAvailableChanged();
   void clarityChanged();
   void dehazeChanged();
   void structureChanged();

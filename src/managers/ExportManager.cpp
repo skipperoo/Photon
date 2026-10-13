@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QtConcurrent>
 
+#include "../engine/CameraLook.h"
 #include "../engine/ImageDeveloper.h"
 #include "../engine/ImageDecoder.h"
 #include "../engine/RawEngine.h"
@@ -81,6 +82,17 @@ void ExportManager::processExport(const QStringList& paths,
           lastState = arr.last().toObject();
         }
       }
+    }
+
+    // 1b. Camera look: feed the fitted tone curve from the per-photo cache so
+    //     the export matches the preview when the photo's look amount is set.
+    if (!ImageDecoder::isBitmap(path) &&
+        lastState.value("cameraLookAmount").toDouble(0.0) > 0.0) {
+      const photon::cameralook::CameraLook look =
+          photon::cameralook::loadCameraLook(path);
+      if (look.tone.valid)
+        lastState["cameraLook"] =
+            photon::cameralook::toneCurveToJson(look.tone);
     }
 
     // 2. Load pixels: LibRaw for RAW, ImageDecoder for JPEG/TIFF

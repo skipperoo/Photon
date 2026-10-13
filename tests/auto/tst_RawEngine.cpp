@@ -13,6 +13,8 @@
 #include "ImageDeveloper.h"
 #include "LensFun.h"
 #include "HdrMergeMath.h"
+#include "CameraLook.h"
+#include "CameraLookMath.h"
 #include "PreviewManager.h"
 #include "RawEngine.h"
 
@@ -32,6 +34,7 @@ class TestRawEngine : public QObject {
   void testLensFunParserAndCorrection();
   void testLensProfileEditState();
   void testHdrMergeRadiometric();
+  void testCameraLookToneFit();
   void testLensFunRealDatabase();
   void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
@@ -961,6 +964,141 @@ void TestRawEngine::testHdrMergeRadiometric() {
   QVERIFY(std::abs(merged[mid] - scene[mid]) / scene[mid] < 0.1f);
   // Monotone response.
   for (int p = 1; p < N; ++p) QVERIFY(merged[p] >= merged[p - 1] * 0.98f);
+}
+
+void TestRawEngine::testCameraLookToneFit() {
+  // A synthetic monotone camera tone. Quantile matching maps each quantile of
+  // the scene to the same quantile of the JPEG, so a deterministic monotone
+  // transform must come back out of the fit (within interpolation error).
+  const auto camera = [](float scene) {
+    return 0.02f + 0.9f * std::pow(scene, 1.25f);
+  };
+  constexpr int kCount = 3000;
+  std::vector<std::pair<float, float>> pairs;
+  pairs.reserve(kCount);
+  for (int i = 0; i < kCount; ++i) {
+    const float scene =
+        0.002f * std::pow(500.0f, float(i) / float(kCount - 1));
+    pairs.emplace_back(scene, camera(scene));
+  }
+
+  const photon::cameralook::CameraToneCurve curve =
+      photon::cameralook::fitCameraToneCurve(pairs);
+  QVERIFY(curve.valid);
+  for (float scene : {0.01f, 0.05f, 0.18f, 0.5f, 0.9f})
+    QVERIFY(std::abs(curve.apply(scene) - camera(scene)) < 0.02f);
+
+  // Monotone response over the whole range.
+  float previous = -1.0f;
+  for (int i = 0; i <= 100; ++i) {
+    const float y =
+        curve.apply(0.002f * std::pow(500.0f, float(i) / 100.0f));
+    QVERIFY(y >= previous - 1e-5f);
+    previous = y;
+  }
+
+  // Fewer samples than the minimum: rejected.
+  {
+    std::vector<std::pair<float, float>> small(pairs.begin(),
+                                               pairs.begin() + 100);
+    QVERIFY(!photon::cameralook::fitCameraToneCurve(small).valid);
+  }
+  // An unrelated picture (shuffled targets) fails the rank-correlation gate.
+  {
+    std::vector<std::pair<float, float>> shuffled;
+    shuffled.reserve(pairs.size());
+    for (std::size_t i = 0; i < pairs.size(); ++i)
+      shuffled.emplace_back(pairs[i].first,
+                            pairs[(i * 7919) % pairs.size()].second);
+    QVERIFY(!photon::cameralook::fitCameraToneCurve(shuffled).valid);
+  }
+  // Too little scene range (knots[31] < knots[0] * 1.5): rejected.
+  {
+    std::vector<std::pair<float, float>> narrow;
+    narrow.reserve(kCount);
+    for (int i = 0; i < kCount; ++i) {
+      const float scene = 0.10f + 0.01f * std::sin(float(i));
+      narrow.emplace_back(scene, camera(scene));
+    }
+    QVERIFY(!photon::cameralook::fitCameraToneCurve(narrow).valid);
+  }
+
+  // Composing into a display-encoded tone LUT reproduces decode -> curve ->
+  // encode, and an invalid curve leaves the LUT untouched.
+  {
+    std::vector<float> lut(4096);
+    for (std::size_t i = 0; i < lut.size(); ++i)
+      lut[i] = float(i) / float(lut.size() - 1);
+    std::vector<float> composed = lut;
+    photon::cameralook::prependToneCurveToLut(composed, curve);
+    for (std::size_t i = 0; i < composed.size(); i += 17) {
+      const float display = float(i) / float(composed.size() - 1);
+      const float expected = photon::cameralook::linearToSrgbF(
+          curve.apply(photon::cameralook::srgbToLinearF(display)));
+      QVERIFY(std::abs(composed[i] - expected) < 0.005f);
+    }
+    photon::cameralook::CameraToneCurve invalid;
+    std::vector<float> untouched = lut;
+    photon::cameralook::prependToneCurveToLut(untouched, invalid);
+    QVERIFY(untouched == lut);
+  }
+
+  // Highlight protection: a curve fitted on a narrow scene range continues
+  // straight to display white at scene white, so the RAW headroom above the
+  // fitted range keeps its spread instead of collapsing just below white.
+  {
+    std::vector<std::pair<float, float>> low;
+    low.reserve(kCount);
+    for (int i = 0; i < kCount; ++i) {
+      const float scene =
+          0.002f * std::pow(250.0f, float(i) / float(kCount - 1));
+      low.emplace_back(scene, 0.02f + 0.7f * std::pow(scene, 1.2f));
+    }
+    const photon::cameralook::CameraToneCurve lowCurve =
+        photon::cameralook::fitCameraToneCurve(low);
+    QVERIFY(lowCurve.valid);
+    QVERIFY(std::abs(lowCurve.apply(1.0f) - 1.0f) < 1e-4f);
+    QVERIFY(lowCurve.apply(0.9f) > 0.75f);
+    float previousLow = -1.0f;
+    for (int i = 0; i <= 100; ++i) {
+      const float y = lowCurve.apply(0.002f + 0.998f * float(i) / 100.0f);
+      QVERIFY(y >= previousLow - 1e-4f);
+      previousLow = y;
+    }
+  }
+
+  // The amount blend interpolates the look with the current rendering and
+  // keeps white fixed; amount 0 leaves the LUT untouched.
+  {
+    std::vector<float> lut(1024);
+    for (std::size_t i = 0; i < lut.size(); ++i)
+      lut[i] = float(i) / float(lut.size() - 1);
+    std::vector<float> half = lut;
+    photon::cameralook::prependToneCurveToLut(half, curve, 0.5f);
+    for (std::size_t i = 0; i < half.size(); i += 13) {
+      const float display = float(i) / float(half.size() - 1);
+      const float scene = photon::cameralook::srgbToLinearF(display);
+      const float expected = photon::cameralook::linearToSrgbF(
+          scene + 0.5f * (curve.apply(scene) - scene));
+      QVERIFY(std::abs(half[i] - expected) < 0.005f);
+    }
+    QVERIFY(std::abs(half.back() - 1.0f) < 1e-3f);
+    std::vector<float> zero = lut;
+    photon::cameralook::prependToneCurveToLut(zero, curve, 0.0f);
+    QVERIFY(zero == lut);
+  }
+
+  // JSON round-trip (per-photo cache and the export-side composition).
+  {
+    const QJsonObject json = photon::cameralook::toneCurveToJson(curve);
+    const photon::cameralook::CameraToneCurve restored =
+        photon::cameralook::toneCurveFromJson(json);
+    QVERIFY(restored.valid);
+    for (int i = 0; i < photon::cameralook::kToneKnots; ++i) {
+      QVERIFY(std::abs(restored.knots[i][0] - curve.knots[i][0]) < 1e-6f);
+      QVERIFY(std::abs(restored.knots[i][1] - curve.knots[i][1]) < 1e-6f);
+    }
+  }
 }
 
 void TestRawEngine::testOklabCreativeOps() {

@@ -106,6 +106,12 @@ T.Dialog {
             ]
         },
         {
+            "label": "Camera Look",
+            "items": [
+                { "key": "cameraLookAmount", "label": "Amount" }
+            ]
+        },
+        {
             "label": "Calibration",
             "items": [
                 { "key": "calibShadowsTint", "label": "Shadows Tint" },

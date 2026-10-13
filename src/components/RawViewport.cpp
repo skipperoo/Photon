@@ -296,6 +296,13 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit denoiseChromaBm3dChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::cameraLookAmountChanged, this, [this]() {
+    emit cameraLookAmountChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::cameraLookAvailableChanged, this, [this]() {
+    emit cameraLookAvailableChanged();
+  });
   connect(&m_engine, &RawEngine::clarityChanged, this, [this]() {
     emit clarityChanged();
     update();
@@ -957,6 +964,13 @@ void RawViewport::setDenoiseChromaBm3d(float val) {
   if (m_engine.hasDenoisedResult()) m_textureDirty = true;
   m_engine.setDenoiseChromaBm3d(val);
   emit denoiseChromaBm3dChanged();
+  update();
+}
+
+void RawViewport::setCameraLookAmount(float val) {
+  if (qFuzzyCompare(m_engine.cameraLookAmount(), val)) return;
+  m_engine.setCameraLookAmount(val);
+  emit cameraLookAmountChanged();
   update();
 }
 

@@ -20,6 +20,7 @@
 #include "Calibration.h"
 #include "Denoiser.h"
 #include "LensFun.h"
+#include "CameraLook.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
 
@@ -1059,6 +1060,19 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     lutRed = evalMonotonicSplineLut(tcRed, kToneLutEntries);
     lutGreen = evalMonotonicSplineLut(tcGreen, kToneLutEntries);
     lutBlue = evalMonotonicSplineLut(tcBlue, kToneLutEntries);
+  }
+
+  // The fitted camera look (a per-photo cache entry injected by the export
+  // manager) runs before the user curves, on luminance, like on the GPU, and
+  // is scaled by the photo's look amount.
+  if (!agx_enabled && obj.contains("cameraLook")) {
+    const photon::cameralook::CameraToneCurve look =
+        photon::cameralook::toneCurveFromJson(obj["cameraLook"].toObject());
+    if (look.valid) {
+      const float amount =
+          float(obj.value("cameraLookAmount").toDouble(0.0) / 100.0);
+      photon::cameralook::prependToneCurveToLut(lutLuma, look, amount);
+    }
   }
   stage("tone curves");
 

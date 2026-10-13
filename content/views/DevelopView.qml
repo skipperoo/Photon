@@ -246,6 +246,21 @@ Control {
                     }
                 }
 
+                // --- Presence Section ---
+                Collapsible {
+                    title: "Presence"
+                    expanded: false
+                    visible: !root.isBlackAndWhite
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        ControlGroup { title: "Vibrance"; value: root.viewport ? root.viewport.vibrance : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.vibrance = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.saturation : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.saturation = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                    }
+                }
+
                 // --- Tone Curve Section ---
                 Collapsible {
                     title: "Tone Curve"
@@ -314,24 +329,9 @@ Control {
                     }
                 }
 
-                // --- Presence Section ---
+                // --- HSL Section ---
                 Collapsible {
-                    title: "Presence"
-                    expanded: false
-                    visible: !root.isBlackAndWhite
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-
-                        ControlGroup { title: "Vibrance"; value: root.viewport ? root.viewport.vibrance : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.vibrance = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.saturation : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.saturation = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                    }
-                }
-
-                // --- Color Section (HSL) ---
-                Collapsible {
-                    title: "Color"
+                    title: "HSL"
                     expanded: false
                     visible: !root.isBlackAndWhite
 
@@ -541,105 +541,6 @@ Control {
                             onMoved: (v) => { if(root.viewport) root.viewport.cgBlending = v }
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
-                    }
-                }
-
-                // --- Calibration Section ---
-                Collapsible {
-                    title: "Calibration"
-                    expanded: false
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-
-                        Text { text: "Shadows"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.calibShadowsTint : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: SliderRamps.shadowsTint; onMoved: (v) => { if(root.viewport) root.viewport.calibShadowsTint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
-
-                        Text { text: "Red Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibRedHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(0, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibRedHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibRedSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(0, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibRedSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
-
-                        Text { text: "Green Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibGreenHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(120, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibGreenSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(120, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
-
-                        Text { text: "Blue Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibBlueHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(240, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibBlueSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(240, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                    }
-                }
-
-                // --- Effects Section ---
-                Collapsible {
-                    title: "Effects"
-                    expanded: false
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-                        ControlGroup { 
-                            title: "Clarity"; 
-                            value: root.viewport ? root.viewport.clarity : 0.0; 
-                            from: -100; to: 100;
-                            defaultValue: 0.0
-                            onMoved: (v) => { if(root.viewport) root.viewport.clarity = v }; 
-                            onReleased: if(root.viewport) root.viewport.commitEdit()
-                        }
-                        ControlGroup { 
-                            title: "Dehaze"; 
-                            value: root.viewport ? root.viewport.dehaze : 0.0; 
-                            from: -100; to: 100;
-                            defaultValue: 0.0
-                            onMoved: (v) => { if(root.viewport) root.viewport.dehaze = v }; 
-                            onReleased: if(root.viewport) root.viewport.commitEdit()
-                        }
-                        ControlGroup { 
-                            title: "Structure"; 
-                            value: root.viewport ? root.viewport.structure : 0.0; 
-                            from: -100; to: 100;
-                            defaultValue: 0.0
-                            onMoved: (v) => { if(root.viewport) root.viewport.structure = v }; 
-                            onReleased: if(root.viewport) root.viewport.commitEdit()
-                        }
-                        ControlGroup { 
-                            title: "Centrè"; 
-                            value: root.viewport ? root.viewport.centre : 0.0; 
-                            from: -100; to: 100;
-                            defaultValue: 0.0
-                            onMoved: (v) => { if(root.viewport) root.viewport.centre = v }; 
-                            onReleased: if(root.viewport) root.viewport.commitEdit()
-                        }
-                    }
-                }
-
-                // --- Creative Section ---
-                Collapsible {
-                    title: "Creative"
-                    expanded: false
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-
-                        Text { text: "Film Grain"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Grain Amount"; value: root.viewport ? root.viewport.grainAmount : 0.0; from: 0; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.grainAmount = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Grain Size"; value: root.viewport ? root.viewport.grainSize : 1.0; from: 0.1; to: 5; defaultValue: 1.0; onMoved: (v) => { if(root.viewport) root.viewport.grainSize = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Grain Roughness"; value: root.viewport ? root.viewport.grainRoughness : 0.5; from: 0; to: 1; defaultValue: 0.5; onMoved: (v) => { if(root.viewport) root.viewport.grainRoughness = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
-
-                        Text { text: "Vignette"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Vignette Amount"; value: root.viewport ? root.viewport.vignetteAmount : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.vignetteAmount = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Vignette Midpoint"; value: root.viewport ? root.viewport.vignetteMidpoint : 50.0; from: 0; to: 100; defaultValue: 50.0; onMoved: (v) => { if(root.viewport) root.viewport.vignetteMidpoint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Vignette Roundness"; value: root.viewport ? root.viewport.vignetteRoundness : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.vignetteRoundness = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
-                        ControlGroup { title: "Vignette Feather"; value: root.viewport ? root.viewport.vignetteFeather : 50.0; from: 1; to: 100; defaultValue: 50.0; onMoved: (v) => { if(root.viewport) root.viewport.vignetteFeather = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                     }
                 }
 
@@ -889,6 +790,134 @@ Control {
                         }
                     }
                 }
+                // --- Creative Section ---
+                Collapsible {
+                    title: "Creative"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        Text { text: "Film Grain"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Grain Amount"; value: root.viewport ? root.viewport.grainAmount : 0.0; from: 0; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.grainAmount = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Grain Size"; value: root.viewport ? root.viewport.grainSize : 1.0; from: 0.1; to: 5; defaultValue: 1.0; onMoved: (v) => { if(root.viewport) root.viewport.grainSize = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Grain Roughness"; value: root.viewport ? root.viewport.grainRoughness : 0.5; from: 0; to: 1; defaultValue: 0.5; onMoved: (v) => { if(root.viewport) root.viewport.grainRoughness = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        Text { text: "Vignette"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Vignette Amount"; value: root.viewport ? root.viewport.vignetteAmount : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.vignetteAmount = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Vignette Midpoint"; value: root.viewport ? root.viewport.vignetteMidpoint : 50.0; from: 0; to: 100; defaultValue: 50.0; onMoved: (v) => { if(root.viewport) root.viewport.vignetteMidpoint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Vignette Roundness"; value: root.viewport ? root.viewport.vignetteRoundness : 0.0; from: -100; to: 100; defaultValue: 0.0; onMoved: (v) => { if(root.viewport) root.viewport.vignetteRoundness = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Vignette Feather"; value: root.viewport ? root.viewport.vignetteFeather : 50.0; from: 1; to: 100; defaultValue: 50.0; onMoved: (v) => { if(root.viewport) root.viewport.vignetteFeather = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                    }
+                }
+
+                // --- Effects Section ---
+                Collapsible {
+                    title: "Effects"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+                        ControlGroup { 
+                            title: "Clarity"; 
+                            value: root.viewport ? root.viewport.clarity : 0.0; 
+                            from: -100; to: 100;
+                            defaultValue: 0.0
+                            onMoved: (v) => { if(root.viewport) root.viewport.clarity = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Dehaze"; 
+                            value: root.viewport ? root.viewport.dehaze : 0.0; 
+                            from: -100; to: 100;
+                            defaultValue: 0.0
+                            onMoved: (v) => { if(root.viewport) root.viewport.dehaze = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Structure"; 
+                            value: root.viewport ? root.viewport.structure : 0.0; 
+                            from: -100; to: 100;
+                            defaultValue: 0.0
+                            onMoved: (v) => { if(root.viewport) root.viewport.structure = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        ControlGroup { 
+                            title: "Centrè"; 
+                            value: root.viewport ? root.viewport.centre : 0.0; 
+                            from: -100; to: 100;
+                            defaultValue: 0.0
+                            onMoved: (v) => { if(root.viewport) root.viewport.centre = v }; 
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                    }
+                }
+
+                // --- Camera Look Section ---
+                Collapsible {
+                    title: "Camera Look"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        ControlGroup {
+                            title: "Amount";
+                            value: root.viewport ? root.viewport.cameraLookAmount : 0.0;
+                            from: 0; to: 100;
+                            defaultValue: 0.0
+                            onMoved: (v) => { if(root.viewport) root.viewport.cameraLookAmount = v };
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        Text {
+                            text: root.viewport && root.viewport.cameraLookAvailable
+                                  ? "The camera's tone curve, fitted from this photo's embedded JPEG. Lower the amount to keep more highlight headroom."
+                                  : "Raise the amount to fit this photo's camera tone curve from its embedded JPEG; photos without one keep the standard rendering."
+                            font: Theme.fontSmall
+                            color: Theme.mutedFg
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                // --- Calibration Section ---
+                Collapsible {
+                    title: "Calibration"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        Text { text: "Shadows"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.calibShadowsTint : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: SliderRamps.shadowsTint; onMoved: (v) => { if(root.viewport) root.viewport.calibShadowsTint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        Text { text: "Red Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibRedHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(0, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibRedHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibRedSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(0, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibRedSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        Text { text: "Green Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibGreenHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(120, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibGreenSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(120, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibGreenSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
+
+                        Text { text: "Blue Primary"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
+                        ControlGroup { title: "Hue"; value: root.viewport ? root.viewport.calibBlueHue : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primaryHue(240, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueHue = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup { title: "Saturation"; value: root.viewport ? root.viewport.calibBlueSat : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: function(t) { return SliderRamps.primarySaturation(240, t) }; onMoved: (v) => { if(root.viewport) root.viewport.calibBlueSat = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                    }
+                }
+
 
                 Item { Layout.preferredHeight: 40 }
             }

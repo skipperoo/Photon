@@ -82,9 +82,9 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | Process version + history (40.5) | edit-stack JSON (`processVersion`, `__step`/`__delta`/`__index` metadata) | DONE (`2fbdc2c`) |
 | Lensfun (40.6) | real-time GPU (`lensShader` uniforms, baked-image space) + CPU export before geometry | DONE (`9f1df25`) |
 | HDR merge (40.7) | tool before the develop pipeline: merged linear DNG enters the library as a normal RAW file | DONE (`d538d7f`) |
-| Camera look (40.8; colour stages 41.2) | display-domain tone LUT (luminance pre-curve, per-photo amount); skipped for AgX | 40.8 DONE (`8531c59`); 41.2 planned (per-photo chroma/matrix/hue-sat) |
+| Camera look (40.8) | display-domain tone LUT (luminance pre-curve, per-photo amount); skipped for AgX | DONE (`8531c59`) |
 | Local masks / adjustments | per-pixel stage | future TBD |
-| Tone rewrite (41.1) | replaces the Photon001 tone ranges: filmic luminance curve + edge-aware guided base | planned (process v2, auto-upgrade — decided 2026-10-13) |
+| Tone-slider rewrite (filmic LUT + edge-aware HL/SHD) | replaces Photon001 delta for those ranges | future TBD |
 
 ## 3. Data model
 

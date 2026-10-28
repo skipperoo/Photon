@@ -185,17 +185,15 @@ Window {
         for (var i = 0; i < files.length; i++) {
             var file = files[i];
             var r = file.rating || 0;
+            // The selected operator always applies; the default (>= 0) keeps
+            // every photo, and "> 0" now correctly shows only rated photos.
             var match = true;
-            if (window.ratingFilter > 0) {
-                switch (window.ratingOperator) {
-                    case 0: match = (r === window.ratingFilter); break;
-                    case 1: match = (r > window.ratingFilter); break;
-                    case 2: match = (r >= window.ratingFilter); break;
-                    case 3: match = (r < window.ratingFilter); break;
-                    case 4: match = (r <= window.ratingFilter); break;
-                }
-            } else if (window.ratingFilter === 0 && window.ratingOperator === 0) {
-                match = (r === 0);
+            switch (window.ratingOperator) {
+                case 0: match = (r === window.ratingFilter); break;
+                case 1: match = (r > window.ratingFilter); break;
+                case 2: match = (r >= window.ratingFilter); break;
+                case 3: match = (r < window.ratingFilter); break;
+                case 4: match = (r <= window.ratingFilter); break;
             }
 
             if (match) filtered.push(file);

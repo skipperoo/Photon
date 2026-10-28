@@ -42,19 +42,39 @@ QVariantList FileScanner::scanForRawFiles(const QString& folderPath) const {
       fileMap["modified"] = fileInfo.lastModified();
       fileMap["extension"] = fileInfo.suffix().toLower();
 
-      // Read rating from sidecar if it exists
+      // Ratings live in their own per-photo file; fall back to the legacy
+      // rating stored in the edit sidecar's last entry (older builds).
       int rating = 0;
-      QString sidecarPath = QDir::toNativeSeparators(
-          fileInfo.absolutePath() + "/.PhotonData/edits/" +
+      const QString ratingPath = QDir::toNativeSeparators(
+          fileInfo.absolutePath() + "/.PhotonData/ratings/" +
           fileInfo.fileName() + ".json");
-      QFile sidecarFile(sidecarPath);
-      if (sidecarFile.open(QIODevice::ReadOnly)) {
-        QJsonDocument doc = QJsonDocument::fromJson(sidecarFile.readAll());
-        QJsonArray arr = doc.array();
-        if (!arr.isEmpty()) {
-          QJsonObject lastState = arr.last().toObject();
-          if (lastState.contains("rating")) {
-            rating = lastState["rating"].toInt();
+      QFile ratingFile(ratingPath);
+      if (ratingFile.open(QIODevice::ReadOnly)) {
+        const QJsonObject obj =
+            QJsonDocument::fromJson(ratingFile.readAll()).object();
+        rating = obj.value("rating").toInt(0);
+      } else {
+        const QString sidecarPath = QDir::toNativeSeparators(
+            fileInfo.absolutePath() + "/.PhotonData/edits/" +
+            fileInfo.fileName() + ".json");
+        QFile sidecarFile(sidecarPath);
+        if (sidecarFile.open(QIODevice::ReadOnly)) {
+          const QJsonArray arr =
+              QJsonDocument::fromJson(sidecarFile.readAll()).array();
+          if (!arr.isEmpty()) {
+            const QJsonObject lastState = arr.last().toObject();
+            if (lastState.contains("rating")) {
+              rating = lastState["rating"].toInt();
+            } else {
+              // Old sidecars keep the rating in the current state, behind the
+              // trailing {"__index": N} marker.
+              const int index = lastState.value("__index").toInt(-1);
+              if (index >= 0 && index < arr.size() - 1) {
+                const QJsonObject state = arr[index].toObject();
+                if (state.contains("rating"))
+                  rating = state["rating"].toInt();
+              }
+            }
           }
         }
       }

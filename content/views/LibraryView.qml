@@ -70,18 +70,15 @@ Control {
         for (var i = 0; i < files.length; i++) {
             var file = files[i];
             var r = file.rating || 0;
-            
+
+            // The selected operator always applies (default >= 0 shows all).
             var match = true;
-            if (window.ratingFilter > 0) {
-                switch (window.ratingOperator) {
-                    case 0: match = (r === window.ratingFilter); break;
-                    case 1: match = (r > window.ratingFilter); break;
-                    case 2: match = (r >= window.ratingFilter); break;
-                    case 3: match = (r < window.ratingFilter); break;
-                    case 4: match = (r <= window.ratingFilter); break;
-                }
-            } else if (window.ratingFilter === 0 && window.ratingOperator === 0) {
-                match = (r === 0);
+            switch (window.ratingOperator) {
+                case 0: match = (r === window.ratingFilter); break;
+                case 1: match = (r > window.ratingFilter); break;
+                case 2: match = (r >= window.ratingFilter); break;
+                case 3: match = (r < window.ratingFilter); break;
+                case 4: match = (r <= window.ratingFilter); break;
             }
 
             if (match) filtered.push(file);
@@ -165,18 +162,16 @@ Control {
             var newFiles = allFiles.filter(f => !existing.has(f.path));
             for (var j = 0; j < newFiles.length; j++) {
                 var f = newFiles[j];
-                if (window.ratingFilter > 0) {
-                    var r = f.rating || 0;
-                    var pass = false;
-                    switch (window.ratingOperator) {
-                        case 0: pass = (r === window.ratingFilter); break;
-                        case 1: pass = (r > window.ratingFilter); break;
-                        case 2: pass = (r >= window.ratingFilter); break;
-                        case 3: pass = (r < window.ratingFilter); break;
-                        case 4: pass = (r <= window.ratingFilter); break;
-                    }
-                    if (!pass) continue;
+                var r = f.rating || 0;
+                var pass = true;
+                switch (window.ratingOperator) {
+                    case 0: pass = (r === window.ratingFilter); break;
+                    case 1: pass = (r > window.ratingFilter); break;
+                    case 2: pass = (r >= window.ratingFilter); break;
+                    case 3: pass = (r < window.ratingFilter); break;
+                    case 4: pass = (r <= window.ratingFilter); break;
                 }
+                if (!pass) continue;
                 rawFilesModel.append(f);
                 thumbnailProvider.generateThumbnailAsync(f.path);
             }

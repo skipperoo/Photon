@@ -4328,6 +4328,31 @@ void RawEngine::persistEditStack() {
   QString editsPath =
       QDir::toNativeSeparators(editsDir + "/" + fileInfo.fileName() + ".json");
 
+  // Preserve a legacy rating stored in the sidecar (older builds wrote it
+  // into the last entry). Ratings now live in .PhotonData/ratings, but this
+  // keeps existing ratings alive when the edit stack is rewritten.
+  int legacyRating = -1;
+  {
+    QFile existing(editsPath);
+    if (existing.open(QIODevice::ReadOnly)) {
+      const QJsonArray old =
+          QJsonDocument::fromJson(existing.readAll()).array();
+      if (!old.isEmpty()) {
+        const QJsonObject last = old.last().toObject();
+        if (last.contains(QStringLiteral("rating"))) {
+          legacyRating = last.value(QStringLiteral("rating")).toInt(-1);
+        } else {
+          const int index = last.value(QStringLiteral("__index")).toInt(-1);
+          if (index >= 0 && index < old.size() - 1) {
+            const QJsonObject state = old[index].toObject();
+            if (state.contains(QStringLiteral("rating")))
+              legacyRating = state.value(QStringLiteral("rating")).toInt(-1);
+          }
+        }
+      }
+    }
+  }
+
   QJsonArray arr;
   for (const auto& v : m_editStack) {
     QJsonObject obj = QJsonObject::fromVariantMap(v.toMap());
@@ -4336,6 +4361,7 @@ void RawEngine::persistEditStack() {
   }
   QJsonObject marker;
   marker["__index"] = m_editIndex;
+  if (legacyRating >= 0) marker["rating"] = legacyRating;
   arr.append(marker);
 
   QFile file(editsPath);

@@ -2,6 +2,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QMap>
 #include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QtTest>
@@ -47,6 +49,7 @@ class TestRawEngine : public QObject {
   void testBitmapJpegLoad();
   void testBitmapTiffLoadAndGeometryBake();
   void testFileScannerIncludesBitmaps();
+  void testRatingStoreAndLegacySidecar();
   void testBitmapExport();
   void testBitmapPreview();
   void testProcessedImageConcurrentSourceSwitch();
@@ -1570,6 +1573,49 @@ void TestRawEngine::testFileScannerIncludesBitmaps() {
   QVERIFY(names.contains("a.JPG"));
   QVERIFY(names.contains("b.tiff"));
   QVERIFY(!names.contains("c.txt"));
+}
+
+void TestRawEngine::testRatingStoreAndLegacySidecar() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  auto writeFile = [&dir](const QString& relative, const QByteArray& data) {
+    QDir().mkpath(QFileInfo(dir.filePath(relative)).absolutePath());
+    QFile file(dir.filePath(relative));
+    if (!file.open(QIODevice::WriteOnly)) return false;
+    return file.write(data) == data.size();
+  };
+
+  // Placeholder raw files (the scanner only looks at names/extensions here).
+  QVERIFY(writeFile("rated.ARW", "x"));
+  QVERIFY(writeFile("legacy.ARW", "x"));
+  QVERIFY(writeFile("both.ARW", "x"));
+  QVERIFY(writeFile("markerState.ARW", "x"));
+
+  // New per-photo rating store.
+  QVERIFY(writeFile(".PhotonData/ratings/rated.ARW.json", "{\"rating\":4}"));
+  // Legacy rating in an old-format sidecar (no index marker).
+  QVERIFY(writeFile(".PhotonData/edits/legacy.ARW.json",
+                    "[{\"exposure\":0.5,\"rating\":3}]"));
+  // The store wins over a legacy sidecar rating.
+  QVERIFY(writeFile(".PhotonData/ratings/both.ARW.json", "{\"rating\":5}"));
+  QVERIFY(writeFile(".PhotonData/edits/both.ARW.json",
+                    "[{\"exposure\":0.0,\"rating\":2},{\"__index\":0}]"));
+  // Legacy rating behind a trailing index marker.
+  QVERIFY(writeFile(".PhotonData/edits/markerState.ARW.json",
+                    "[{\"exposure\":0.0,\"rating\":3},{\"__index\":0}]"));
+
+  FileScanner scanner;
+  QMap<QString, int> ratings;
+  const QVariantList files = scanner.scanForRawFiles(dir.path());
+  for (const QVariant& file : files) {
+    const QVariantMap map = file.toMap();
+    ratings[map.value("name").toString()] = map.value("rating").toInt();
+  }
+  QCOMPARE(ratings.value("rated.ARW"), 4);
+  QCOMPARE(ratings.value("legacy.ARW"), 3);
+  QCOMPARE(ratings.value("both.ARW"), 5);
+  QCOMPARE(ratings.value("markerState.ARW"), 3);
 }
 
 void TestRawEngine::testBitmapExport() {

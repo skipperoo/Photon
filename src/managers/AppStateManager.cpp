@@ -10,6 +10,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMutexLocker>
+#include <QSaveFile>
 #include <QUrl>
 
 #include "LogManager.h"
@@ -319,43 +320,32 @@ void AppStateManager::setRatingForSelected(int rating) {
   }
 
   for (const QString& path : m_selectedImages) {
-    // Update sidecar file
-    QFileInfo fileInfo(path);
-    QString editsDir = QDir::toNativeSeparators(fileInfo.absolutePath() +
-                                                "/.PhotonData/edits");
-    QDir().mkpath(editsDir);
-    QString editsPath = QDir::toNativeSeparators(editsDir + "/" +
-                                                 fileInfo.fileName() + ".json");
+    // Ratings live in their own per-photo file. They used to be stored in the
+    // edit sidecar, which the editing engine rewrites (history stack + index
+    // marker), silently dropping the rating and making filtered photos vanish.
+    const QFileInfo fileInfo(path);
+    const QString ratingsDir = QDir::toNativeSeparators(
+        fileInfo.absolutePath() + "/.PhotonData/ratings");
+    if (!QDir().mkpath(ratingsDir)) continue;
+    const QString ratingPath = QDir::toNativeSeparators(
+        ratingsDir + "/" + fileInfo.fileName() + ".json");
 
-    QJsonArray arr;
-    if (QFile::exists(editsPath)) {
-      QFile file(editsPath);
-      if (file.open(QIODevice::ReadOnly)) {
-        arr = QJsonDocument::fromJson(file.readAll()).array();
-      }
-    }
-
-    QJsonObject lastState;
-    if (!arr.isEmpty()) {
-      lastState = arr.last().toObject();
-    }
-
-    // Only update if rating changed
-    if (lastState.contains("rating") && lastState["rating"].toInt() == rating) {
+    QJsonObject obj;
+    obj["rating"] = rating;
+    QSaveFile file(ratingPath);
+    if (!file.open(QIODevice::WriteOnly)) {
+      LogManager::instance()->log(
+          QString("[ AppStateManager ] - cannot write rating file: %1")
+              .arg(ratingPath),
+          PHOTON_WARNING);
       continue;
     }
-
-    lastState["rating"] = rating;
-
-    if (arr.isEmpty()) {
-      arr.append(lastState);
-    } else {
-      arr.replace(arr.size() - 1, lastState);
-    }
-
-    QFile file(editsPath);
-    if (file.open(QIODevice::WriteOnly)) {
-      file.write(QJsonDocument(arr).toJson());
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    if (!file.commit()) {
+      LogManager::instance()->log(
+          QString("[ AppStateManager ] - failed to commit rating file: %1")
+              .arg(ratingPath),
+          PHOTON_WARNING);
     }
   }
 

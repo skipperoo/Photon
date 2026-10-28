@@ -1,7 +1,7 @@
 # Photon Develop Pipeline
 
 Living reference for how the develop pipeline works, where each feature sits, and what changed.
-Last updated: 2026-10-13.
+Last updated: 2026-10-28.
 
 ## 1. Overview
 
@@ -29,7 +29,7 @@ Rule (see `AGENTS.md`): any pipeline change must be applied to all three, with t
 |---|---|---|
 | 0 | GPU NLM denoise | live preview approximation (`apply_gpu_denoise`) |
 | 0.5 | Local-contrast masks + Sharpness / Structure / Dehaze / Centrè | |
-| 1 | White balance | temp/tint multipliers |
+| 1 | White balance | temp/tint multipliers; RAW adds the Kelvin gains (`wbGain`) |
 | 2 | Exposure | + positive-EV highlight knee vs `sceneWhite` |
 | 2.5 | Photon001 tone ranges | Highlights/Shadows/Whites/Blacks/Clarity from the delta texture |
 | 2.75 | Calibration | white-preserving primary matrix + shadows tint (host-computed rows) |
@@ -83,6 +83,8 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | Lensfun (40.6) | real-time GPU (`lensShader` uniforms, baked-image space) + CPU export before geometry | DONE (`9f1df25`) |
 | HDR merge (40.7) | tool before the develop pipeline: merged linear DNG enters the library as a normal RAW file | DONE (`d538d7f`) |
 | Camera look (40.8) | display-domain tone LUT (luminance pre-curve, per-photo amount); skipped for AgX | DONE (`8531c59`) |
+| RAW Kelvin WB (post-release) | white-balance gains in the final shader + Photon001 log pass, CPU export and histogram (per photo, 2000–10000 K) | DONE (`7bc48f4`) |
+| Editable slider values (post-release) | UI only (click-to-edit number labels) | DONE (`7bc48f4`) |
 | Local masks / adjustments | per-pixel stage | future TBD |
 | Tone-slider rewrite (filmic LUT + edge-aware HL/SHD) | replaces Photon001 delta for those ranges | future TBD |
 
@@ -106,3 +108,4 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | 2026-10-12 | Lens corrections: bundled lensfun DB, matcher, distortion/TCA/vignetting (real-time GPU preview, CPU export) and manual profile selection | automatic + manual lens corrections (Phase 40.6) | commit `9f1df25` |
 | 2026-10-13 | HDR merge tool: radiance merge with EXIF-validated gains, SIFT+RANSAC alignment, 4 deghost levels, linear DNG output (atomic `.part` write, uncompressed thumbnail) and a preview dialog | bracketed-exposure merge (Phase 40.7) | commit `d538d7f` |
 | 2026-10-13 | Camera look: quantile-matched tone curve fitted from the embedded camera JPEG (white-anchored highlights, opt-in per-photo amount), composed into the tone LUT so preview/export/histogram agree | camera-look baseline (Phase 40.8) | commit `8531c59` |
+| 2026-10-28 | RAW Kelvin white balance (2000–10000 K, per photo, all three paths) + click-to-edit slider values; denoise now runs in baked geometry space and stale results are discarded (fixes crops snapping back) | post-release refinements | commit `7bc48f4` |

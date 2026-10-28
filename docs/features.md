@@ -160,4 +160,25 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ---
 
+## RAW Kelvin white balance (2026-10-28, post-40.8)
+
+- Purpose: a real colour-temperature slider for RAW photos (2000–10000 K, blue→amber Planckian track) while JPEG/TIFF keep the relative temperature slider; the value is stored per photo in the edit stack.
+- Algorithm: blackbody (Planckian locus, Kang et al.) → linear sRGB, normalized to green; the applied gains are the target temperature's gains relative to the **5500 K neutral anchor** (the as-shot rendering), green = 1. LibRaw's camera matrices are already white-balanced, so the as-shot Kelvin is not recoverable — 5500 K is the fixed anchor, and slider values are true Planckian corrections around it. The tint slider stays relative on top.
+- Pipeline placement: white-balance stage — final shader (`wbGain` vec3) and the Photon001 log pass (so the tone-range stats see the same balance), CPU export (`ImageDeveloper`, gains injected by `ExportManager`) and the histogram. Legacy relative temperature values migrate on load (±100 ≈ ±3000 K) and RAW rendering ignores the relative value.
+- Key constants: range 2000–10000 K; neutral 5500 K; migration ±100 → ±3000 K.
+- Files: `src/engine/WhiteBalance.h`, `src/engine/RawEngine.{h,cpp}`, `src/components/RawViewport.{h,cpp}`, `src/components/RawViewport.frag`, `src/components/Photon001Log.frag`, `src/engine/ImageDeveloper.cpp`, `src/managers/ExportManager.cpp`, `content/views/App.qml`, `content/views/DevelopView.qml`, `content/components/SliderRamps.qml`, `content/components/SettingsSelectionDialog.qml`, `tests/auto/tst_RawEngine.cpp`.
+- Commit: `7bc48f4`.
+
+---
+
+## Editable slider values (2026-10-28, post-40.8)
+
+- Purpose: click any slider's numeric readout to type a value directly; Enter or clicking outside commits, Escape cancels.
+- Algorithm: `EditableValueLabel` (Text + a themed Popup with a TextField, accent border while active) right-aligned to the number so it never overflows the panel card; typed values are clamped to the slider range, snapped to `stepSize` and rounded to the displayed precision before emitting. The host applies them through the slider's `moved`/`released` path, so edits, history and presets behave exactly like dragging.
+- Pipeline placement: UI only.
+- Files: `content/components/EditableValueLabel.qml`, `ControlGroup.qml`, `CropPanel.qml`, `ExportPanel.qml`, `content/views/App.qml`, `CMakeLists.txt`.
+- Commit: `7bc48f4`.
+
+---
+
 *Phase 40 features are appended here as they complete.*

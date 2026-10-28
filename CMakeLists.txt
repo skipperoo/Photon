@@ -200,6 +200,7 @@ qt_add_qml_module(Photon
         content/components/PhotonSlider.qml
         content/components/PhotonComboBox.qml
         content/components/PhotonSpinBox.qml
+        content/components/EditableValueLabel.qml
         content/components/PhotonScrollBar.qml
         content/components/PhotonToast.qml
         content/components/PhotonToastManager.qml

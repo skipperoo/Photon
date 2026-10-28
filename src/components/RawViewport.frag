@@ -24,6 +24,7 @@ layout(std140, binding = 0) uniform buf {
     float saturation;
     float temperature;
     float tint;
+    vec3 wbGain;
     float profileIndex;
     float bwMixRed;
     float bwMixOrange;
@@ -891,7 +892,7 @@ void main()
     color = apply_centre_effects(color, ubuf.centre, imgCoord);
 
     // 1. White Balance
-    color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0);
+    color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0) * ubuf.wbGain;
 
     // 2. Exposure (positive side tapers the gain and rolls highlights off earlier)
     float exposureAmount = ubuf.exposure;

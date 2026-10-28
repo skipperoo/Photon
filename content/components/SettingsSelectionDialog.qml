@@ -45,6 +45,7 @@ T.Dialog {
             "label": "Color",
             "items": [
                 { "key": "temperature", "label": "Temperature" },
+                { "key": "temperatureKelvin", "label": "Temperature (Kelvin)" },
                 { "key": "tint", "label": "Tint" }
             ]
         },

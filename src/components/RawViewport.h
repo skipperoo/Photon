@@ -33,6 +33,13 @@ class RawViewport : public QQuickItem {
                  saturationChanged)
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
                  temperatureChanged)
+  Q_PROPERTY(float temperatureKelvin READ temperatureKelvin WRITE
+                 setTemperatureKelvin NOTIFY temperatureKelvinChanged)
+  Q_PROPERTY(float asShotKelvin READ asShotKelvin NOTIFY asShotKelvinChanged)
+  Q_PROPERTY(QVector3D whiteBalanceGains READ whiteBalanceGains NOTIFY
+                 whiteBalanceGainsChanged)
+  Q_PROPERTY(bool isBitmapSource READ isBitmapSource NOTIFY
+                 isBitmapSourceChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
   Q_PROPERTY(float calibShadowsTint READ calibShadowsTint WRITE
                  setCalibShadowsTint NOTIFY calibShadowsTintChanged)
@@ -338,6 +345,12 @@ class RawViewport : public QQuickItem {
 
   float temperature() const { return m_engine.temperature(); }
   void setTemperature(float val);
+
+  float temperatureKelvin() const { return m_engine.temperatureKelvin(); }
+  void setTemperatureKelvin(float kelvin);
+  float asShotKelvin() const { return m_engine.asShotKelvin(); }
+  QVector3D whiteBalanceGains() const { return m_engine.whiteBalanceGains(); }
+  bool isBitmapSource() const { return m_engine.isBitmapSource(); }
 
   float tint() const { return m_engine.tint(); }
   void setTint(float val);
@@ -681,6 +694,10 @@ class RawViewport : public QQuickItem {
   void vibranceChanged();
   void saturationChanged();
   void temperatureChanged();
+  void temperatureKelvinChanged();
+  void asShotKelvinChanged();
+  void whiteBalanceGainsChanged();
+  void isBitmapSourceChanged();
   void tintChanged();
   void calibShadowsTintChanged();
   void calibRedHueChanged();

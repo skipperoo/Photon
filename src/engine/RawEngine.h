@@ -47,6 +47,13 @@ class RawEngine : public QObject {
                  saturationChanged)
   Q_PROPERTY(float temperature READ temperature WRITE setTemperature NOTIFY
                  temperatureChanged)
+  Q_PROPERTY(float temperatureKelvin READ temperatureKelvin WRITE
+                 setTemperatureKelvin NOTIFY temperatureKelvinChanged)
+  Q_PROPERTY(float asShotKelvin READ asShotKelvin NOTIFY asShotKelvinChanged)
+  Q_PROPERTY(QVector3D whiteBalanceGains READ whiteBalanceGains NOTIFY
+                 whiteBalanceGainsChanged)
+  Q_PROPERTY(bool isBitmapSource READ isBitmapSource NOTIFY
+                 isBitmapSourceChanged)
   Q_PROPERTY(float tint READ tint WRITE setTint NOTIFY tintChanged)
   Q_PROPERTY(float calibShadowsTint READ calibShadowsTint WRITE
                  setCalibShadowsTint NOTIFY calibShadowsTintChanged)
@@ -357,6 +364,13 @@ class RawEngine : public QObject {
 
   float temperature() const { return m_temperature; }
   void setTemperature(float val);
+
+  float temperatureKelvin() const { return m_temperatureKelvin; }
+  void setTemperatureKelvin(float kelvin);
+  void setTemperatureKelvinFromState(float kelvin);
+  float asShotKelvin() const { return m_asShotKelvin; }
+  QVector3D whiteBalanceGains() const { return m_whiteBalanceGains; }
+  bool isBitmapSource() const { return m_isBitmap; }
 
   float tint() const { return m_tint; }
   void setTint(float val);
@@ -714,6 +728,10 @@ class RawEngine : public QObject {
   void vibranceChanged();
   void saturationChanged();
   void temperatureChanged();
+  void temperatureKelvinChanged();
+  void asShotKelvinChanged();
+  void whiteBalanceGainsChanged();
+  void isBitmapSourceChanged();
   void tintChanged();
   void calibShadowsTintChanged();
   void calibRedHueChanged();
@@ -873,6 +891,8 @@ class RawEngine : public QObject {
   void loadCameraLookForSource();
   void startAsyncCameraLookFit();
   bool cameraLookUsable() const;
+  void resolveAsShotWhiteBalance();
+  void recomputeWhiteBalanceGains();
   void refreshCalibrationMatrix();
   static std::vector<float> evalMonotonicSpline(const QVariantList& pts,
                                                  int lutSize = 256);
@@ -902,6 +922,10 @@ class RawEngine : public QObject {
   float m_vibrance = 0.0f;
   float m_saturation = 0.0f;
   float m_temperature = 0.0f;
+  float m_temperatureKelvin = 5500.0f;
+  float m_asShotKelvin = 5500.0f;
+  bool m_temperatureKelvinLoaded = false;
+  QVector3D m_whiteBalanceGains = QVector3D(1.0f, 1.0f, 1.0f);
   float m_tint = 0.0f;
   float m_calibShadowsTint = 0.0f;
   float m_calibRedHue = 0.0f;
@@ -1072,6 +1096,9 @@ class RawEngine : public QObject {
   mutable QMutex m_processorMutex;
   std::atomic<bool> m_abortDenoise{false};
   std::atomic<int> m_currentLoadId{0};
+  // Bumped whenever the displayed source changes geometry (bake/unbake,
+  // crop/rotate apply). A denoise result from an older generation is stale.
+  std::atomic<int> m_geometryGeneration{0};
   bool m_hasDenoisedResult = false;
   std::atomic<bool> m_isLoaded{false};
 

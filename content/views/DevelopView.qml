@@ -221,7 +221,22 @@ Control {
                         spacing: 16
 
                         Text { text: "White Balance"; font: Theme.fontSmall; color: Theme.mutedFg; Layout.bottomMargin: -8 }
-                        ControlGroup { title: "Temperature"; value: root.viewport ? root.viewport.temperature : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: SliderRamps.whiteBalanceTemperature; onMoved: (v) => { if(root.viewport) root.viewport.temperature = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
+                        ControlGroup {
+                            readonly property bool kelvinMode: root.viewport ? !root.viewport.isBitmapSource : false
+                            title: kelvinMode ? "Temperature (K)" : "Temperature"
+                            value: root.viewport ? (kelvinMode ? root.viewport.temperatureKelvin : root.viewport.temperature) : (kelvinMode ? 5500 : 0)
+                            from: kelvinMode ? 2000 : -100
+                            to: kelvinMode ? 10000 : 100
+                            defaultValue: root.viewport ? (kelvinMode ? root.viewport.asShotKelvin : 0.0) : 0.0
+                            stepSize: kelvinMode ? 10 : 0
+                            trackRamp: kelvinMode ? SliderRamps.kelvinTemperature : SliderRamps.whiteBalanceTemperature
+                            onMoved: (v) => {
+                                if (!root.viewport) return
+                                if (kelvinMode) root.viewport.temperatureKelvin = v
+                                else root.viewport.temperature = v
+                            }
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
                         ControlGroup { title: "Tint"; value: root.viewport ? root.viewport.tint : 0.0; from: -100; to: 100; defaultValue: 0.0; trackRamp: SliderRamps.whiteBalanceTint; onMoved: (v) => { if(root.viewport) root.viewport.tint = v }; onReleased: if(root.viewport) root.viewport.commitEdit() }
                         
                         Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }

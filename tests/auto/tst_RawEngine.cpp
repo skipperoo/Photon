@@ -15,6 +15,7 @@
 #include "HdrMergeMath.h"
 #include "CameraLook.h"
 #include "CameraLookMath.h"
+#include "WhiteBalance.h"
 #include "PreviewManager.h"
 #include "RawEngine.h"
 
@@ -35,6 +36,7 @@ class TestRawEngine : public QObject {
   void testLensProfileEditState();
   void testHdrMergeRadiometric();
   void testCameraLookToneFit();
+  void testWhiteBalanceKelvin();
   void testLensFunRealDatabase();
   void testOklabCreativeOps();
   void testToneCurveLumaMatchesReferenceMapping();
@@ -1099,6 +1101,46 @@ void TestRawEngine::testCameraLookToneFit() {
       QVERIFY(std::abs(restored.knots[i][1] - curve.knots[i][1]) < 1e-6f);
     }
   }
+}
+
+void TestRawEngine::testWhiteBalanceKelvin() {
+  using namespace photon::whitebalance;
+  float gains[3] = {0.0f, 0.0f, 0.0f};
+
+  // The as-shot balance is the neutral anchor.
+  relativeGains(5500.0f, 5500.0f, gains);
+  QVERIFY(std::abs(gains[0] - 1.0f) < 1e-4f);
+  QVERIFY(std::abs(gains[1] - 1.0f) < 1e-4f);
+  QVERIFY(std::abs(gains[2] - 1.0f) < 1e-4f);
+
+  // Lower than as-shot cools the image (blue gain up).
+  relativeGains(3000.0f, 5500.0f, gains);
+  QVERIFY(gains[0] < 0.95f);
+  QVERIFY(gains[2] > 1.05f);
+  // Higher than as-shot warms it (red gain up).
+  relativeGains(9000.0f, 5500.0f, gains);
+  QVERIFY(gains[0] > 1.05f);
+  QVERIFY(gains[2] < 0.95f);
+
+  // Hotter blackbodies are bluer.
+  float cold[3];
+  float hot[3];
+  planckianLinearRgb(3000.0f, cold);
+  planckianLinearRgb(9000.0f, hot);
+  QVERIFY(cold[0] / cold[2] > hot[0] / hot[2]);
+
+  // The neutral anchor is the as-shot rendering.
+  QVERIFY(std::abs(kNeutralKelvin - 5500.0f) < 1e-3f);
+  relativeGains(kNeutralKelvin, kNeutralKelvin, gains);
+  QVERIFY(std::abs(gains[0] - 1.0f) < 1e-4f);
+  QVERIFY(std::abs(gains[2] - 1.0f) < 1e-4f);
+
+  // Out-of-range slider values are clamped by the gain helper.
+  relativeGains(1500.0f, 5500.0f, gains);
+  float clamped[3];
+  relativeGains(2000.0f, 5500.0f, clamped);
+  QVERIFY(std::abs(gains[0] - clamped[0]) < 1e-4f);
+  QVERIFY(std::abs(gains[2] - clamped[2]) < 1e-4f);
 }
 
 void TestRawEngine::testOklabCreativeOps() {

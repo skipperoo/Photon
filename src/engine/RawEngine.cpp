@@ -31,6 +31,7 @@
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
 #include "LensFun.h"
+#include "WhiteBalance.h"
 #include "ImageDecoder.h"
 
 using namespace photon;
@@ -680,6 +681,8 @@ RawEngine::RawEngine(QObject* parent)
               m_isLoaded = true;
               m_hasDenoisedResult = false;
 
+              resolveAsShotWhiteBalance();
+
               // If sidecar had geometry, bake it now
               if (hasNonDefaultGeometry() && !m_inCropMode) {
                 reloadWithGeometry();
@@ -853,6 +856,14 @@ void RawEngine::setSource(const QString& source) {
   m_cameraLook = photon::cameralook::CameraLook();
   m_cameraLookSource.clear();
   if (hadCameraLook) emit cameraLookAvailableChanged();
+  // White balance is resolved per photo once the raw decode completes.
+  m_temperatureKelvinLoaded = false;
+  m_asShotKelvin = 5500.0f;
+  m_temperatureKelvin = 5500.0f;
+  m_whiteBalanceGains = QVector3D(1.0f, 1.0f, 1.0f);
+  emit temperatureKelvinChanged();
+  emit asShotKelvinChanged();
+  emit whiteBalanceGainsChanged();
   emit sourceChanged();
 
   // Try to get existing preview immediately
@@ -1001,6 +1012,55 @@ void RawEngine::setTemperature(float val) {
   m_temperature = val;
   emit temperatureChanged();
   emit isDefaultChanged();
+}
+
+void RawEngine::setTemperatureKelvin(float kelvin) {
+  kelvin = std::clamp(kelvin, 2000.0f, 10000.0f);
+  if (qFuzzyCompare(m_temperatureKelvin, kelvin)) return;
+  m_temperatureKelvin = kelvin;
+  recomputeWhiteBalanceGains();
+  emit temperatureKelvinChanged();
+  emit isDefaultChanged();
+}
+
+void RawEngine::setTemperatureKelvinFromState(float kelvin) {
+  m_temperatureKelvinLoaded = true;
+  setTemperatureKelvin(kelvin);
+}
+
+void RawEngine::recomputeWhiteBalanceGains() {
+  float gains[3] = {1.0f, 1.0f, 1.0f};
+  if (!m_isBitmap)
+    photon::whitebalance::relativeGains(m_temperatureKelvin, m_asShotKelvin,
+                                        gains);
+  const QVector3D next(gains[0], gains[1], gains[2]);
+  if ((next - m_whiteBalanceGains).lengthSquared() < 1e-10f) return;
+  m_whiteBalanceGains = next;
+  emit whiteBalanceGainsChanged();
+}
+
+void RawEngine::resolveAsShotWhiteBalance() {
+  // The as-shot rendering is the neutral anchor (LibRaw's camera matrices are
+  // already white-balanced, so the scene temperature is not recoverable).
+  m_asShotKelvin = photon::whitebalance::kNeutralKelvin;
+  if (!m_temperatureKelvinLoaded) {
+    // Legacy sidecars stored a relative temperature: map it around the anchor
+    // (each ±100 ≈ ±3000 K). New edits store Kelvin directly.
+    m_temperatureKelvin = std::clamp(
+        m_asShotKelvin + m_temperature * 30.0f, 2000.0f, 10000.0f);
+    m_temperatureKelvinLoaded = true;
+  } else {
+    m_temperatureKelvin = std::clamp(m_temperatureKelvin, 2000.0f, 10000.0f);
+  }
+  if (!m_isBitmap && !qFuzzyIsNull(m_temperature)) {
+    // RAW rendering uses the Kelvin path; retire the legacy relative value.
+    m_temperature = 0.0f;
+    emit temperatureChanged();
+    emit isDefaultChanged();
+  }
+  recomputeWhiteBalanceGains();
+  emit temperatureKelvinChanged();
+  emit asShotKelvinChanged();
 }
 
 void RawEngine::setTint(float val) {
@@ -1375,14 +1435,17 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   m_hasDenoisedResult = false;
   m_denoisedRoi = roi;
 
-  // Track current source to ensure we only accept the result if source hasn't
-  // changed
+  // Track current source and geometry generation to ensure we only accept the
+  // result if neither changed (a bake/unbake makes the pixels stale).
   m_denoiseWatcher.disconnect();
   QString taskSource = m_source;
+  const int taskGeometry = m_geometryGeneration.load();
   connect(&m_denoiseWatcher, &QFutureWatcher<QImage>::finished, this,
-          [this, taskSource]() {
-            // Critical check: If source changed, aborted, or panning, discard
-            if (m_source != taskSource || m_abortDenoise || m_isPanning) {
+          [this, taskSource, taskGeometry]() {
+            // Critical check: If source/geometry changed, aborted, or panning,
+            // discard.
+            if (m_source != taskSource || m_abortDenoise || m_isPanning ||
+                taskGeometry != m_geometryGeneration.load()) {
               m_isDenoising = false;
               emit isDenoisingChanged();
               return;
@@ -1409,7 +1472,14 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   QImage img;
   {
     QMutexLocker locker(&m_processorMutex);
-    if (m_isBitmap) {
+    if (m_geometryBaked && !m_geometryBuffer.empty() && m_geometryWidth > 0 &&
+        m_geometryHeight > 0) {
+      // Denoise the image the viewport actually shows (cropped/rotated), so
+      // the result never replaces the baked geometry with the original frame.
+      img = QImage(m_geometryBuffer.data(), m_geometryWidth, m_geometryHeight,
+                   QImage::Format_RGBA64)
+                .copy();
+    } else if (m_isBitmap) {
       if (m_customPixels.empty() || m_customWidth <= 0 ||
           m_customHeight <= 0) {
         m_isDenoising = false;
@@ -2342,8 +2412,13 @@ void RawEngine::requestHistogramUpdate() {
   float sceneWhite = m_sceneWhite;
   float blacks = m_blacks;
   float clarity = m_clarity;
-  float temp = m_temperature / 100.0f;
+  // RAW photos render white balance from the Kelvin gains, not the legacy
+  // relative temperature (bitmaps keep the relative slider).
+  float temp = (m_isBitmap ? m_temperature : 0.0f) / 100.0f;
   float tint = m_tint / 100.0f;
+  const float wbGainR = m_whiteBalanceGains.x();
+  const float wbGainG = m_whiteBalanceGains.y();
+  const float wbGainB = m_whiteBalanceGains.z();
 
   const bool toneCurveActive = m_toneCurveActive;
   const auto toneLutL = m_toneLutL;
@@ -2408,7 +2483,8 @@ void RawEngine::requestHistogramUpdate() {
                                          totalPixels, step, histFineCache,
                                          histCoarseCache, exp, con, high, shad,
                                          whites, sceneWhite, blacks, clarity,
-                                         temp, tint, hsl_h, hsl_s, hsl_l, cgSH,
+                                         temp, tint, wbGainR, wbGainG, wbGainB,
+                                         hsl_h, hsl_s, hsl_l, cgSH,
                                          cgSS, cgSL, cgMH, cgMS, cgML, cgHH,
                                          cgHS, cgHL, cgBal, cgBlen, statsDetail,
                                          statsPin, statsComp, profileIndex,
@@ -2420,9 +2496,9 @@ void RawEngine::requestHistogramUpdate() {
     std::vector<uint32_t> b_bins(256, 0);
     std::vector<uint32_t> l_bins(256, 0);
 
-    float r_wb = (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f);
-    float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
-    float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
+    float r_wb = (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f) * wbGainR;
+    float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f) * wbGainG;
+    float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f) * wbGainB;
     float exp_mult = std::pow(2.0f, exp > 0.0f ? exp * 0.85f : exp);
 
     const photon::calibration::Matrix calibMat =
@@ -2838,7 +2914,9 @@ void RawEngine::loadRawFileAsync(const QString& path) {
   emit isLoadingChanged();
 
   const bool isBitmap = ImageDecoder::isBitmap(path);
+  const bool bitmapChanged = (m_isBitmap != isBitmap);
   m_isBitmap = isBitmap;
+  if (bitmapChanged) emit isBitmapSourceChanged();
 
   int loadId = m_currentLoadId;
   QFuture<LoadResult> future =
@@ -3189,6 +3267,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["vibrance"] = e->vibrance();
   obj["saturation"] = e->saturation();
   obj["temperature"] = e->temperature();
+  obj["temperatureKelvin"] = e->temperatureKelvin();
   obj["tint"] = e->tint();
   obj["calibShadowsTint"] = e->calibShadowsTint();
   obj["calibRedHue"] = e->calibRedHue();
@@ -3331,6 +3410,9 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setSaturation(obj["saturation"].toDouble());
   if (obj.contains("temperature"))
     e->setTemperature(obj["temperature"].toDouble());
+  if (obj.contains("temperatureKelvin"))
+    e->setTemperatureKelvinFromState(
+        obj["temperatureKelvin"].toDouble());
   if (obj.contains("tint")) e->setTint(obj["tint"].toDouble());
   if (obj.contains("calibShadowsTint"))
     e->setCalibShadowsTint(obj["calibShadowsTint"].toDouble());
@@ -3556,6 +3638,7 @@ static void resetToDefaults(RawEngine* e) {
   e->setVibrance(0.0f);
   e->setSaturation(0.0f);
   e->setTemperature(0.0f);
+  e->setTemperatureKelvinFromState(e->asShotKelvin());
   e->setTint(0.0f);
   e->setCalibShadowsTint(0.0f);
   e->setCalibRedHue(0.0f);
@@ -3755,6 +3838,7 @@ static QString historyLabelForKey(const QString& key) {
       {"highlights", "Highlights"},  {"shadows", "Shadows"},
       {"whites", "Whites"},          {"blacks", "Blacks"},
       {"temperature", "White Balance"}, {"tint", "White Balance"},
+      {"temperatureKelvin", "White Balance"},
       {"vibrance", "Presence"},      {"saturation", "Presence"},
       {"profile", "Profile"},        {"adaptation", "Adaptation"},
       {"clarity", "Clarity"},        {"dehaze", "Dehaze"},
@@ -4192,6 +4276,10 @@ void RawEngine::applyHistoryIndex(int index) {
   if (!m_inCropMode && hasNonDefaultGeometry()) {
     reloadWithGeometry();
   } else if (!m_inCropMode && m_geometryBaked) {
+    // Back to the unbaked image: any denoise result is now in the wrong space.
+    m_abortDenoise = true;
+    m_geometryGeneration++;
+    m_hasDenoisedResult = false;
     m_geometryBaked = false;
     m_geometryBuffer.clear();
     m_geometryWidth = 0;
@@ -4332,6 +4420,9 @@ void RawEngine::resetToOriginal() {
 
   // Clear geometry bake since all geometry is now default
   if (m_geometryBaked) {
+    m_abortDenoise = true;
+    m_geometryGeneration++;
+    m_hasDenoisedResult = false;
     m_geometryBaked = false;
     m_geometryBuffer.clear();
     m_geometryWidth = 0;
@@ -4390,6 +4481,7 @@ bool RawEngine::isDefault() const {
   if (!qFuzzyIsNull(m_vibrance)) return false;
   if (!qFuzzyIsNull(m_saturation)) return false;
   if (!qFuzzyIsNull(m_temperature)) return false;
+  if (!qFuzzyCompare(m_temperatureKelvin, m_asShotKelvin)) return false;
   if (!qFuzzyIsNull(m_tint)) return false;
   if (!qFuzzyIsNull(m_calibShadowsTint)) return false;
   if (!qFuzzyIsNull(m_calibRedHue)) return false;
@@ -4625,6 +4717,9 @@ void RawEngine::reloadWithGeometry() {
       "[ RawEngine.cpp ] - reloadWithGeometry: re-decoding with geometry bake",
       PHOTON_DEBUG);
 
+  // The denoise source changes with the bake: drop any running/stale result.
+  m_abortDenoise = true;
+  m_geometryGeneration++;
   m_inCropMode = false;
   m_isLoading = true;
   emit isLoadingChanged();
@@ -4737,6 +4832,8 @@ void RawEngine::enterCropMode() {
       PHOTON_DEBUG);
 
   m_inCropMode = true;
+  m_abortDenoise = true;
+  m_geometryGeneration++;
 
   // Unbake geometry so user sees original image with QML visual transforms
   if (m_geometryBaked) {
@@ -4772,6 +4869,7 @@ void RawEngine::exitCropMode() {
       "[ RawEngine.cpp ] - exitCropMode: re-baking geometry", PHOTON_DEBUG);
 
   m_inCropMode = false;
+  m_geometryGeneration++;
 
   if (hasNonDefaultGeometry()) {
     reloadWithGeometry();

@@ -12,6 +12,7 @@
 
 #include "../engine/CameraLook.h"
 #include "../engine/ImageDeveloper.h"
+#include "../engine/WhiteBalance.h"
 #include "../engine/ImageDecoder.h"
 #include "../engine/RawEngine.h"
 #include "CrashReporter.h"
@@ -128,6 +129,18 @@ void ExportManager::processExport(const QStringList& paths,
         lastState["exifAperture"] = double(processor.imgdata.other.aperture);
         if (processor.unpack() == LIBRAW_SUCCESS) {
           if (processor.dcraw_process() == LIBRAW_SUCCESS) {
+            // Kelvin white balance: multipliers relative to the neutral anchor
+            // (the as-shot rendering), so the export matches the preview. RAW
+            // exports use the Kelvin path (the relative key is ignored).
+            const float asShot = photon::whitebalance::kNeutralKelvin;
+            const float targetKelvin = float(
+                lastState.value("temperatureKelvin").toDouble(asShot));
+            float wbGains[3] = {1.0f, 1.0f, 1.0f};
+            photon::whitebalance::relativeGains(targetKelvin, asShot, wbGains);
+            lastState["wbGainR"] = wbGains[0];
+            lastState["wbGainG"] = wbGains[1];
+            lastState["wbGainB"] = wbGains[2];
+            lastState["temperature"] = 0.0;
             int ret = 0;
             libraw_processed_image_t* mem =
                 processor.dcraw_make_mem_image(&ret);

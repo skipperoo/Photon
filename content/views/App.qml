@@ -569,7 +569,9 @@ Window {
                             interval: 500 // Wait 500ms after last interaction
                             repeat: false
                             onTriggered: {
-                                if (rawViewport.denoiseEnabled && rawViewport.denoiseAmount > 0) {
+                                // The crop panel shows the unbaked image; a
+                                // denoise started there would go stale on apply.
+                                if (developLayout.activeSidebar !== 2 && rawViewport.denoiseEnabled && rawViewport.denoiseAmount > 0) {
                                     rawViewport.startAsyncDenoise(AppState.previewDenoiseFull, rawViewport.zoom, rawViewport.visibleImageRect());
                                 }
                             }
@@ -612,8 +614,9 @@ Window {
                                     live: true
                                 }
                                 property real exposure: rawViewport.exposure
-                                property real temperature: rawViewport.temperature
+                                property real temperature: rawViewport.isBitmapSource ? rawViewport.temperature : 0.0
                                 property real tint: rawViewport.tint
+                                property vector3d wbGain: rawViewport.whiteBalanceGains
                                 property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
                                 property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
                                 fragmentShader: "qrc:/Main/shaders/Photon001Log.frag.qsb"
@@ -865,8 +868,9 @@ Window {
                             property real adaptation: rawViewport.adaptation
                             property real vibrance: rawViewport.vibrance
                             property real saturation: rawViewport.saturation
-                            property real temperature: rawViewport.temperature
+                            property real temperature: rawViewport.isBitmapSource ? rawViewport.temperature : 0.0
                             property real tint: rawViewport.tint
+                            property vector3d wbGain: rawViewport.whiteBalanceGains
                             property vector3d calibRowR: rawViewport.calibRowR
                             property vector3d calibRowG: rawViewport.calibRowG
                             property vector3d calibRowB: rawViewport.calibRowB
@@ -1262,11 +1266,18 @@ Window {
                                         interactionDenoiseTimer.restart()
                                     }
                                 }                                
-                                Text {
-                                    text: Math.round(rawViewport.zoom * 100) + "%"
+                                EditableValueLabel {
+                                    value: rawViewport.zoom * 100
+                                    from: 10
+                                    to: 1000
+                                    suffix: "%"
                                     color: Theme.foreground
                                     font: Theme.fontSmall
                                     Layout.preferredWidth: 40
+                                    onValueEdited: (v) => {
+                                        rawViewport.zoom = v / 100
+                                        interactionDenoiseTimer.restart()
+                                    }
                                 }
                                 
                                 Rectangle { width: 1; height: 20; color: Theme.border; Layout.leftMargin: 8; Layout.rightMargin: 8 }

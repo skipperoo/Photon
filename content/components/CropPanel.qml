@@ -248,10 +248,21 @@ Control {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Text {
-                                text: root.viewport ? root.viewport.straightenAngle.toFixed(1) + "°" : "0.0°"
+                            EditableValueLabel {
+                                value: root.viewport ? root.viewport.straightenAngle : 0
+                                from: -45
+                                to: 45
+                                stepSize: 0.1
+                                decimals: 1
+                                suffix: "°"
                                 font: Theme.fontRegular
                                 color: Theme.foreground
+                                onValueEdited: (v) => {
+                                    if (root.viewport) {
+                                        root.viewport.straightenAngle = v
+                                        root.viewport.commitEdit()
+                                    }
+                                }
                             }
                             Item { Layout.fillWidth: true }
 

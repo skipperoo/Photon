@@ -61,7 +61,14 @@ FolderDialog {
                             from: 10; to: 100; value: 90
                             Layout.fillWidth: true
                         }
-                        Text { text: Math.round(qualitySlider.value); color: Theme.foreground; font: Theme.fontSmall; width: 30 }
+                        EditableValueLabel {
+                            value: qualitySlider.value
+                            from: 10
+                            to: 100
+                            width: 30
+                            horizontalAlignment: Text.AlignRight
+                            onValueEdited: (v) => qualitySlider.value = v
+                        }
                     }
                 }
             }

@@ -999,9 +999,15 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   }
 
   // Precompute WB & Exposure
-  float r_wb = (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f);
-  float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f);
-  float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f);
+  // Kelvin white balance (RAW only): the export manager injects the
+  // multipliers relative to the as-shot balance, and zeroes the relative
+  // temperature; bitmaps keep the relative path.
+  const float wbGainR = float(obj.value("wbGainR").toDouble(1.0));
+  const float wbGainG = float(obj.value("wbGainG").toDouble(1.0));
+  const float wbGainB = float(obj.value("wbGainB").toDouble(1.0));
+  float r_wb = (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f) * wbGainR;
+  float g_wb = (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f) * wbGainG;
+  float b_wb = (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f) * wbGainB;
   float exp_mult = std::pow(2.0f, exp > 0.0f ? exp * 0.85f : exp);
 
   // Precompute Tone Curve LUTs

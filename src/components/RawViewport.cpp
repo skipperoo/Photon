@@ -86,6 +86,20 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     emit saturationChanged();
     update();
   });
+  connect(&m_engine, &RawEngine::temperatureKelvinChanged, this, [this]() {
+    emit temperatureKelvinChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::asShotKelvinChanged, this, [this]() {
+    emit asShotKelvinChanged();
+  });
+  connect(&m_engine, &RawEngine::whiteBalanceGainsChanged, this, [this]() {
+    emit whiteBalanceGainsChanged();
+    update();
+  });
+  connect(&m_engine, &RawEngine::isBitmapSourceChanged, this, [this]() {
+    emit isBitmapSourceChanged();
+  });
   connect(&m_engine, &RawEngine::temperatureChanged, this, [this]() {
     emit temperatureChanged();
     update();
@@ -649,6 +663,13 @@ void RawViewport::setTemperature(float val) {
   if (qFuzzyCompare(m_engine.temperature(), val)) return;
   m_engine.setTemperature(val);
   emit temperatureChanged();
+  m_engine.requestHistogramUpdate();
+}
+
+void RawViewport::setTemperatureKelvin(float kelvin) {
+  if (qFuzzyCompare(m_engine.temperatureKelvin(), kelvin)) return;
+  m_engine.setTemperatureKelvin(kelvin);
+  emit temperatureKelvinChanged();
   m_engine.requestHistogramUpdate();
 }
 

@@ -37,11 +37,17 @@ ColumnLayout {
             color: Theme.foreground 
         }
         Item { Layout.fillWidth: true }
-        Text { 
-            text: root.value.toFixed(root.title === "Exposure" || root.title === "Contrast" ? 2 : 0)
-            font: Theme.fontSmall
-            color: Theme.foreground 
+        EditableValueLabel {
+            value: root.value
+            from: root.from
+            to: root.to
+            stepSize: root.stepSize
+            decimals: (root.title === "Exposure" || root.title === "Contrast") ? 2 : 0
             opacity: 0.8
+            onValueEdited: (v) => {
+                root.moved(v)
+                root.released()
+            }
         }
     }
 

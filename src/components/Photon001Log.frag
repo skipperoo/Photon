@@ -11,6 +11,7 @@ layout(std140, binding = 0) uniform buf {
     float exposure;
     float temperature;
     float tint;
+    vec3 wbGain;
     vec4 imageRect;
     vec2 viewportSize;
 } ubuf;
@@ -71,7 +72,7 @@ void main() {
     }
 
     vec3 color = srgb_to_linear(texture(source, qt_TexCoord0).rgb);
-    color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0);
+    color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0) * ubuf.wbGain;
     color *= pow(2.0, ubuf.exposure);
 
     float logL = photon001_encode_log_luma(photon001_working_luma_linear(color));

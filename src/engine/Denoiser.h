@@ -54,6 +54,19 @@ class Denoiser {
    * @brief CPU-only BM3D + Guided Filter denoising.
    * Pipeline: RGB→YCbCr, BM3D on Y, Guided Filter on Cb/Cr, YCbCr→RGB.
    */
+  /**
+   * @brief Colour-only denoise (luma untouched): chroma BM3D on Cb/Cr at half
+   * resolution (block matching guided by Y), upsampled, then the multi-scale
+   * guided filter at full resolution guided by Y. Used after AI denoise, whose
+   * output already has clean luma.
+   *
+   * @param input RGBX64/RGBA64 image
+   * @param strength 0..1 (1 = the strength the Color slider reaches at 100 %)
+   * @return Denoised image (RGBX64), or a null image when aborted
+   */
+  static QImage denoiseChroma(const QImage& input, float strength,
+                              std::atomic<bool>* abort = nullptr);
+
   static QImage denoiseCpu(
       const QImage& input, float intensity, std::atomic<bool>* abort = nullptr,
       bool step2 = true, int stride = 6,

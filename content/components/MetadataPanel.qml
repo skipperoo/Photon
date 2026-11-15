@@ -94,7 +94,7 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
-                    visible: root.viewport ? root.viewport.isDenoising : false
+                    visible: root.viewport ? (root.viewport.isDenoising || root.viewport.aiDenoiseRunning) : false
                     
                                             Rectangle {
                                                 width: 16; height: 16; color: "transparent"

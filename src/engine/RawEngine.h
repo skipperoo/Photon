@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 
+#include "AiDenoiser.h"
 #include "CameraLook.h"
 #include "DevelopProfile.h"
 #include "LensFun.h"
@@ -301,6 +302,23 @@ class RawEngine : public QObject {
       bool hasDenoisedResult READ hasDenoisedResult NOTIFY denoisingFinished)
   Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled WRITE setDenoiseEnabled
                  NOTIFY denoiseEnabledChanged)
+  // Denoise engine (global Settings choice): "ai" or "classic".
+  Q_PROPERTY(QString denoiseMode READ denoiseMode NOTIFY denoiseModeChanged)
+  // Colour noise reduction 0..100 (AI: blend to the colour pass; Classic:
+  // chroma BM3D + guided filter strengths).
+  Q_PROPERTY(float denoiseColor READ denoiseColor WRITE setDenoiseColor NOTIFY
+                 denoiseColorChanged)
+  // AI denoise state for the current photo.
+  Q_PROPERTY(bool aiDenoiseAvailable READ aiDenoiseAvailable NOTIFY
+                 aiDenoiseStateChanged)
+  Q_PROPERTY(
+      bool aiDenoiseActive READ aiDenoiseActive NOTIFY aiDenoiseStateChanged)
+  Q_PROPERTY(
+      bool aiDenoiseRunning READ aiDenoiseRunning NOTIFY aiDenoiseStateChanged)
+  Q_PROPERTY(float aiDenoiseProgress READ aiDenoiseProgress NOTIFY
+                 aiDenoiseStateChanged)
+  Q_PROPERTY(
+      QString aiDenoiseStatus READ aiDenoiseStatus NOTIFY aiDenoiseStateChanged)
   Q_PROPERTY(QSize viewportSize READ viewportSize WRITE setViewportSize NOTIFY
                  viewportSizeChanged)
   Q_PROPERTY(
@@ -664,6 +682,19 @@ class RawEngine : public QObject {
   void setDenoiseEnabled(bool enabled);
   QRectF denoisedRoi() const { return m_denoisedRoi; }
 
+  QString denoiseMode() const;
+  float denoiseColor() const { return m_denoiseColor; }
+  void setDenoiseColor(float val);
+  // Built with AI denoise and the model was found (current photo aside).
+  bool aiDenoiseAvailable() const;
+  // AI denoise is what currently denoises this photo (mode "ai", enabled,
+  // Amount > 0 and the photo is a supported Bayer RAW). When false while the
+  // mode is "ai" (unsupported photo, no model), Classic is used instead.
+  bool aiDenoiseActive() const;
+  bool aiDenoiseRunning() const { return m_aiRunning; }
+  float aiDenoiseProgress() const { return m_aiProgress; }
+  QString aiDenoiseStatus() const { return m_aiStatus; }
+
   bool isPanning() const { return m_isPanning; }
   void setIsPanning(bool panning);
 
@@ -856,6 +887,11 @@ class RawEngine : public QObject {
   void denoiseEnabledChanged();
   void viewportSizeChanged();
   void denoisingFinished();
+  void denoiseModeChanged();
+  void denoiseColorChanged();
+  void aiDenoiseStateChanged();
+  // The develop source pixels changed in place (AI denoise blend).
+  void sourcePixelsChanged();
   void halfSizeChanged();
   void previewPathChanged();
   void previewImageChanged();
@@ -1107,6 +1143,49 @@ class RawEngine : public QObject {
   QFutureWatcher<QImage> m_previewWatcher;
   QFutureWatcher<LoadResult> m_geometryLoadWatcher;
   QFutureWatcher<photon::cameralook::CameraLook> m_cameraLookWatcher;
+
+  // --- AI denoise -----------------------------------------------------------
+  struct AiJobResult {
+    QString source;
+    photon::ai::Status status = photon::ai::Status::Failed;
+    QString message;
+    int support = -1;  // -1 unknown, 0 unsupported, 1 supported
+    std::shared_ptr<photon::ai::Product> product;
+  };
+  bool wantsAiDenoise() const;
+  // Start / apply / revert AI denoise for the current state (GUI thread).
+  void updateAiDenoise();
+  // Re-blend the develop source (debounced; re-bakes geometry if needed).
+  void scheduleAiBlend();
+  // With m_processorMutex held: write plain + amount * (product - plain)
+  // into m_processedImage (captures the plain pixels on first use).
+  void applyAiBlendLocked();
+  void setAiStatus(const QString& status);
+  void onDenoiseEngineChanged();
+
+  float m_denoiseColor = 50.0f;
+  int m_aiSupport = -1;
+  QString m_aiSupportSource;
+  std::shared_ptr<photon::ai::Product> m_aiProduct;
+  QString m_aiProductSource;
+  std::vector<ushort> m_aiPlain;   // plain pixels of m_processedImage
+  std::vector<ushort> m_aiScaled;  // product resampled to m_processedImage
+  std::vector<ushort> m_aiScaledColor;  // colour product, same size
+  int m_aiScaledW = 0;
+  int m_aiScaledH = 0;
+  // Blend wanted by the GUI thread / blend currently in m_processedImage.
+  // Atomic: applyAiBlendLocked() may run on the render or load thread.
+  std::atomic<float> m_aiTargetAmount{0.0f};
+  std::atomic<float> m_aiAppliedAmount{0.0f};
+  std::atomic<float> m_aiTargetColor{0.0f};
+  std::atomic<float> m_aiAppliedColor{0.0f};
+  bool m_aiRunning = false;
+  QString m_aiRunningSource;
+  float m_aiProgress = 0.0f;
+  QString m_aiStatus;
+  std::atomic<bool> m_abortAi{false};
+  QFutureWatcher<AiJobResult> m_aiWatcher;
+  QTimer m_aiBlendTimer;
   photon::cameralook::CameraLook m_cameraLook;
   QString m_cameraLookSource;
   bool m_cameraLookFitting = false;

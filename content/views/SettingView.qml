@@ -107,6 +107,76 @@ Control {
                 }
             }
 
+            // --- Denoise Section ---
+            Card {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    spacing: 24
+                    width: parent.width
+
+                    Text { text: "Denoise"; font: Theme.fontMedium; color: Theme.foreground }
+
+                    ColumnLayout {
+                        spacing: 8
+                        Layout.fillWidth: true
+                        Text { text: "Engine"; font: Theme.fontRegular; color: Theme.mutedFg }
+                        ComboBox {
+                            id: denoiseEngineCombo
+                            readonly property var values: ["ai", "classic"]
+                            Layout.fillWidth: true
+                            model: ["AI (RawNIND)", "Classic (BM3D)"]
+                            currentIndex: AppState.denoiseEngine === "classic" ? 1 : 0
+                            onActivated: (index) => AppState.setDenoiseEngine(values[index])
+
+                            background: Rectangle {
+                                implicitHeight: 32
+                                color: Theme.secondary
+                                border.color: Theme.border
+                                radius: 4
+                            }
+                        }
+                        Text {
+                            text: AppState.aiDenoiseAvailable
+                                  ? "AI removes luminance noise on Bayer RAW files, then the Color slider applies chroma BM3D + guided filtering. Photos AI cannot handle (X-Trans, JPEG/TIFF) use Classic automatically."
+                                  : "The AI model is not part of this build: Classic is used for every photo."
+                            font: Theme.fontSmall
+                            color: Theme.mutedFg
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    ColumnLayout {
+                        spacing: 8
+                        Layout.fillWidth: true
+                        visible: AppState.aiDenoiseAvailable
+                        Text { text: "AI denoise device"; font: Theme.fontRegular; color: Theme.mutedFg }
+                        ComboBox {
+                            id: aiDeviceCombo
+                            Layout.fillWidth: true
+                            model: AppState.aiDenoiseDevices
+                            currentIndex: Math.max(0, model.indexOf(AppState.aiDenoiseDevice))
+                            onActivated: AppState.setAiDenoiseDevice(currentText)
+
+                            background: Rectangle {
+                                implicitHeight: 32
+                                color: Theme.secondary
+                                border.color: Theme.border
+                                radius: 4
+                            }
+                        }
+                        Text {
+                            text: "Auto uses the GPU when it gives the same result as the CPU and is faster. Applies to the next photo processed."
+                            font: Theme.fontSmall
+                            color: Theme.mutedFg
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+            }
+
             // --- Appearance Section ---
             Card {
                 Layout.fillWidth: true

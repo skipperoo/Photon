@@ -892,7 +892,7 @@ Window {
                             property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
                             property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
                             property color backgroundColor: Theme.background
-                            property real denoiseAmount: rawViewport.denoiseAmount
+                            property real denoiseAmount: rawViewport.liveDenoiseAmount
                             property real clarity: rawViewport.clarity
                             property real dehaze: rawViewport.dehaze
                             property real structure: rawViewport.structure

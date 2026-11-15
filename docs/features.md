@@ -53,7 +53,7 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 - Purpose: noise reduction for preview (fast) and final/export (quality).
 - Algorithm: preview = approximate non-local means in the final shader (3×3 patch SSD over 7×7, spatial Gaussian, `h = 0.01 + amount/100·0.1`); final = BM3D on YCbCr (8×8 DCT + Kaiser, hard-threshold + Wiener), GPU block matching (`patch_search.comp`) and GPU multi-scale guided chroma filter with CPU fallbacks; ROI/proxy preview scaling, stride 4 final / 8 preview.
-- Placement: pre-WB (preview stage 0), post-develop on export.
+- Placement: pre-WB (preview stage 0), post-develop on export. **Superseded 2026-11-15:** export denoises pre-edit like the preview, and the live NLM only stands in until the BM3D result is shown (see "Export parity" and "AI denoise" below).
 - Files: `src/engine/Denoiser.{h,cpp}`, `src/engine/GpuSearcher.*`, `src/engine/GpuChromaFilter.*`, `src/engine/patch_search.comp`, `src/components/RawViewport.frag`, `src/engine/ImageDeveloper.cpp`.
 
 ### Panorama stitching (Phase 38)
@@ -162,10 +162,10 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ## RAW Kelvin white balance (2026-10-28, post-40.8)
 
-- Purpose: a real colour-temperature slider for RAW photos (2000–10000 K, blue→amber Planckian track) while JPEG/TIFF keep the relative temperature slider; the value is stored per photo in the edit stack.
+- Purpose: a real colour-temperature slider for RAW photos (2000–50000 K on a logarithmic track — 5500 K ≈ 31 %, 10000 K at the middle — blue→amber Planckian track) while JPEG/TIFF keep the relative temperature slider; the value is stored per photo in the edit stack.
 - Algorithm: blackbody (Planckian locus, Kang et al.) → linear sRGB, normalized to green; the applied gains are the target temperature's gains relative to the **5500 K neutral anchor** (the as-shot rendering), green = 1. LibRaw's camera matrices are already white-balanced, so the as-shot Kelvin is not recoverable — 5500 K is the fixed anchor, and slider values are true Planckian corrections around it. The tint slider stays relative on top.
 - Pipeline placement: white-balance stage — final shader (`wbGain` vec3) and the Photon001 log pass (so the tone-range stats see the same balance), CPU export (`ImageDeveloper`, gains injected by `ExportManager`) and the histogram. Legacy relative temperature values migrate on load (±100 ≈ ±3000 K) and RAW rendering ignores the relative value.
-- Key constants: range 2000–10000 K; neutral 5500 K; migration ±100 → ±3000 K.
+- Key constants: range 2000–50000 K (`kMinKelvin`/`kMaxKelvin`; Kang et al. high-temperature branch extrapolated above 25000 K, converging to the locus limit); neutral 5500 K; migration ±100 → ±3000 K.
 - Files: `src/engine/WhiteBalance.h`, `src/engine/RawEngine.{h,cpp}`, `src/components/RawViewport.{h,cpp}`, `src/components/RawViewport.frag`, `src/components/Photon001Log.frag`, `src/engine/ImageDeveloper.cpp`, `src/managers/ExportManager.cpp`, `content/views/App.qml`, `content/views/DevelopView.qml`, `content/components/SliderRamps.qml`, `content/components/SettingsSelectionDialog.qml`, `tests/auto/tst_RawEngine.cpp`.
 - Commit: `7bc48f4`.
 
@@ -178,6 +178,50 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Pipeline placement: UI only.
 - Files: `content/components/EditableValueLabel.qml`, `ControlGroup.qml`, `CropPanel.qml`, `ExportPanel.qml`, `content/views/App.qml`, `CMakeLists.txt`.
 - Commit: `7bc48f4`.
+
+---
+
+## Export parity with the preview (2026-11-15, post-40.8)
+
+- Purpose: exports looked clearly different from the preview. Export now runs the same stages, in the same order and space, as the GPU preview.
+- Fixes:
+  - **Scene white:** export read `sceneWhite` from the edit stack, which never contained it, so it always used 1.0; the preview uses the measured 97th-percentile linear luma. Export now measures it the same way (`photon::computeSceneWhite`, shared with `RawEngine`), which changes the exposure highlight knee and every Photon001 tone range (Highlights/Shadows/Whites/Blacks/Clarity).
+  - **GPU-only effects:** Sharpness (Scharr edge mask, feather, focus gate), Structure, Dehaze, Centrè, Film grain and Vignette are now ported 1:1 to `ImageDeveloper` (same constants as `RawViewport.frag`).
+  - **Order and frame:** denoise (pre-edit), lens corrections and geometry now run before the tone/colour pipeline, as in the baked preview, so Centrè/Vignette/Grain sit relative to the cropped frame. Classic denoise previously ran on the finished 8-bit image.
+  - **Lens vignetting:** the gain is applied in linear light (it was multiplied into display-encoded values, over-correcting the corners).
+  - **Live NLM:** the shader's NLM stand-in no longer runs with denoise switched off, nor stacks on top of the finished BM3D result (`liveDenoiseAmount`).
+  - **Grain coordinates:** image-relative (long edge = 2000 units) in both paths, so grain no longer changes with zoom or output size.
+- Known remaining difference: the preview's texel-sized radii follow the displayed texture (half size at fit zoom); export matches the 100 % view.
+- Files: `src/engine/ImageDeveloper.cpp`, `src/engine/SceneWhite.h`, `src/engine/RawEngine.cpp`, `src/engine/LensFun.cpp`, `src/components/RawViewport.{h,cpp,frag}`, `content/views/App.qml`, `tests/auto/tst_RawEngine.cpp`.
+
+---
+
+## AI denoise — RawNIND via ncnn (2026-11-15, post-40.8)
+
+- Purpose: learned denoising of real sensor noise. **Settings ▸ Denoise ▸ Engine** picks AI (default) or Classic for every photo; Classic is used automatically for photos AI cannot handle. Detail ▸ Denoise keeps three controls: Denoise on/off, **Noise Reduction** (luma) and **Color** (chroma).
+- Model: RawNIND UtNet2, Bayer variant (Brummer & De Vleeschouwer, arXiv:2501.08924), GPL-3.0 weights as published by darktable-ai (`model_bayer.onnx`, SHA-256 `da27509d…`). It is a 5-level U-Net (32→512 channels, LeakyReLU 0.2, ~7.8 M parameters, ~97 GFLOP per 512-cell tile). Input: 4 planes (R, G1, G2, B) of 512×512 cells, black-subtracted, normalised to the white level, not white-balanced. Output: camera RGB, 1024×1024 (joint denoise + demosaic), scaled ~1e6 relative to the input.
+- Runtime: ncnn 20261020 (BSD-3), built from pinned source with Vulkan. The model is converted at configure time with pnnx (`cmake/AiDenoiseModel.cmake`; download and conversion pinned by SHA-256, fp16 weights) and bundled in `bin/models` (not stored in git). GPU fp16 *storage* overflows on the 1e6 output, so all blobs stay fp32. The device is chosen once per session: the best Vulkan GPU (discrete first) is kept only if a synthetic check tile matches the CPU (relative error < 1e-3) and runs faster. Override with `PHOTON_AI_DENOISE_DEVICE=cpu|gpu`; model folder override `PHOTON_AI_MODEL_DIR`.
+- Algorithm (once per photo, worker thread):
+  1. LibRaw unpack. Supported: standard Bayer (`filters ≥ 1000`, 3 colours, square pixels, not Fuji-rotated). Everything else (X-Trans, Foveon, bitmaps, linear DNGs) falls back to Classic.
+  2. Normalised mosaic `(raw − black[c] − cblack pattern) / (maximum − black)`, cropped to an RGGB phase; cells ≥ 0.98 are marked clipped.
+  3. Tiles of 512 cells with 64-cell overlap (cell-wise mirror padding keeps the CFA phase). Each tile's channel means are matched back to the input (gain clamped to 1e6 ± 15 %), then tiles are blended with smoothstep partition-of-unity weights.
+  4. LibRaw `dcraw_process()` of the same file gives the plain linear image. A 3×3 least-squares fit maps the model's camera RGB onto LibRaw's linear output (white balance + colour matrix + scale in one step, on unclipped samples; analytic `rgb_cam × pre_mul` fallback).
+  5. The fitted linear RGB is written back into LibRaw's buffer (clipped areas keep LibRaw's own values), then `dcraw_make_mem_image()` applies LibRaw's own output curve and orientation. The product is therefore pixel-aligned with, and in the same space as, the plain develop source.
+  6. Cached as `.PhotonData/denoise/<file>.ai-<key>.pdn` (12-bit samples, LOCO-I/MED predictor, byte-shuffled deflate strips of 64 rows).
+- Colour pass (after AI): the AI result gets Classic's chroma chain once per photo at full strength (`Denoiser::denoiseChroma`): chroma BM3D on Cb/Cr at 1/4 resolution (block matching guided by luma, σ = 10 on the 0..255 scale, stride 8, two passes), bilinear-upsampled to 1/2, multi-scale guided filter at 1/2 guided by the clean luma (radius 4, strength 100), upsampled to full size, luma untouched. Cached as `.aic-<key>.pdn`. CPU box filters are parallel. ~11 s per 24 MP.
+- Use: `Y = lerp(Yplain, Yai, NR)`, `C = lerp(lerp(Cplain, Cai, NR), Ccolor, Color)` in a (Y, B−Y, R−Y) basis (`blendDenoised`), applied to the develop source before every stage, so preview, histogram, geometry bake, library previews (cache only) and export (computes if missing) all agree. Moving either slider re-blends and never re-runs anything. Edit stack keys: `denoiseAmount`, `denoiseColor` (older edits migrate from `denoiseChromaAmount`). A legacy per-photo `denoiseMode` key is ignored.
+- Classic fallback: Noise Reduction drives the BM3D luma strength, and Color drives both chroma stages (`chromaBm3d` and `chromaDenoise`). Search window, group size and chroma radius keep their stored or default values and are no longer shown.
+- Device: Settings ▸ Denoise ▸ AI denoise device = Auto (GPU only if it matches the CPU on a check tile and is faster), CPU, or a GPU by name; it applies from the next tile (`photon::ai::setDevicePreference`). A GPU initialisation that crashes leaves `ai-denoise-gpu-init.marker` in the app data folder, so the next session uses the CPU; choosing a device in Settings clears it.
+- Measured (i7-9750H + GTX 1650, 24 MP Sony ARW): 4.6 s per photo on the GPU (89 ms per tile), about 20 s on the CPU (540 ms per tile); cache reload 0.2 s; cache size ~45 MB; channel means within 0.5 % of LibRaw's plain render.
+- Files: `src/engine/AiDenoiser.{h,cpp}`, `src/engine/RawEngine.{h,cpp}`, `src/components/RawViewport.{h,cpp}`, `src/managers/ExportManager.cpp`, `src/managers/PreviewManager.cpp`, `src/main.cpp`, `content/views/DevelopView.qml`, `content/components/MetadataPanel.qml`, `content/components/SettingsSelectionDialog.qml`, `cmake/Ncnn.cmake`, `cmake/AiDenoiseModel.cmake`, `cmake/rawnind/*`, `CMakeLists.txt`, `tests/CMakeLists.txt`, `tests/auto/tst_RawEngine.cpp`.
+
+---
+
+## Edit-stack reads in export, previews and batch edits (2026-11-15, post-40.8)
+
+- Purpose: since the History panel (Phase 40.5), sidecars end with a `{"__index": i}` marker. Export, library previews, copy/paste settings and batch rotate/flip read or overwrote `arr.last()`, which is that marker. As a result exports rendered photos with **no edits**, and batch edits on photos with history could replace the marker with a partial state.
+- Fix: `src/managers/EditStack.h` (`currentState`, `currentSettings`, `replaceCurrentState`) mirrors `RawEngine::loadEdits`; every reader and writer uses it. Batch edits now replace the current state in place and keep the history and the marker (and its legacy rating).
+- Files: `src/managers/EditStack.h`, `ExportManager.cpp`, `PreviewManager.cpp`, `AppStateManager.cpp`, `tests/auto/tst_RawEngine.cpp`.
 
 ---
 

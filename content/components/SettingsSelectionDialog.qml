@@ -159,11 +159,7 @@ T.Dialog {
             "items": [
                 { "key": "denoiseEnabled", "label": "Enable Denoise" },
                 { "key": "denoiseAmount", "label": "Denoise Amount" },
-                { "key": "denoiseSearchWindow", "label": "Search Window" },
-                { "key": "denoiseGroupSize", "label": "Group Size" },
-                { "key": "denoiseChromaRadius", "label": "Chroma Radius" },
-                { "key": "denoiseChromaAmount", "label": "Chroma Amount" },
-                { "key": "denoiseChromaBm3d", "label": "Chroma BM3D Weight" }
+                { "key": "denoiseColor", "label": "Color Noise Reduction" }
             ]
         },
         {

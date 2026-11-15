@@ -1,4 +1,8 @@
 #include "ExportManager.h"
+#include "EditStack.h"
+
+#include "../engine/AiDenoiser.h"
+#include "AppStateManager.h"
 
 #include <libraw/libraw.h>
 
@@ -80,7 +84,7 @@ void ExportManager::processExport(const QStringList& paths,
         QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
         QJsonArray arr = doc.array();
         if (!arr.isEmpty()) {
-          lastState = arr.last().toObject();
+          lastState = photon::editstack::currentState(arr);
         }
       }
     }
@@ -145,6 +149,16 @@ void ExportManager::processExport(const QStringList& paths,
             libraw_processed_image_t* mem =
                 processor.dcraw_make_mem_image(&ret);
             if (mem && mem->type == LIBRAW_IMAGE_BITMAP) {
+              // 2b. AI denoise: blend the cached/computed RawNIND product into
+              //     the develop source (falls back to Classic when the photo
+              //     is not supported).
+              if (mem->colors == 3 && mem->bits == 16) {
+                lastState["denoiseMode"] =
+                    ::AppStateManager::instance()->denoiseEngine();
+                photon::ai::applyToDevelopSource(
+                    path, reinterpret_cast<ushort*>(mem->data), mem->width,
+                    mem->height, lastState, true);
+              }
               // 3. Develop Image with Edits
               result = ImageDeveloper::develop(
                   reinterpret_cast<const ushort*>(mem->data), mem->width,

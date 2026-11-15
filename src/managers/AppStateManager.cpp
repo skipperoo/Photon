@@ -1,4 +1,7 @@
 #include "AppStateManager.h"
+#include "EditStack.h"
+
+#include "../engine/AiDenoiser.h"
 
 #include <vulkan/vulkan.h>
 
@@ -116,6 +119,14 @@ void AppStateManager::loadSettings() {
   m_accentColor = m_settings.value(KEY_ACCENT_COLOR, "#3b82f6").toString();
   m_previewDenoiseFull =
       m_settings.value(KEY_PREVIEW_DENOISE_FULL, false).toBool();
+  m_denoiseEngine =
+      m_settings.value(KEY_DENOISE_ENGINE, QStringLiteral("ai")).toString() ==
+              QLatin1String("classic")
+          ? QStringLiteral("classic")
+          : QStringLiteral("ai");
+  m_aiDenoiseDevice =
+      m_settings.value(KEY_AI_DENOISE_DEVICE, QStringLiteral("Auto")).toString();
+  photon::ai::setDevicePreference(m_aiDenoiseDevice, false);
   QString level = m_settings.value("diagnostics/logLevel", PHOTON_INFO).toString();
   LogManager::instance()->setLogLevel(level);
 
@@ -137,6 +148,8 @@ void AppStateManager::saveSettings() {
   m_settings.setValue(KEY_DARK_MODE, m_isDarkMode);
   m_settings.setValue(KEY_ACCENT_COLOR, m_accentColor);
   m_settings.setValue(KEY_PREVIEW_DENOISE_FULL, m_previewDenoiseFull);
+  m_settings.setValue(KEY_DENOISE_ENGINE, m_denoiseEngine);
+  m_settings.setValue(KEY_AI_DENOISE_DEVICE, m_aiDenoiseDevice);
   m_settings.sync();
 }
 
@@ -359,7 +372,7 @@ QVariantMap AppStateManager::loadSettingsForImage(const QString& path) const {
   QJsonArray arr = readEditStates(editsPath);
   if (arr.isEmpty()) return {};
 
-  return arr.last().toObject().toVariantMap();
+  return photon::editstack::currentSettings(arr).toVariantMap();
 }
 
 void AppStateManager::applySettingsForSelected(const QVariantMap& settings,
@@ -374,7 +387,7 @@ void AppStateManager::applySettingsForSelected(const QVariantMap& settings,
     if (editsPath.isEmpty()) continue;
 
     QJsonArray arr = readEditStates(editsPath);
-    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    QJsonObject lastState = photon::editstack::currentState(arr);
 
     bool changed = false;
     for (auto it = settings.constBegin(); it != settings.constEnd(); ++it) {
@@ -387,11 +400,7 @@ void AppStateManager::applySettingsForSelected(const QVariantMap& settings,
 
     if (!changed) continue;
 
-    if (arr.isEmpty()) {
-      arr.append(lastState);
-    } else {
-      arr.replace(arr.size() - 1, lastState);
-    }
+    photon::editstack::replaceCurrentState(arr, lastState);
 
     if (writeEditStates(editsPath, arr)) {
       changedAny = true;
@@ -412,15 +421,11 @@ void AppStateManager::rotateSelectedRight(const QString& excludePath) {
     if (editsPath.isEmpty()) continue;
 
     QJsonArray arr = readEditStates(editsPath);
-    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    QJsonObject lastState = photon::editstack::currentState(arr);
     int steps = lastState.value("orientationSteps").toInt(0);
     lastState["orientationSteps"] = ((steps % 4) + 1) % 4;
 
-    if (arr.isEmpty()) {
-      arr.append(lastState);
-    } else {
-      arr.replace(arr.size() - 1, lastState);
-    }
+    photon::editstack::replaceCurrentState(arr, lastState);
 
     if (writeEditStates(editsPath, arr)) {
       changedAny = true;
@@ -441,15 +446,11 @@ void AppStateManager::rotateSelectedLeft(const QString& excludePath) {
     if (editsPath.isEmpty()) continue;
 
     QJsonArray arr = readEditStates(editsPath);
-    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    QJsonObject lastState = photon::editstack::currentState(arr);
     int steps = lastState.value("orientationSteps").toInt(0);
     lastState["orientationSteps"] = ((steps % 4) + 3) % 4;
 
-    if (arr.isEmpty()) {
-      arr.append(lastState);
-    } else {
-      arr.replace(arr.size() - 1, lastState);
-    }
+    photon::editstack::replaceCurrentState(arr, lastState);
 
     if (writeEditStates(editsPath, arr)) {
       changedAny = true;
@@ -470,15 +471,11 @@ void AppStateManager::flipSelectedHorizontal(const QString& excludePath) {
     if (editsPath.isEmpty()) continue;
 
     QJsonArray arr = readEditStates(editsPath);
-    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    QJsonObject lastState = photon::editstack::currentState(arr);
     bool flip = lastState.value("flipHorizontal").toBool(false);
     lastState["flipHorizontal"] = !flip;
 
-    if (arr.isEmpty()) {
-      arr.append(lastState);
-    } else {
-      arr.replace(arr.size() - 1, lastState);
-    }
+    photon::editstack::replaceCurrentState(arr, lastState);
 
     if (writeEditStates(editsPath, arr)) {
       changedAny = true;
@@ -499,15 +496,11 @@ void AppStateManager::flipSelectedVertical(const QString& excludePath) {
     if (editsPath.isEmpty()) continue;
 
     QJsonArray arr = readEditStates(editsPath);
-    QJsonObject lastState = arr.isEmpty() ? QJsonObject() : arr.last().toObject();
+    QJsonObject lastState = photon::editstack::currentState(arr);
     bool flip = lastState.value("flipVertical").toBool(false);
     lastState["flipVertical"] = !flip;
 
-    if (arr.isEmpty()) {
-      arr.append(lastState);
-    } else {
-      arr.replace(arr.size() - 1, lastState);
-    }
+    photon::editstack::replaceCurrentState(arr, lastState);
 
     if (writeEditStates(editsPath, arr)) {
       changedAny = true;
@@ -549,6 +542,40 @@ void AppStateManager::setPreviewDenoiseFull(bool full) {
     emit previewDenoiseFullChanged();
     saveSettings();
   }
+}
+
+void AppStateManager::setDenoiseEngine(const QString& engine) {
+  const QString e = engine == QLatin1String("classic") ? QStringLiteral("classic")
+                                                      : QStringLiteral("ai");
+  if (m_denoiseEngine == e) return;
+  m_denoiseEngine = e;
+  emit denoiseEngineChanged();
+  saveSettings();
+}
+
+void AppStateManager::setAiDenoiseDevice(const QString& device) {
+  if (m_aiDenoiseDevice == device) return;
+  m_aiDenoiseDevice = device;
+  photon::ai::setDevicePreference(device, true);
+  emit aiDenoiseDeviceChanged();
+  saveSettings();
+}
+
+QStringList AppStateManager::aiDenoiseDevices() const {
+  QStringList list{QStringLiteral("Auto"), QStringLiteral("CPU")};
+  for (const QString& gpu : m_availableGpus) {
+    if (gpu == QLatin1String("Auto")) continue;
+    // Software rasterisers are slower than the CPU path.
+    if (gpu.contains(QLatin1String("llvmpipe"), Qt::CaseInsensitive) ||
+        gpu.contains(QLatin1String("SwiftShader"), Qt::CaseInsensitive))
+      continue;
+    if (!list.contains(gpu)) list.append(gpu);
+  }
+  return list;
+}
+
+bool AppStateManager::aiDenoiseAvailable() const {
+  return photon::ai::isCompiledIn() && photon::ai::modelFilesPresent();
 }
 
 QString AppStateManager::logLocation() const {

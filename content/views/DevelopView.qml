@@ -164,10 +164,10 @@ Control {
             // Denoise Indicator
             RowLayout {
                 spacing: 6
-                visible: root.viewport ? root.viewport.isDenoising : false
+                visible: root.viewport ? (root.viewport.isDenoising || root.viewport.aiDenoiseRunning) : false
                 
                 Text {
-                    text: "Applying denoise..."
+                    text: (root.viewport && root.viewport.aiDenoiseRunning) ? root.viewport.aiDenoiseStatus : "Applying denoise..."
                     color: Theme.foreground
                     font: Theme.fontSmall
                 }
@@ -196,7 +196,7 @@ Control {
             // Empty placeholder to maintain layout height when nothing is happening
             Item {
                 Layout.preferredHeight: 16
-                visible: root.viewport ? (!root.viewport.isDenoising && !root.viewport.isLoading) : true
+                visible: root.viewport ? (!root.viewport.isDenoising && !root.viewport.aiDenoiseRunning && !root.viewport.isLoading) : true
             }
         }
 
@@ -225,8 +225,10 @@ Control {
                             readonly property bool kelvinMode: root.viewport ? !root.viewport.isBitmapSource : false
                             title: kelvinMode ? "Temperature (K)" : "Temperature"
                             value: root.viewport ? (kelvinMode ? root.viewport.temperatureKelvin : root.viewport.temperature) : (kelvinMode ? 5500 : 0)
-                            from: kelvinMode ? 2000 : -100
-                            to: kelvinMode ? 10000 : 100
+                            from: kelvinMode ? SliderRamps.kelvinMin : -100
+                            to: kelvinMode ? SliderRamps.kelvinMax : 100
+                            toSlider: kelvinMode ? SliderRamps.kelvinToPosition : null
+                            fromSlider: kelvinMode ? SliderRamps.positionToKelvin : null
                             defaultValue: root.viewport ? (kelvinMode ? root.viewport.asShotKelvin : 0.0) : 0.0
                             stepSize: kelvinMode ? 10 : 0
                             trackRamp: kelvinMode ? SliderRamps.kelvinTemperature : SliderRamps.whiteBalanceTemperature
@@ -648,47 +650,49 @@ Control {
                             }
                         }
 
-                        ControlGroup { 
-                            title: "Noise Reduction"; 
-                            value: root.viewport ? root.viewport.denoiseAmount : 0.0; 
-                            from: 0; to: 100; 
+                        // AI denoise status (progress, device, fallback reason).
+                        // Engine and device are chosen in Settings.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            visible: root.viewport ? (root.viewport.denoiseEnabled && root.viewport.aiDenoiseStatus.length > 0) : false
+
+                            Text {
+                                text: root.viewport ? root.viewport.aiDenoiseStatus : ""
+                                font: Theme.fontSmall
+                                color: Theme.mutedFg
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 3
+                                radius: 1.5
+                                color: Theme.secondary
+                                visible: root.viewport ? root.viewport.aiDenoiseRunning : false
+                                Rectangle {
+                                    width: parent.width * (root.viewport ? root.viewport.aiDenoiseProgress : 0)
+                                    height: parent.height
+                                    radius: parent.radius
+                                    color: Theme.accent
+                                }
+                            }
+                        }
+
+                        // Luminance noise reduction (AI: blend to the AI result;
+                        // Classic: BM3D strength)
+                        ControlGroup {
+                            title: "Noise Reduction"
+                            value: root.viewport ? root.viewport.denoiseAmount : 0.0
+                            from: 0; to: 100
                             defaultValue: 0.0
                             enabled: root.viewport ? root.viewport.denoiseEnabled : false
                             opacity: enabled ? 1.0 : 0.5
-                            onMoved: (v) => { 
-                                if(root.viewport) root.viewport.denoiseAmount = v;
-                            } 
-                            onReleased: {
-                                if(root.viewport) {
-                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
-                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
-                                    }
-                                    root.viewport.commitEdit();
-                                }
-                            }
-                        }
-
-                        // Advanced Denoise Parameters
-                        Rectangle { Layout.fillWidth: true; height: 1; color: "#1A1A1C"; Layout.topMargin: 4; Layout.bottomMargin: 4 }
-                        Text {
-                            text: "Advanced"
-                            font: Theme.fontSmall
-                            color: Theme.mutedFg
-                            Layout.fillWidth: true
-                        }
-
-                        ControlGroup {
-                            title: "Search Window"
-                            value: root.viewport ? root.viewport.denoiseSearchWindow : 19
-                            from: 9; to: 39; stepSize: 2
-                            defaultValue: 19
-                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
-                            opacity: enabled ? 1.0 : 0.5
                             onMoved: (v) => {
-                                if(root.viewport) root.viewport.denoiseSearchWindow = Math.round(v);
+                                if (root.viewport) root.viewport.denoiseAmount = v;
                             }
                             onReleased: {
-                                if(root.viewport) {
+                                if (root.viewport) {
                                     if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
                                         root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
                                     }
@@ -697,105 +701,20 @@ Control {
                             }
                         }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
-                            opacity: enabled ? 1.0 : 0.5
-
-                            Text {
-                                text: "Group Size"
-                                font: Theme.fontRegular
-                                color: Theme.foreground
-                            }
-                            Item { Layout.fillWidth: true }
-                            ComboBox {
-                                id: groupSizeCombo
-                                model: [4, 8, 16]
-                                currentIndex: {
-                                    let v = root.viewport ? root.viewport.denoiseGroupSize : 16;
-                                    return v === 4 ? 0 : (v === 8 ? 1 : 2);
-                                }
-                                implicitWidth: 70
-                                implicitHeight: 28
-                                font: Theme.fontSmall
-                                onActivated: (index) => {
-                                    if (root.viewport) {
-                                        root.viewport.denoiseGroupSize = model[index];
-                                        if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
-                                            root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
-                                        }
-                                        root.viewport.commitEdit();
-                                    }
-                                }
-                                background: Rectangle {
-                                    radius: 4
-                                    color: Theme.secondary
-                                    border.color: groupSizeCombo.activeFocus ? Theme.primary : Theme.border
-                                    border.width: 1
-                                }
-                                contentItem: Text {
-                                    text: groupSizeCombo.displayText
-                                    font: Theme.fontSmall
-                                    color: Theme.foreground
-                                    verticalAlignment: Text.AlignVCenter
-                                    horizontalAlignment: Text.AlignHCenter
-                                    leftPadding: 8
-                                }
-                            }
-                        }
-
+                        // Colour noise reduction (AI: chroma BM3D + guided filter
+                        // pass on the AI result; Classic: chroma stage strengths)
                         ControlGroup {
-                            title: "Chroma Radius"
-                            value: root.viewport ? root.viewport.denoiseChromaRadius : 4
-                            from: 1; to: 16; stepSize: 1
-                            defaultValue: 4
-                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
-                            opacity: enabled ? 1.0 : 0.5
-                            onMoved: (v) => {
-                                if(root.viewport) root.viewport.denoiseChromaRadius = Math.round(v);
-                            }
-                            onReleased: {
-                                if(root.viewport) {
-                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
-                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
-                                    }
-                                    root.viewport.commitEdit();
-                                }
-                            }
-                        }
-
-                        ControlGroup {
-                            title: "Chroma Denoise"
-                            value: root.viewport ? root.viewport.denoiseChromaAmount : 50.0
+                            title: "Color"
+                            value: root.viewport ? root.viewport.denoiseColor : 50.0
                             from: 0; to: 100
                             defaultValue: 50.0
                             enabled: root.viewport ? root.viewport.denoiseEnabled : false
                             opacity: enabled ? 1.0 : 0.5
                             onMoved: (v) => {
-                                if(root.viewport) root.viewport.denoiseChromaAmount = v;
+                                if (root.viewport) root.viewport.denoiseColor = v;
                             }
                             onReleased: {
-                                if(root.viewport) {
-                                    if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
-                                        root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
-                                    }
-                                    root.viewport.commitEdit();
-                                }
-                            }
-                        }
-
-                        ControlGroup {
-                            title: "Chroma BM3D"
-                            value: root.viewport ? root.viewport.denoiseChromaBm3d : 50.0
-                            from: 0; to: 100
-                            defaultValue: 50.0
-                            enabled: root.viewport ? root.viewport.denoiseEnabled : false
-                            opacity: enabled ? 1.0 : 0.5
-                            onMoved: (v) => {
-                                if(root.viewport) root.viewport.denoiseChromaBm3d = v;
-                            }
-                            onReleased: {
-                                if(root.viewport) {
+                                if (root.viewport) {
                                     if (root.viewport.denoiseAmount > 0 && root.viewport.denoiseEnabled) {
                                         root.viewport.startAsyncDenoise(AppState.previewDenoiseFull, root.viewport.zoom, root.viewport.visibleImageRect());
                                     }

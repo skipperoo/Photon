@@ -486,6 +486,18 @@ float tcaRatio(const float terms[3], const QString& model, float r) {
   return terms[0];
 }
 
+// sRGB transfer (matches srgb_to_linear / linear_to_srgb in the shaders).
+float srgbToLinear(float c) {
+  c = std::clamp(c, 0.0f, 1.0f);
+  return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+
+float linearToSrgb(float c) {
+  c = std::clamp(c, 0.0f, 1.0f);
+  return c <= 0.0031308f ? c * 12.92f
+                         : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
+}
+
 }  // namespace
 
 QImage applyProfile(const QImage& src, const Profile& profile,
@@ -585,8 +597,13 @@ QImage applyProfile(const QImage& src, const Profile& profile,
             sampleRgbx64(srcBits16, w, h, cx + dx * scale, cy + dy * scale);
         const QRgba64 b =
             sampleRgbx64(srcBits16, w, h, cx + dx * scaleB, cy + dy * scaleB);
+        // The vignetting gain is a light ratio: apply it in linear light (as
+        // the preview shader does), not to the display-encoded values.
         auto applyVig = [&](ushort v) {
-          return ushort(std::clamp(float(v) * vigGain, 0.0f, 65535.0f));
+          if (vigGain == 1.0f) return v;
+          const float lin = srgbToLinear(float(v) / 65535.0f) * vigGain;
+          return ushort(
+              std::clamp(linearToSrgb(lin) * 65535.0f + 0.5f, 0.0f, 65535.0f));
         };
         reinterpret_cast<QRgba64*>(dstRow)[x] = QRgba64::fromRgba64(
             applyVig(r.red()), applyVig(g.green()), applyVig(b.blue()), 65535);
@@ -598,12 +615,17 @@ QImage applyProfile(const QImage& src, const Profile& profile,
                      1, g);
         sampleRgb888(srcBits8, w, h, srcStride8, cx + dx * scaleB,
                      cy + dy * scaleB, 2, b);
+        auto applyVig8 = [&](float v) {
+          if (vigGain == 1.0f) return v;
+          const float lin = srgbToLinear(v / 255.0f) * vigGain;
+          return linearToSrgb(lin) * 255.0f;
+        };
         dstRow[x * 3 + 0] =
-            uchar(std::clamp(r * vigGain, 0.0f, 255.0f) + 0.5f);
+            uchar(std::clamp(applyVig8(r), 0.0f, 255.0f) + 0.5f);
         dstRow[x * 3 + 1] =
-            uchar(std::clamp(g * vigGain, 0.0f, 255.0f) + 0.5f);
+            uchar(std::clamp(applyVig8(g), 0.0f, 255.0f) + 0.5f);
         dstRow[x * 3 + 2] =
-            uchar(std::clamp(b * vigGain, 0.0f, 255.0f) + 0.5f);
+            uchar(std::clamp(applyVig8(b), 0.0f, 255.0f) + 0.5f);
       }
     }
   });

@@ -1,6 +1,8 @@
 #include <cmath>
 #include <QCoreApplication>
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QFile>
 #include <QFileInfo>
 #include <QMap>
@@ -9,6 +11,9 @@
 #include <QtTest>
 #include <vector>
 
+#include "AiDenoiser.h"
+#include "EditStack.h"
+#include "AppStateManager.h"
 #include "BitmapTestUtils.h"
 #include "ExportManager.h"
 #include "FileScanner.h"
@@ -18,6 +23,7 @@
 #include "CameraLook.h"
 #include "CameraLookMath.h"
 #include "WhiteBalance.h"
+#include "SceneWhite.h"
 #include "PreviewManager.h"
 #include "RawEngine.h"
 
@@ -55,6 +61,17 @@ class TestRawEngine : public QObject {
   void testProcessedImageConcurrentSourceSwitch();
   void testProfileAndLegacyMigration();
   void testBlackAndWhiteCpuDevelop();
+  void testExportAppliesFinalPassEffects();
+  void testExportSceneWhiteMatchesPreview();
+  void testAiDenoiseTiling();
+  void testAiDenoiseMosaicMock();
+  void testAiDenoiseCacheRoundTrip();
+  void testAiDenoiseBlendAndResample();
+  void testAiDenoiseModeAndFallback();
+  void testAiDenoiseEngineIntegration();
+  void testWhiteBalanceKelvinRange50k();
+  void testEditStackCurrentState();
+  void testExportUsesHistorySelectedState();
 };
 
 namespace {
@@ -1842,6 +1859,620 @@ void TestRawEngine::testBlackAndWhiteCpuDevelop() {
   const QImage legacyImage =
       photon::ImageDeveloper::develop(src.data(), w, h, legacyToken);
   QCOMPARE(legacyImage, out);
+}
+
+// Export must apply the final-pass effects the preview shader applies
+// (Sharpness, Structure, Dehaze, Centrè, Grain, Vignette) — previously they
+// were GPU-only and exports looked different from the preview.
+void TestRawEngine::testExportAppliesFinalPassEffects() {
+  const int w = 160;
+  const int h = 120;
+  std::vector<ushort> src(size_t(w) * h * 3);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      // Mid-grey with fine texture and a soft colour gradient, so local
+      // contrast and dehaze have something to act on.
+      const float tex = ((x / 3 + y / 3) % 2) ? 0.06f : -0.06f;
+      const float base = 0.45f + 0.15f * float(x) / float(w);
+      const size_t i = (size_t(y) * w + x) * 3;
+      src[i] = ushort(std::clamp(base + tex, 0.0f, 1.0f) * 65535.0f);
+      src[i + 1] = ushort(std::clamp(base * 0.95f + tex, 0.0f, 1.0f) * 65535.0f);
+      src[i + 2] = ushort(std::clamp(base * 0.85f + tex, 0.0f, 1.0f) * 65535.0f);
+    }
+  }
+
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+  base["vignetteMidpoint"] = 50.0;
+  base["vignetteFeather"] = 50.0;
+  base["grainSize"] = 1.0;
+  base["grainRoughness"] = 0.5;
+
+  const QImage ref = photon::ImageDeveloper::develop(src.data(), w, h, base);
+  QVERIFY(!ref.isNull());
+
+  auto meanAbsDiff = [](const QImage& a, const QImage& b) {
+    double sum = 0.0;
+    for (int y = 0; y < a.height(); ++y) {
+      const uchar* sa = a.constScanLine(y);
+      const uchar* sb = b.constScanLine(y);
+      for (int x = 0; x < a.width() * 3; ++x) sum += std::abs(sa[x] - sb[x]);
+    }
+    return sum / double(a.width() * a.height() * 3);
+  };
+  auto with = [&](const char* key, double value) {
+    QJsonObject s = base;
+    s[key] = value;
+    return photon::ImageDeveloper::develop(src.data(), w, h, s);
+  };
+
+  const struct {
+    const char* key;
+    double value;
+  } effects[] = {{"sharpness", 60.0},   {"structure", 60.0},
+                 {"dehaze", 60.0},      {"centre", 80.0},
+                 {"grainAmount", 80.0}, {"vignetteAmount", -80.0}};
+  for (const auto& e : effects) {
+    const QImage out = with(e.key, e.value);
+    QVERIFY2(!out.isNull(), e.key);
+    QVERIFY2(meanAbsDiff(out, ref) > 0.5, e.key);
+  }
+
+  // A negative vignette darkens the corners, not the centre.
+  auto pixelLuma = [](const QImage& img, int x, int y) {
+    const uchar* s = img.constScanLine(y);
+    return 0.2126 * s[x * 3] + 0.7152 * s[x * 3 + 1] + 0.0722 * s[x * 3 + 2];
+  };
+  const QImage vig = with("vignetteAmount", -80.0);
+  QVERIFY(pixelLuma(vig, 2, 2) < pixelLuma(ref, 2, 2) - 10.0);
+  QVERIFY(std::abs(pixelLuma(vig, w / 2, h / 2) -
+                   pixelLuma(ref, w / 2, h / 2)) < 3.0);
+
+  // The vignette is relative to the cropped frame (like the baked preview):
+  // the corner of a half-width crop is darkened too.
+  QJsonObject cropped = base;
+  QJsonObject rect;
+  rect["x"] = 0.0;
+  rect["y"] = 0.0;
+  rect["w"] = 0.5;
+  rect["h"] = 1.0;
+  cropped["cropRect"] = rect;
+  const QImage cropRef =
+      photon::ImageDeveloper::develop(src.data(), w, h, cropped);
+  cropped["vignetteAmount"] = -80.0;
+  const QImage cropVig =
+      photon::ImageDeveloper::develop(src.data(), w, h, cropped);
+  QCOMPARE(cropVig.width(), w / 2);
+  const int cw = cropVig.width();
+  QVERIFY(pixelLuma(cropVig, cw - 3, 2) < pixelLuma(cropRef, cw - 3, 2) - 10.0);
+  QVERIFY(std::abs(pixelLuma(cropVig, cw / 2, h / 2) -
+                   pixelLuma(cropRef, cw / 2, h / 2)) < 3.0);
+}
+
+// Without an injected value, export measures scene white on the source exactly
+// like the preview does at load (it used to fall back to 1.0).
+void TestRawEngine::testExportSceneWhiteMatchesPreview() {
+  const int w = 64;
+  const int h = 64;
+  std::vector<ushort> src(size_t(w) * h * 3);
+  for (size_t i = 0; i < src.size(); ++i) {
+    src[i] = ushort(((i / 3) % w) * 600 + 8000);  // dark-ish horizontal ramp
+  }
+  const float measured = photon::computeSceneWhite(src.data(), w, h, 3);
+  QVERIFY(measured > 0.0f && measured < 0.5f);
+
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["denoiseEnabled"] = false;
+  base["exposure"] = 1.5;  // engages the scene-white highlight knee
+  base["highlights"] = -40.0;
+
+  QJsonObject injected = base;
+  injected["sceneWhite"] = double(measured);
+  QJsonObject legacy = base;
+  legacy["sceneWhite"] = 1.0;
+
+  const QImage autoImg = photon::ImageDeveloper::develop(src.data(), w, h, base);
+  const QImage injectedImg =
+      photon::ImageDeveloper::develop(src.data(), w, h, injected);
+  const QImage legacyImg =
+      photon::ImageDeveloper::develop(src.data(), w, h, legacy);
+  QCOMPARE(autoImg, injectedImg);
+  QVERIFY(autoImg != legacyImg);
+}
+
+// --- AI denoise (model-agnostic parts; the tests build without ncnn) -------
+
+void TestRawEngine::testAiDenoiseTiling() {
+  using namespace photon::ai;
+  // Small pictures are a single tile.
+  QCOMPARE(tileStarts(100, 512, 64), std::vector<int>{0});
+  for (const int n : {513, 1000, 3012, 2012}) {
+    const std::vector<int> st = tileStarts(n, 512, 64);
+    QVERIFY(st.size() >= 2);
+    QCOMPARE(st.front(), 0);
+    QCOMPARE(st.back(), n - 512);
+    for (size_t i = 1; i < st.size(); ++i) {
+      QVERIFY(st[i] > st[i - 1]);
+      QVERIFY(st[i] - st[i - 1] <= 512 - 64);  // neighbours overlap enough
+    }
+  }
+  // Weights: 1 inside and at picture edges, fading towards neighbours.
+  QCOMPARE(tileWeight(0, 512, 64, false, false), 1.0f);
+  QCOMPARE(tileWeight(256, 512, 64, true, true), 1.0f);
+  QVERIFY(tileWeight(0, 512, 64, true, false) < 0.01f);
+  QVERIFY(tileWeight(0, 512, 64, true, false) > 0.0f);
+  QVERIFY(tileWeight(511, 512, 64, false, true) < 0.01f);
+  QCOMPARE(tileWeight(511, 512, 64, true, false), 1.0f);
+}
+
+// A mock "model" that demosaics by replication and carries RawNIND's ~1e6
+// output scale: the runner must remove the scale per tile and blend tiles
+// without seams, so the output equals the per-cell input exactly.
+void TestRawEngine::testAiDenoiseMosaicMock() {
+  using namespace photon::ai;
+  const int w = 2 * 150;  // 150 x 110 cells -> several 64-cell tiles
+  const int h = 2 * 110;
+  std::vector<float> mosaic(size_t(w) * h);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const float base = 0.1f + 0.4f * float(x) / w + 0.3f * float(y) / h;
+      const float k = (y % 2 == 0) ? (x % 2 == 0 ? 0.6f : 1.0f)
+                                   : (x % 2 == 0 ? 1.0f : 0.45f);
+      mosaic[size_t(y) * w + x] = base * k;
+    }
+  }
+  TileParams tp;
+  tp.tile = 64;
+  tp.overlap = 16;
+  for (const float scale : {1.0e6f, 1.04e6f}) {
+    int calls = 0;
+    TileFn mock = [&](const float* in, std::vector<float>& out) {
+      ++calls;
+      const int t = tp.tile;
+      const int side = 2 * t;
+      out.assign(size_t(3) * side * side, 0.0f);
+      for (int cy = 0; cy < t; ++cy) {
+        for (int cx = 0; cx < t; ++cx) {
+          const size_t k = size_t(cy) * t + cx;
+          const float rgb[3] = {in[k],
+                                0.5f * (in[size_t(t) * t + k] +
+                                        in[size_t(2) * t * t + k]),
+                                in[size_t(3) * t * t + k]};
+          for (int c = 0; c < 3; ++c) {
+            for (int sy = 0; sy < 2; ++sy) {
+              for (int sx = 0; sx < 2; ++sx) {
+                out[size_t(c) * side * side +
+                    size_t(2 * cy + sy) * side + 2 * cx + sx] = rgb[c] * scale;
+              }
+            }
+          }
+        }
+      }
+      return true;
+    };
+    std::vector<float> cam;
+    QString err;
+    const Status st =
+        denoiseMosaic(mosaic.data(), w, h, mock, tp, cam, nullptr, {}, &err);
+    QCOMPARE(int(st), int(Status::Ok));
+    QVERIFY(calls > 4);
+    QCOMPARE(cam.size(), size_t(w) * h * 3);
+    float maxErr = 0.0f;
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) {
+        const int cy = y / 2 * 2, cx = x / 2 * 2;
+        const float r = mosaic[size_t(cy) * w + cx];
+        const float g = 0.5f * (mosaic[size_t(cy) * w + cx + 1] +
+                                mosaic[size_t(cy + 1) * w + cx]);
+        const float b = mosaic[size_t(cy + 1) * w + cx + 1];
+        const float* o = &cam[(size_t(y) * w + x) * 3];
+        maxErr = std::max({maxErr, std::abs(o[0] - r), std::abs(o[1] - g),
+                           std::abs(o[2] - b)});
+      }
+    }
+    QVERIFY2(maxErr < 1e-4f, qPrintable(QString::number(maxErr)));
+  }
+
+  // Abort is honoured and a failing model is an error, not a crash.
+  std::atomic<bool> abort{true};
+  std::vector<float> cam;
+  TileFn never = [](const float*, std::vector<float>&) { return true; };
+  QCOMPARE(int(denoiseMosaic(mosaic.data(), w, h, never, tp, cam, &abort, {},
+                             nullptr)),
+           int(Status::Aborted));
+  TileFn failing = [](const float*, std::vector<float>&) { return false; };
+  QCOMPARE(int(denoiseMosaic(mosaic.data(), w, h, failing, tp, cam, nullptr,
+                             {}, nullptr)),
+           int(Status::Failed));
+}
+
+void TestRawEngine::testAiDenoiseCacheRoundTrip() {
+  using namespace photon::ai;
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString photo = dir.filePath("IMG_0001.ARW");
+  {
+    QFile f(photo);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("raw");
+  }
+  Product p;
+  p.width = 333;
+  p.height = 141;  // not a multiple of the strip height
+  p.rgb.resize(size_t(p.width) * p.height * 3);
+  uint32_t seed = 7;
+  for (size_t i = 0; i < p.rgb.size(); ++i) {
+    seed = seed * 1664525u + 1013904223u;
+    p.rgb[i] = ushort((i * 37) % 60000 + (seed >> 28));
+  }
+  const QString file = cachePath(photo, QStringLiteral("fp-test"));
+  QVERIFY(file.contains("/.PhotonData/denoise/IMG_0001.ARW.ai-"));
+  QVERIFY(saveProduct(file, p));
+  Product back;
+  QVERIFY(loadProduct(file, back));
+  QCOMPARE(back.width, p.width);
+  QCOMPARE(back.height, p.height);
+  int maxDiff = 0;
+  for (size_t i = 0; i < p.rgb.size(); ++i)
+    maxDiff = std::max(maxDiff, std::abs(int(back.rgb[i]) - int(p.rgb[i])));
+  QVERIFY2(maxDiff <= 9, qPrintable(QString::number(maxDiff)));  // 12-bit
+
+  // A different model fingerprint is a different file; stale ones go away.
+  const QString other = cachePath(photo, QStringLiteral("fp-other"));
+  QVERIFY(other != file);
+  QVERIFY(saveProduct(other, p));
+  removeStaleProducts(photo, other);
+  QVERIFY(!QFile::exists(file));
+  QVERIFY(QFile::exists(other));
+
+  // Corrupt data is rejected.
+  {
+    QFile f(other);
+    QVERIFY(f.open(QIODevice::ReadWrite));
+    f.seek(40);
+    f.write("garbage-garbage-garbage");
+  }
+  Product bad;
+  QVERIFY(!loadProduct(other, bad) || bad.isValid());
+}
+
+void TestRawEngine::testAiDenoiseBlendAndResample() {
+  using namespace photon::ai;
+  const ushort plain[6] = {1000, 2000, 3000, 60000, 0, 500};
+  const ushort prod[6] = {3000, 2000, 1000, 50000, 1000, 500};
+  ushort out[6];
+  blendRgb16(plain, prod, out, 2, 0.5f);
+  const ushort expect[6] = {2000, 2000, 2000, 55000, 500, 500};
+  for (int i = 0; i < 6; ++i) QCOMPARE(out[i], expect[i]);
+  blendRgb16(plain, prod, out, 2, 0.0f);
+  for (int i = 0; i < 6; ++i) QCOMPARE(out[i], plain[i]);
+  blendRgb16(plain, prod, out, 2, 1.0f);
+  for (int i = 0; i < 6; ++i) QCOMPARE(out[i], prod[i]);
+
+  // Two-slider blend: luma follows the AI result, colour the colour pass.
+  {
+    const ushort p[3] = {30000, 20000, 10000};    // plain
+    const ushort a[3] = {26000, 21000, 14000};    // AI
+    const ushort k[3] = {22000, 22000, 22000};    // AI + colour pass (grey)
+    ushort o[3];
+    auto luma = [](const ushort* v) {
+      return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+    };
+    blendDenoised(p, a, k, o, 1, 0.0f, 0.0f);
+    for (int i = 0; i < 3; ++i) QVERIFY(std::abs(o[i] - p[i]) <= 1);
+    blendDenoised(p, a, k, o, 1, 1.0f, 0.0f);
+    for (int i = 0; i < 3; ++i) QVERIFY(std::abs(o[i] - a[i]) <= 1);
+    // Full colour: chroma of the colour pass (grey) with the AI luma.
+    blendDenoised(p, a, k, o, 1, 1.0f, 1.0f);
+    QVERIFY(std::abs(luma(o) - luma(a)) < 2.0);
+    QVERIFY(std::abs(o[0] - o[1]) <= 2 && std::abs(o[1] - o[2]) <= 2);
+    // Colour without luma: plain luma, grey chroma.
+    blendDenoised(p, a, k, o, 1, 0.0f, 1.0f);
+    QVERIFY(std::abs(luma(o) - luma(p)) < 2.0);
+    QVERIFY(std::abs(o[0] - o[2]) <= 2);
+    // No colour product: colour follows luma.
+    blendDenoised(p, a, nullptr, o, 1, 1.0f, 1.0f);
+    for (int i = 0; i < 3; ++i) QVERIFY(std::abs(o[i] - a[i]) <= 1);
+  }
+
+  // 4x2 -> 2x1 box average.
+  std::vector<ushort> src(4 * 2 * 3);
+  for (int i = 0; i < 8; ++i) {
+    src[i * 3] = ushort(i * 100);
+    src[i * 3 + 1] = 1000;
+    src[i * 3 + 2] = ushort(i < 4 ? 0 : 4000);
+  }
+  std::vector<ushort> dst(2 * 1 * 3);
+  resampleRgb16(src.data(), 4, 2, dst.data(), 2, 1);
+  QCOMPARE(int(dst[0]), (0 + 100 + 400 + 500 + 2) / 4);
+  QCOMPARE(int(dst[1]), 1000);
+  QCOMPARE(int(dst[2]), 2000);
+  QCOMPARE(int(dst[3]), (200 + 300 + 600 + 700 + 2) / 4);
+}
+
+// The denoise engine is a global Settings choice (AI by default); the Color
+// amount is per photo (older edits migrate from the Classic chroma amount).
+void TestRawEngine::testAiDenoiseModeAndFallback() {
+  AppStateManager* app = AppStateManager::instance();
+  const QString savedEngine = app->denoiseEngine();
+  app->setDenoiseEngine(QStringLiteral("bogus"));
+  QCOMPARE(app->denoiseEngine(), QStringLiteral("ai"));
+  RawEngine engine;
+  QSignalSpy modeSpy(&engine, &RawEngine::denoiseModeChanged);
+  QCOMPARE(engine.denoiseMode(), QStringLiteral("ai"));
+  app->setDenoiseEngine(QStringLiteral("classic"));
+  QCOMPARE(engine.denoiseMode(), QStringLiteral("classic"));
+  QCOMPARE(modeSpy.count(), 1);
+  app->setDenoiseEngine(QStringLiteral("ai"));
+  QVERIFY(!engine.currentSettings().contains("denoiseMode"));
+  QCOMPARE(app->aiDenoiseDevices().mid(0, 2), (QStringList{"Auto", "CPU"}));
+
+  QCOMPARE(engine.denoiseColor(), 50.0f);
+  engine.setDenoiseColor(80.0f);
+  RawEngine reloaded;
+  reloaded.applySettings(engine.currentSettings());
+  QCOMPARE(reloaded.denoiseColor(), 80.0f);
+  QVariantMap legacy;
+  legacy["denoiseChromaAmount"] = 30.0;
+  legacy["denoiseMode"] = "classic";  // legacy per-photo key: ignored
+  RawEngine migrated;
+  migrated.applySettings(legacy);
+  QCOMPARE(migrated.denoiseColor(), 30.0f);
+  QCOMPARE(migrated.denoiseMode(), QStringLiteral("ai"));
+
+  if (!photon::ai::isCompiledIn()) {
+    QVERIFY(!engine.aiDenoiseAvailable());
+    engine.setDenoiseEnabled(true);
+    engine.setDenoiseAmount(50.0f);
+    QVERIFY(!engine.aiDenoiseActive());  // Classic stays in charge
+  }
+
+  // Export/preview source: no product -> Classic fallback, pixels untouched.
+  std::vector<ushort> rgb(8 * 8 * 3, 20000);
+  QJsonObject settings;
+  settings["denoiseEnabled"] = true;
+  settings["denoiseAmount"] = 50.0;
+  settings["denoiseMode"] = "ai";
+  const bool applied = photon::ai::applyToDevelopSource(
+      QStringLiteral("/nonexistent/photo.ARW"), rgb.data(), 8, 8, settings,
+      true);
+  QVERIFY(!applied);
+  QCOMPARE(settings.value("denoiseMode").toString(), QStringLiteral("classic"));
+  QVERIFY(settings.contains("sceneWhite"));
+  for (const ushort v : rgb) QCOMPARE(v, ushort(20000));
+
+  // ImageDeveloper skips Classic denoise when the source was AI-denoised.
+  const int w = 32, h = 24;
+  std::vector<ushort> src(size_t(w) * h * 3);
+  for (size_t i = 0; i < src.size(); ++i)
+    src[i] = ushort(20000 + ((i * 7919) % 5000));
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["sceneWhite"] = 1.0;
+  QJsonObject off = base;
+  off["denoiseEnabled"] = false;
+  QJsonObject ai = base;
+  ai["denoiseEnabled"] = true;
+  ai["denoiseAmount"] = 80.0;
+  ai["denoiseMode"] = "ai";
+  QCOMPARE(photon::ImageDeveloper::develop(src.data(), w, h, ai),
+           photon::ImageDeveloper::develop(src.data(), w, h, off));
+  app->setDenoiseEngine(savedEngine);
+}
+
+// End-to-end: a real Bayer RAW through RawEngine with the real model. Runs
+// only when the build has ncnn + the bundled model and a sample RAW exists
+// (PHOTON_TEST_RAW or <repo>/testphoton/_DSC8711.ARW).
+void TestRawEngine::testAiDenoiseEngineIntegration() {
+  if (!photon::ai::isCompiledIn() || !photon::ai::modelFilesPresent())
+    QSKIP("AI denoise model not available in this build");
+  QString sample = qEnvironmentVariable("PHOTON_TEST_RAW");
+  if (sample.isEmpty()) {
+    sample = QCoreApplication::applicationDirPath() +
+             QStringLiteral("/../../testphoton/_DSC8711.ARW");
+  }
+  if (!QFileInfo::exists(sample)) QSKIP("no sample Bayer RAW available");
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QFileInfo(sample).fileName());
+  QVERIFY(QFile::copy(sample, path));
+
+  RawEngine engine;
+  QSignalSpy loaded(&engine, &RawEngine::imageLoaded);
+  engine.setSource(path);
+  QVERIFY(loaded.wait(60000));
+  const QImage plain = engine.getProcessedImage();
+  QVERIFY(!plain.isNull());
+
+  auto roughness = [](const QImage& img) {
+    // Mean absolute horizontal difference of the green channel (noise proxy).
+    double sum = 0.0;
+    size_t n = 0;
+    for (int y = img.height() / 3; y < img.height() * 2 / 3; ++y) {
+      const QRgba64* row = reinterpret_cast<const QRgba64*>(img.constScanLine(y));
+      for (int x = 1; x < img.width(); ++x, ++n)
+        sum += std::abs(int(row[x].green()) - int(row[x - 1].green()));
+    }
+    return sum / double(n);
+  };
+  auto meanGreen = [](const QImage& img) {
+    double sum = 0.0;
+    for (int y = 0; y < img.height(); ++y) {
+      const QRgba64* row = reinterpret_cast<const QRgba64*>(img.constScanLine(y));
+      for (int x = 0; x < img.width(); ++x) sum += row[x].green();
+    }
+    return sum / double(img.width() * img.height());
+  };
+
+  QSignalSpy pixels(&engine, &RawEngine::sourcePixelsChanged);
+  AppStateManager::instance()->setDenoiseEngine(QStringLiteral("ai"));
+  engine.setDenoiseEnabled(true);
+  engine.setDenoiseAmount(100.0f);
+  QVERIFY(engine.aiDenoiseActive());
+  QTRY_VERIFY_WITH_TIMEOUT(!engine.aiDenoiseRunning() && pixels.count() > 0,
+                           180000);
+  QVERIFY2(engine.aiDenoiseActive(), qPrintable(engine.aiDenoiseStatus()));
+  const QImage denoised = engine.getProcessedImage();
+  QCOMPARE(denoised.size(), plain.size());
+  QVERIFY(denoised != plain);
+  const double rPlain = roughness(plain);
+  const double rAi = roughness(denoised);
+  QVERIFY2(rAi < rPlain * 0.9,
+           qPrintable(QStringLiteral("roughness %1 -> %2").arg(rPlain).arg(rAi)));
+  QVERIFY(std::abs(meanGreen(denoised) - meanGreen(plain)) <
+          0.02 * meanGreen(plain));
+
+  // The product is cached next to the photo.
+  const QStringList cached =
+      QDir(dir.filePath(".PhotonData/denoise")).entryList({"*.ai-*.pdn"}, QDir::Files);
+  QCOMPARE(cached.size(), 1);
+
+  // Colour pass: full Color has less chroma noise than none.
+  auto chromaRoughness = [](const QImage& img) {
+    double sum = 0.0;
+    size_t n = 0;
+    for (int y = img.height() / 3; y < img.height() * 2 / 3; ++y) {
+      const QRgba64* row = reinterpret_cast<const QRgba64*>(img.constScanLine(y));
+      for (int x = 1; x < img.width(); ++x, ++n) {
+        const int c1 = int(row[x].red()) - int(row[x].green());
+        const int c0 = int(row[x - 1].red()) - int(row[x - 1].green());
+        sum += std::abs(c1 - c0);
+      }
+    }
+    return sum / double(n);
+  };
+  pixels.clear();
+  engine.setDenoiseColor(0.0f);
+  QTRY_VERIFY_WITH_TIMEOUT(pixels.count() > 0, 10000);
+  const double chromaNone = chromaRoughness(engine.getProcessedImage());
+  pixels.clear();
+  engine.setDenoiseColor(100.0f);
+  QTRY_VERIFY_WITH_TIMEOUT(pixels.count() > 0, 10000);
+  const double chromaFull = chromaRoughness(engine.getProcessedImage());
+  QVERIFY2(chromaFull < chromaNone * 0.9,
+           qPrintable(QStringLiteral("chroma %1 -> %2").arg(chromaNone).arg(chromaFull)));
+  QCOMPARE(QDir(dir.filePath(".PhotonData/denoise"))
+               .entryList({"*.aic-*.pdn"}, QDir::Files)
+               .size(),
+           1);
+
+  // Amount and Color 0 restore the plain source exactly (no model run).
+  pixels.clear();
+  engine.setDenoiseColor(0.0f);
+  QTRY_VERIFY_WITH_TIMEOUT(pixels.count() > 0, 10000);
+  pixels.clear();
+  engine.setDenoiseAmount(0.0f);
+  QTRY_VERIFY_WITH_TIMEOUT(pixels.count() > 0, 10000);
+  QCOMPARE(engine.getProcessedImage(), plain);
+
+  // Half the amount is half-way, from the cached product.
+  pixels.clear();
+  engine.setDenoiseAmount(50.0f);
+  QTRY_VERIFY_WITH_TIMEOUT(pixels.count() > 0, 10000);
+  const double rHalf = roughness(engine.getProcessedImage());
+  QVERIFY(rHalf < rPlain && rHalf > rAi);
+}
+
+// Sidecars end with a {"__index": i} history marker: the current state is
+// states[i], not the last array element (export used to read the marker and
+// render the photo without any edit).
+void TestRawEngine::testEditStackCurrentState() {
+  using namespace photon::editstack;
+  QJsonObject a, b, c;
+  a["exposure"] = 0.0;
+  b["exposure"] = -1.0;
+  b["__step"] = "Exposure";
+  c["exposure"] = -2.0;
+  QJsonObject marker;
+  marker["__index"] = 1;
+  marker["rating"] = 4;
+
+  QJsonArray plain{a, b};
+  QCOMPARE(currentState(plain)["exposure"].toDouble(), -1.0);
+  QJsonArray withMarker{a, b, c, marker};
+  QCOMPARE(currentIndex(withMarker), 1);
+  QCOMPARE(currentState(withMarker)["exposure"].toDouble(), -1.0);
+  QVERIFY(!currentSettings(withMarker).contains("__step"));
+  QVERIFY(currentState(QJsonArray{marker}).isEmpty());
+  QVERIFY(currentState(QJsonArray{}).isEmpty());
+  QJsonObject badMarker;
+  badMarker["__index"] = 99;
+  QCOMPARE(currentState(QJsonArray{a, c, badMarker})["exposure"].toDouble(), -2.0);
+
+  // Replacing keeps the history and the marker (incl. its rating).
+  QJsonObject edited = currentState(withMarker);
+  edited["orientationSteps"] = 1;
+  replaceCurrentState(withMarker, edited);
+  QCOMPARE(withMarker.size(), 4);
+  QCOMPARE(withMarker[1].toObject()["orientationSteps"].toInt(), 1);
+  QCOMPARE(withMarker[1].toObject()["exposure"].toDouble(), -1.0);
+  QCOMPARE(withMarker[3].toObject()["__index"].toInt(), 1);
+  QCOMPARE(withMarker[3].toObject()["rating"].toInt(), 4);
+  QJsonArray empty;
+  replaceCurrentState(empty, edited);
+  QCOMPARE(empty.size(), 1);
+}
+
+void TestRawEngine::testExportUsesHistorySelectedState() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sourcePath = dir.filePath("history.jpg");
+  const int width = 16, height = 8;
+  std::vector<uint8_t> pixels(size_t(width) * height * 3, 128);
+  QVERIFY(BitmapTestUtils::writeJpegFile(sourcePath, width, height, pixels));
+
+  // History: neutral, then -2 EV (current, selected by the marker), then a
+  // redo step at +1 EV that must be ignored.
+  QJsonObject neutral, dark, redo, marker;
+  neutral["exposure"] = 0.0;
+  dark["exposure"] = -2.0;
+  redo["exposure"] = 1.0;
+  marker["__index"] = 1;
+  QVERIFY(QDir().mkpath(dir.filePath(".PhotonData/edits")));
+  {
+    QFile f(dir.filePath(".PhotonData/edits/history.jpg.json"));
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(QJsonDocument(QJsonArray{neutral, dark, redo, marker}).toJson());
+  }
+
+  photon::ExportManager exportManager;
+  QSignalSpy finishedSpy(&exportManager, &photon::ExportManager::exportFinished);
+  exportManager.startExport({sourcePath}, dir.filePath("out"), "PNG", 100);
+  QTRY_VERIFY_WITH_TIMEOUT(finishedSpy.count() > 0, 60000);
+  const QImage exported(dir.filePath("out/history.png"));
+  QVERIFY(!exported.isNull());
+  const int g = qGray(exported.pixel(width / 2, height / 2));
+  QVERIFY2(g < 70, qPrintable(QStringLiteral("grey %1: -2 EV not applied").arg(g)));
+}
+
+// The RAW temperature slider reaches 50000 K: gains stay finite and keep
+// warming monotonically past the old 10000 K limit (no clamp plateau).
+void TestRawEngine::testWhiteBalanceKelvinRange50k() {
+  namespace wb = photon::whitebalance;
+  QCOMPARE(wb::kMinKelvin, 2000.0f);
+  QCOMPARE(wb::kMaxKelvin, 50000.0f);
+  float prevR = 0.0f, prevB = 1e9f;
+  for (float k : {5500.0f, 10000.0f, 15000.0f, 25000.0f, 35000.0f, 50000.0f}) {
+    float g[3];
+    wb::relativeGains(k, wb::kNeutralKelvin, g);
+    QVERIFY(std::isfinite(g[0]) && std::isfinite(g[2]));
+    QVERIFY2(g[0] >= prevR && g[2] <= prevB, qPrintable(QString::number(k)));
+    if (k > 10000.0f) QVERIFY(g[0] > prevR && g[2] < prevB);
+    prevR = g[0];
+    prevB = g[2];
+  }
+  float over[3], top[3];
+  wb::relativeGains(90000.0f, wb::kNeutralKelvin, over);  // clamped
+  wb::relativeGains(50000.0f, wb::kNeutralKelvin, top);
+  QCOMPARE(over[0], top[0]);
+  QCOMPARE(over[2], top[2]);
 }
 
 QTEST_MAIN(TestRawEngine)

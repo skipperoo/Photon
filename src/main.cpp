@@ -33,6 +33,7 @@
 #include "managers/ThumbnailProvider.h"
 #include "engine/Panorama.h"
 #include "engine/HdrMerge.h"
+#include "engine/AiDenoiser.h"
 #include "components/ToneLutProvider.h"
 #include "Version.h"
 
@@ -303,6 +304,15 @@ int main(int argc, char* argv[]) {
       Qt::QueuedConnection);
 
   engine.load(url);
+
+  // Release the AI denoise GPU context once the QML engine (and its photo
+  // engines) are gone, before the Vulkan driver unloads.
+  // Stop background preview jobs first: they use Qt's global thread pool,
+  // which is destroyed with the application (a running job crashed there).
+  QObject::connect(&app, &QCoreApplication::aboutToQuit, [previewManager]() {
+    previewManager->cancelAll();
+    photon::ai::shutdown();
+  });
 
   return app.exec();
 }

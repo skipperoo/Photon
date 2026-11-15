@@ -1052,7 +1052,10 @@ void main()
 
     // 9. Creative: Film Grain
     if (ubuf.grainAmount > 0.0) {
-        vec2 grainCoord = imgCoord * ubuf.imageRect.zw; 
+        // Image-relative grain space (long edge = 2000 units), shared with the
+        // CPU export so grain looks the same at any zoom and resolution.
+        vec2 srcSize = max(ubuf.sourceSize, vec2(1.0));
+        vec2 grainCoord = imgCoord * srcSize * (2000.0 / max(srcSize.x, srcSize.y));
         float grain_frequency = (1.0 / max(ubuf.grainSize, 0.1));
         float noise_base = gradient_noise(grainCoord * grain_frequency);
         float noise_rough = gradient_noise(grainCoord * grain_frequency * 2.0 + vec2(5.2, 1.3));

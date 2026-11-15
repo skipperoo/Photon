@@ -19,6 +19,7 @@
 #include "../managers/LogManager.h"
 #include "Calibration.h"
 #include "Denoiser.h"
+#include "SceneWhite.h"
 #include "LensFun.h"
 #include "CameraLook.h"
 #include "DevelopProfile.h"
@@ -860,6 +861,286 @@ static std::vector<float> evalMonotonicSplineLut(const QVariantList& pts,
   return lut;
 }
 
+// === Final-pass effects, ported 1:1 from RawViewport.frag ===
+
+// Bilinear sample of a single-channel float buffer (clamp-to-edge), standing
+// in for the shader's linear-filtered texture() lookups.
+static float fx_sample_bilinear_cpp(const float* buf, int w, int h, float x,
+                                    float y) {
+  x = std::clamp(x, 0.0f, float(w - 1));
+  y = std::clamp(y, 0.0f, float(h - 1));
+  const int x0 = int(x);
+  const int y0 = int(y);
+  const int x1 = std::min(x0 + 1, w - 1);
+  const int y1 = std::min(y0 + 1, h - 1);
+  const float fx = x - float(x0);
+  const float fy = y - float(y0);
+  const float a = buf[size_t(y0) * w + x0];
+  const float b = buf[size_t(y0) * w + x1];
+  const float c = buf[size_t(y1) * w + x0];
+  const float d = buf[size_t(y1) * w + x1];
+  return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+}
+
+// compute_edge_mask_raw: Scharr gradient of linear luma -> smoothed mask.
+static float fx_edge_mask_raw_cpp(const float* luma, int w, int h, float x,
+                                  float y, float maskAmount) {
+  auto L = [&](float dx, float dy) {
+    return fx_sample_bilinear_cpp(luma, w, h, x + dx, y + dy);
+  };
+  const float tl = L(-1, -1), tc = L(0, -1), tr = L(1, -1);
+  const float ml = L(-1, 0), mr = L(1, 0);
+  const float bl = L(-1, 1), bc = L(0, 1), br = L(1, 1);
+  const float gx = -3.0f * tl + 3.0f * tr - 10.0f * ml + 10.0f * mr -
+                   3.0f * bl + 3.0f * br;
+  const float gy = -3.0f * tl - 10.0f * tc - 3.0f * tr + 3.0f * bl +
+                   10.0f * bc + 3.0f * br;
+  const float gradient = std::sqrt(gx * gx + gy * gy);
+  const float threshold = maskAmount / 100.0f * 0.3f;
+  const float gain = 4.0f + maskAmount / 100.0f * 12.0f;
+  const float mask = std::clamp((gradient - threshold) * gain, 0.0f, 1.0f);
+  return mask * mask * (3.0f - 2.0f * mask);
+}
+
+// compute_focus_gate: local luma standard deviation over a sparse 13-tap
+// pattern (~12 px radius).
+static float fx_focus_gate_cpp(const float* luma, int w, int h, float x,
+                               float y, float focusAmount) {
+  if (focusAmount <= 0.0f) return 1.0f;
+  const float r = 12.0f;
+  const float d = r * 0.7f;
+  const float hr = r * 0.5f;
+  const float offs[13][2] = {{0, 0},   {r, 0},   {-r, 0},  {0, r},  {0, -r},
+                             {d, d},   {-d, -d}, {d, -d},  {-d, d}, {hr, 0},
+                             {-hr, 0}, {0, hr},  {0, -hr}};
+  float sum = 0.0f;
+  float sumSq = 0.0f;
+  for (const auto& o : offs) {
+    const float L = fx_sample_bilinear_cpp(luma, w, h, x + o[0], y + o[1]);
+    sum += L;
+    sumSq += L * L;
+  }
+  const float mean = sum / 13.0f;
+  const float variance = std::max(sumSq / 13.0f - mean * mean, 0.0f);
+  const float stddev = std::sqrt(variance);
+  const float t = focusAmount / 100.0f;
+  const float strength = t * t;
+  const float threshold = 0.005f + strength * 0.04f;
+  const float gain = 6.0f + strength * 20.0f;
+  float gate = std::clamp((stddev - threshold) * gain, 0.0f, 1.0f);
+  gate = gate * gate * (3.0f - 2.0f * gate);
+  return 1.0f + (gate - 1.0f) * strength;
+}
+
+// apply_local_contrast (mode 0 = sharpening, 1 = structure).
+static Vec3fCpp fx_local_contrast_cpp(const Vec3fCpp& c, const Vec3fCpp& blur,
+                                      float amount, int mode) {
+  if (amount == 0.0f) return c;
+  float effective = amount * 2.0f;
+  if (mode == 0) effective = amount * 10.0f;
+
+  const float centerLuma = get_luma_cpp(c.r, c.g, c.b);
+  const float shadowProtection = smoothstep_local(0.0f, 0.05f, centerLuma);
+  const float highlightProtection =
+      1.0f - smoothstep_local(0.85f, 1.0f, centerLuma);
+  const float midtoneMask = shadowProtection * highlightProtection;
+  if (midtoneMask < 0.001f) return c;
+
+  const float blurredLuma = get_luma_cpp(blur.r, blur.g, blur.b);
+  const float safeCenter = std::max(centerLuma, 0.0001f);
+  const float safeBlurred = std::max(blurredLuma, 0.0001f);
+
+  Vec3fCpp out;
+  if (effective < 0.0f) {
+    const float k = safeBlurred / safeCenter;
+    float blurAmt = -effective;
+    if (mode == 0) blurAmt *= 0.5f;
+    out = Vec3fCpp{mix_local(c.r, c.r * k, blurAmt),
+                   mix_local(c.g, c.g * k, blurAmt),
+                   mix_local(c.b, c.b * k, blurAmt)};
+  } else {
+    const float logRatio = std::log2(safeCenter / safeBlurred);
+    float adj = effective;
+    if (mode == 0) {
+      const float dampener =
+          1.0f -
+          std::pow(std::clamp(std::abs(logRatio) / 3.0f, 0.0f, 1.0f), 0.5f);
+      adj = effective * dampener;
+    }
+    const float g = std::exp2(logRatio * adj);
+    out = Vec3fCpp{c.r * g, c.g * g, c.b * g};
+  }
+  return Vec3fCpp{mix_local(c.r, out.r, midtoneMask),
+                  mix_local(c.g, out.g, midtoneMask),
+                  mix_local(c.b, out.b, midtoneMask)};
+}
+
+// apply_dehaze
+static Vec3fCpp fx_dehaze_cpp(const Vec3fCpp& c, float amount) {
+  if (amount == 0.0f) return c;
+  const float effective = amount * 0.25f;
+  const float atm[3] = {0.95f, 0.97f, 1.0f};
+  float v[3] = {c.r, c.g, c.b};
+  if (effective > 0.0f) {
+    const float dark = std::min({c.r, c.g, c.b});
+    const float t = 1.0f - effective * (1.0f - dark);
+    float res[3];
+    for (int k = 0; k < 3; ++k) {
+      const float recovered = (v[k] - atm[k]) / std::max(t, 0.1f) + atm[k];
+      res[k] = mix_local(v[k], recovered, effective);
+      res[k] = 0.5f + (res[k] - 0.5f) * (1.0f + effective * 0.15f);
+    }
+    const float luma = get_luma_cpp(res[0], res[1], res[2]);
+    const float s = 1.0f + effective * 0.1f;
+    return Vec3fCpp{mix_local(luma, res[0], s), mix_local(luma, res[1], s),
+                    mix_local(luma, res[2], s)};
+  }
+  const float t = std::abs(effective) * 0.7f;
+  return Vec3fCpp{mix_local(c.r, atm[0], t), mix_local(c.g, atm[1], t),
+                  mix_local(c.b, atm[2], t)};
+}
+
+// apply_centre_effects (u, v = position in the cropped frame, 0..1)
+static Vec3fCpp fx_centre_cpp(Vec3fCpp c, float amount, float u, float v) {
+  if (amount == 0.0f) return c;
+  const float effective = amount * 0.5f;
+  const float ux = (u - 0.5f) * 2.0f;
+  const float uy = (v - 0.5f) * 2.0f;
+  const float d = std::sqrt(ux * ux + uy * uy) * 0.5f;
+  const float mask = 1.0f - smoothstep_local(0.1f, 0.7f, d);
+  const float boost = std::pow(2.0f, mask * (effective / 100.0f) * 0.5f);
+  c.r *= boost;
+  c.g *= boost;
+  c.b *= boost;
+  const float vib = mask * (effective / 100.0f) * 0.4f;
+  const float gray = get_luma_cpp(c.r, c.g, c.b);
+  return Vec3fCpp{mix_local(gray, c.r, 1.0f + vib),
+                  mix_local(gray, c.g, 1.0f + vib),
+                  mix_local(gray, c.b, 1.0f + vib)};
+}
+
+// hash / gradient_noise (film grain)
+static float fx_fract(float x) { return x - std::floor(x); }
+
+static float fx_hash_cpp(float px, float py) {
+  float p3x = fx_fract(px * 0.1031f);
+  float p3y = fx_fract(py * 0.1031f);
+  float p3z = fx_fract(px * 0.1031f);
+  const float dotv = p3x * (p3y + 33.33f) + p3y * (p3z + 33.33f) +
+                     p3z * (p3x + 33.33f);
+  p3x += dotv;
+  p3y += dotv;
+  p3z += dotv;
+  return fx_fract((p3x + p3y) * p3z);
+}
+
+static float fx_gradient_noise_cpp(float px, float py) {
+  const float ix = std::floor(px);
+  const float iy = std::floor(py);
+  const float fx = px - ix;
+  const float fy = py - iy;
+  const float ux = fx * fx * fx * (fx * (fx * 6.0f - 15.0f) + 10.0f);
+  const float uy = fy * fy * fy * (fy * (fy * 6.0f - 15.0f) + 10.0f);
+  const float ga = fx_hash_cpp(ix, iy);
+  const float gb = fx_hash_cpp(ix + 1.0f, iy);
+  const float gc = fx_hash_cpp(ix, iy + 1.0f);
+  const float gd = fx_hash_cpp(ix + 1.0f, iy + 1.0f);
+  return mix_local(mix_local(ga, gb, ux), mix_local(gc, gd, ux), uy) * 2.0f -
+         1.0f;
+}
+
+// Geometry (orientation / flip / straighten / crop), identical to
+// RawEngine::applyGeometryTransforms so export crops exactly like the baked
+// preview source.
+static QImage applyGeometry(const QImage& input, const QJsonObject& obj) {
+  QImage output = input;
+  // 1. Orientation steps (90° rotations)
+  int orientSteps =
+      obj.contains("orientationSteps") ? obj["orientationSteps"].toInt() : 0;
+  orientSteps = ((orientSteps % 4) + 4) % 4;
+  if (orientSteps > 0) {
+    QTransform rot;
+    rot.rotate(orientSteps * 90.0);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+  }
+
+  // 2. Flip
+  bool flipH =
+      obj.contains("flipHorizontal") ? obj["flipHorizontal"].toBool() : false;
+  bool flipV =
+      obj.contains("flipVertical") ? obj["flipVertical"].toBool() : false;
+  if (flipH && flipV) {
+    output = output.transformed(QTransform().scale(-1, -1),
+                                Qt::SmoothTransformation);
+  } else if (flipH) {
+    output =
+        output.transformed(QTransform().scale(-1, 1), Qt::SmoothTransformation);
+  } else if (flipV) {
+    output =
+        output.transformed(QTransform().scale(1, -1), Qt::SmoothTransformation);
+  }
+
+  // 3. Straighten (fine rotation)
+  double straighten =
+      obj.contains("straightenAngle") ? obj["straightenAngle"].toDouble() : 0.0;
+  if (std::abs(straighten) > 0.01) {
+    QTransform rot;
+    rot.rotate(straighten);
+    output = output.transformed(rot, Qt::SmoothTransformation);
+  }
+
+  // 4. Crop rect (normalized 0–1)
+  int preCropW = output.width();
+  int preCropH = output.height();
+  int cropLeft = 0;
+  int cropTop = 0;
+  int cropRight = preCropW;
+  int cropBottom = preCropH;
+  if (obj.contains("cropRect")) {
+    auto cropObj = obj["cropRect"].toObject();
+    double cx = cropObj.contains("x") ? cropObj["x"].toDouble() : 0.0;
+    double cy = cropObj.contains("y") ? cropObj["y"].toDouble() : 0.0;
+    double cw = cropObj.contains("w") ? cropObj["w"].toDouble() : 1.0;
+    double ch = cropObj.contains("h") ? cropObj["h"].toDouble() : 1.0;
+    // Only crop if not the full image
+    if (cx > 0.001 || cy > 0.001 || cw < 0.999 || ch < 0.999) {
+      double x0 = std::clamp(cx, 0.0, 1.0);
+      double y0 = std::clamp(cy, 0.0, 1.0);
+      double x1 = std::clamp(cx + cw, 0.0, 1.0);
+      double y1 = std::clamp(cy + ch, 0.0, 1.0);
+      if (x1 > x0 && y1 > y0) {
+        cropLeft = static_cast<int>(std::floor(x0 * preCropW));
+        cropTop = static_cast<int>(std::floor(y0 * preCropH));
+        cropRight = static_cast<int>(std::ceil(x1 * preCropW));
+        cropBottom = static_cast<int>(std::ceil(y1 * preCropH));
+
+        cropLeft = std::clamp(cropLeft, 0, std::max(0, preCropW - 1));
+        cropTop = std::clamp(cropTop, 0, std::max(0, preCropH - 1));
+        cropRight = std::clamp(cropRight, cropLeft + 1, preCropW);
+        cropBottom = std::clamp(cropBottom, cropTop + 1, preCropH);
+
+        int pw = cropRight - cropLeft;
+        int ph = cropBottom - cropTop;
+        if (pw > 0 && ph > 0) output = output.copy(cropLeft, cropTop, pw, ph);
+      }
+    }
+  }
+
+  LogManager::instance()->log(
+      QString("[ ImageDeveloper ] - cropDebug preCrop=%1x%2 cropPx=[%3,%4 -> "
+              "%5,%6] out=%7x%8")
+          .arg(preCropW)
+          .arg(preCropH)
+          .arg(cropLeft)
+          .arg(cropTop)
+          .arg(cropRight)
+          .arg(cropBottom)
+          .arg(output.width())
+          .arg(output.height()),
+      PHOTON_DEBUG);
+  return output;
+}
+
 QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                const QJsonObject& obj, QRhi* rhi,
                                QQuickWindow* window) {
@@ -896,8 +1177,32 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   float high = obj["highlights"].toDouble();
   float shad = obj["shadows"].toDouble();
   float whites = obj["whites"].toDouble();
-  float sceneWhite = obj["sceneWhite"].toDouble(1.0);
+  // Scene white drives the exposure knee and the Photon001 tone ranges. The
+  // preview measures it on the develop source at load; nothing stores it in
+  // the edit stack, so measure it here the same way (on the unmodified source)
+  // unless a caller injected it.
+  float sceneWhite = obj.contains("sceneWhite")
+                         ? float(obj["sceneWhite"].toDouble(1.0))
+                         : photon::computeSceneWhite(src, width, height, 3);
   float blacks = obj["blacks"].toDouble();
+
+  // GPU-final-pass effects (RawViewport.frag), mirrored on export.
+  const float fxSharpness = float(obj["sharpness"].toDouble(0.0));
+  const float fxSharpenMask = float(obj["sharpenMask"].toDouble(0.0));
+  const float fxMaskFeather = float(obj["maskFeather"].toDouble(0.0));
+  const float fxFocusDetect = float(obj["focusDetect"].toDouble(0.0));
+  const float fxStructure = float(obj["structure"].toDouble(0.0));
+  const float fxDehaze = float(obj["dehaze"].toDouble(0.0));
+  const float fxCentre = float(obj["centre"].toDouble(0.0));
+  const float fxGrainAmount = float(obj["grainAmount"].toDouble(0.0));
+  const float fxGrainSize = float(obj["grainSize"].toDouble(1.0));
+  const float fxGrainRoughness = float(obj["grainRoughness"].toDouble(0.5));
+  const float fxVignetteAmount = float(obj["vignetteAmount"].toDouble(0.0));
+  const float fxVignetteMidpoint =
+      float(obj["vignetteMidpoint"].toDouble(0.5));
+  const float fxVignetteRoundness =
+      float(obj["vignetteRoundness"].toDouble(0.0));
+  const float fxVignetteFeather = float(obj["vignetteFeather"].toDouble(0.5));
   float clarity = obj["clarity"].toDouble();
   float temp = obj["temperature"].toDouble() / 100.0f;
   float tint = obj["tint"].toDouble() / 100.0f;
@@ -1105,10 +1410,153 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                      90.0f / 360.0f, 60.0f / 360.0f, 60.0f / 360.0f,
                      55.0f / 360.0f, 50.0f / 360.0f};
   const auto& linearLut = srgb16_to_linear_lut_cpp();
+  // Scene stats come from the unmodified, uncropped source, like the preview
+  // (RawEngine::computeSceneStats at load).
   const Photon001SceneStatsCpp sceneStats =
       photon001_compute_scene_stats_cpp(src, width, height, linearLut.data(),
                                         sceneWhite);
   stage("scene stats");
+
+  // === Source preparation, in preview order ===
+  // The preview develops the baked source: denoise (pre-edit), lens
+  // correction (linear, before white balance) and geometry all happen before
+  // the tone/colour stages, so position-dependent effects (Centrè, Vignette,
+  // Grain) are relative to the cropped frame. Export follows the same order.
+  std::vector<ushort> preparedPixels;
+  {
+    QImage work(width, height, QImage::Format_RGBX64);
+    {
+      QRgba64* dst = reinterpret_cast<QRgba64*>(work.bits());
+      const size_t count = size_t(width) * size_t(height);
+      for (size_t i = 0; i < count; ++i) {
+        dst[i] = QRgba64::fromRgba64(src[i * 3], src[i * 3 + 1],
+                                     src[i * 3 + 2], 65535);
+      }
+    }
+
+    // Denoise (Classic BM3D) on the pre-edit source, like the preview.
+    const bool classicDenoise =
+        denoiseEnabled && denoiseAmount > 0.1f &&
+        obj.value("denoiseMode").toString() != QLatin1String("ai");
+    if (classicDenoise) {
+      LogManager::instance()->log(
+          QString("[ ImageDeveloper ] - Denoising (pre-edit): amount=%1 "
+                  "(rhi=%2)")
+              .arg(denoiseAmount, 0, 'f', 1)
+              .arg((quintptr)rhi),
+          PHOTON_INFO);
+      std::vector<GpuSearcher::SearchResult> gpuMatches;
+      if (rhi) {
+        const int w = work.width();
+        const int h = work.height();
+        std::vector<float> luma(size_t(w) * size_t(h));
+        const QRgba64* bits = reinterpret_cast<const QRgba64*>(work.constBits());
+        for (size_t i = 0; i < luma.size(); ++i) {
+          luma[i] = (0.2126f * bits[i].red() + 0.7152f * bits[i].green() +
+                     0.0722f * bits[i].blue()) /
+                    257.0f;
+        }
+        // Runs on the render thread via GpuSearcher's internal sync to avoid
+        // RHI frame conflicts.
+        GpuSearcher searcher(rhi);
+        searcher.setWindow(window);
+        gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
+        if (gpuMatches.empty()) {
+          LogManager::instance()->log(
+              "[ ImageDeveloper ] - GPU search produced no matches (possibly "
+              "due to frame conflict or shader error). Falling back to CPU "
+              "matching.",
+              PHOTON_WARNING);
+        }
+      }
+      photon::DenoiseParams dparams;
+      dparams.searchWindow = denoiseSearchWindow;
+      dparams.groupSize = denoiseGroupSize;
+      dparams.chromaRadius = denoiseChromaRadius;
+      // The Color slider drives both chroma stages (older edits: the
+      // individual Classic chroma settings).
+      if (obj.contains("denoiseColor")) {
+        dparams.chromaDenoise = float(obj["denoiseColor"].toDouble());
+        dparams.chromaBm3d = dparams.chromaDenoise;
+      } else {
+        dparams.chromaDenoise = denoiseChromaAmount;
+        dparams.chromaBm3d = denoiseChromaBm3d;
+      }
+      QImage denoised = Denoiser::denoise(work, denoiseAmount, nullptr,
+                                          denoiseSecondPass, 4, gpuMatches,
+                                          dparams);
+      if (!denoised.isNull()) {
+        work = denoised.convertToFormat(QImage::Format_RGBX64);
+      }
+    }
+    stage("denoise");
+
+    // Lens corrections (16-bit; vignetting gain in linear light).
+    if (lensEnabled) {
+      photon::lensfun::Database::instance().ensureLoaded();
+      const auto profile = photon::lensfun::Database::instance().match(
+          obj["exifMake"].toString(), obj["exifModel"].toString(),
+          obj["exifLens"].toString(), obj["exifFocal"].toDouble(0.0),
+          obj["exifAperture"].toDouble(0.0));
+      if (profile.valid) {
+        work = photon::lensfun::applyProfile(work, profile, lensDistortion,
+                                             lensCA, lensVignetting);
+        if (work.format() != QImage::Format_RGBX64) {
+          work = work.convertToFormat(QImage::Format_RGBX64);
+        }
+      }
+    }
+    stage("lens");
+
+    work = applyGeometry(work, obj);
+    if (work.format() != QImage::Format_RGBX64) {
+      work = work.convertToFormat(QImage::Format_RGBX64);
+    }
+    stage("geometry");
+
+    const int pw = work.width();
+    const int ph = work.height();
+    if (pw <= 0 || ph <= 0) return QImage();
+    preparedPixels.resize(size_t(pw) * size_t(ph) * 3);
+    for (int y = 0; y < ph; ++y) {
+      const QRgba64* row = reinterpret_cast<const QRgba64*>(work.constScanLine(y));
+      ushort* out = preparedPixels.data() + size_t(y) * size_t(pw) * 3;
+      for (int x = 0; x < pw; ++x) {
+        out[x * 3] = row[x].red();
+        out[x * 3 + 1] = row[x].green();
+        out[x * 3 + 2] = row[x].blue();
+      }
+    }
+    src = preparedPixels.data();
+    width = pw;
+    height = ph;
+  }
+
+  // Sharpen mask inputs (Scharr edge mask + focus gate) on the prepared
+  // source's linear luma, like compute_edge_mask / compute_focus_gate.
+  const bool needSharpenMask =
+      fxSharpness != 0.0f && (fxSharpenMask > 0.0f || fxFocusDetect > 0.0f);
+  std::vector<float> fxLuma;
+  std::vector<float> fxEdgeRaw;
+  if (needSharpenMask) {
+    fxLuma.resize(size_t(width) * size_t(height));
+    for (size_t i = 0; i < fxLuma.size(); ++i) {
+      fxLuma[i] = get_luma_cpp(linearLut[src[i * 3]], linearLut[src[i * 3 + 1]],
+                               linearLut[src[i * 3 + 2]]);
+    }
+    if (fxSharpenMask > 0.0f) {
+      fxEdgeRaw.resize(fxLuma.size());
+      std::vector<int> maskRows(height);
+      std::iota(maskRows.begin(), maskRows.end(), 0);
+      QtConcurrent::blockingMap(maskRows, [&](int y) {
+        for (int x = 0; x < width; ++x) {
+          fxEdgeRaw[size_t(y) * width + x] = fx_edge_mask_raw_cpp(
+              fxLuma.data(), width, height, float(x), float(y), fxSharpenMask);
+        }
+      });
+    }
+  }
+  stage("effect masks");
 
   std::vector<Vec3fCpp> fineBlurH;
   std::vector<Vec3fCpp> coarseBlurH;
@@ -1119,6 +1567,12 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   stage("blur precompute");
 
   QImage output(width, height, QImage::Format_RGB888);
+
+  // Film grain lives in image-relative coordinates (long edge = 2000 units),
+  // matching RawViewport.frag, so the grain looks the same at any resolution.
+  const float grainRef = 2000.0f / float(std::max(width, height));
+  const float grainScaleX = float(width) * grainRef;
+  const float grainScaleY = float(height) * grainRef;
 
   // Parallel processing using rows
   std::vector<int> rows(height);
@@ -1140,11 +1594,59 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       Vec3fCpp blurredCoarse = photon001_vertical_blur_cpp(
           coarseBlurH, width, height, u, v, true);
 
-      // 1. WB & Exposure
-      r *= r_wb * exp_mult;
-      g *= g_wb * exp_mult;
-      b *= b_wb * exp_mult;
+      // 0.5 Local contrast effects before white balance (shader order):
+      // Sharpness (gated by edge mask x focus gate), Structure, Dehaze, Centrè.
       Vec3fCpp color{r, g, b};
+      if (fxSharpness != 0.0f || fxStructure != 0.0f) {
+        const Vec3fCpp blurred{
+            mix_local(blurredFine.r, blurredCoarse.r, 0.35f),
+            mix_local(blurredFine.g, blurredCoarse.g, 0.35f),
+            mix_local(blurredFine.b, blurredCoarse.b, 0.35f)};
+        if (fxSharpness != 0.0f) {
+          float finalMask = 1.0f;
+          if (needSharpenMask) {
+            float edgeMask = 1.0f;
+            if (fxSharpenMask > 0.0f) {
+              const float center = fxEdgeRaw[size_t(i)];
+              if (fxMaskFeather <= 0.0f) {
+                edgeMask = center;
+              } else {
+                const float rr = 1.0f + fxMaskFeather / 100.0f * 5.0f;
+                const float fx = float(x);
+                const float fy = float(y);
+                const float n = fx_sample_bilinear_cpp(fxEdgeRaw.data(), width,
+                                                       height, fx, fy - rr);
+                const float s = fx_sample_bilinear_cpp(fxEdgeRaw.data(), width,
+                                                       height, fx, fy + rr);
+                const float w = fx_sample_bilinear_cpp(fxEdgeRaw.data(), width,
+                                                       height, fx - rr, fy);
+                const float e = fx_sample_bilinear_cpp(fxEdgeRaw.data(), width,
+                                                       height, fx + rr, fy);
+                edgeMask = center * 0.4f + (n + s + w + e) * 0.15f;
+              }
+            }
+            const float focusGate =
+                fxFocusDetect > 0.0f
+                    ? fx_focus_gate_cpp(fxLuma.data(), width, height, float(x),
+                                        float(y), fxFocusDetect)
+                    : 1.0f;
+            finalMask = edgeMask * focusGate;
+          }
+          const Vec3fCpp sharpened = fx_local_contrast_cpp(
+              color, blurred, fxSharpness / 100.0f, 0);
+          color = Vec3fCpp{mix_local(color.r, sharpened.r, finalMask),
+                           mix_local(color.g, sharpened.g, finalMask),
+                           mix_local(color.b, sharpened.b, finalMask)};
+        }
+        color = fx_local_contrast_cpp(color, blurred, fxStructure / 100.0f, 1);
+      }
+      color = fx_dehaze_cpp(color, fxDehaze / 100.0f);
+      color = fx_centre_cpp(color, fxCentre, u, v);
+
+      // 1. WB & Exposure
+      color.r *= r_wb * exp_mult;
+      color.g *= g_wb * exp_mult;
+      color.b *= b_wb * exp_mult;
 
       if (exp > 0.0f) {
         float kneeStart =
@@ -1390,6 +1892,49 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         b = mix(cb, b, blendClip);
       }
 
+      // Creative: Film grain (display-encoded, image-relative coordinates).
+      if (fxGrainAmount > 0.0f) {
+        const float gx = u * grainScaleX;
+        const float gy = v * grainScaleY;
+        const float freq = 1.0f / std::max(fxGrainSize, 0.1f);
+        const float noiseBase = fx_gradient_noise_cpp(gx * freq, gy * freq);
+        const float noiseRough = fx_gradient_noise_cpp(
+            gx * freq * 2.0f + 5.2f, gy * freq * 2.0f + 1.3f);
+        const float noise = mix_local(noiseBase, noiseRough, fxGrainRoughness);
+        const float lumaG = get_luma_cpp(r, g, b);
+        const float lumaMask = smoothstep_local(0.05f, 0.25f, lumaG) *
+                               (1.0f - smoothstep_local(0.5f, 0.9f, lumaG));
+        const float add = noise * (fxGrainAmount / 100.0f) * 0.15f * lumaMask;
+        r += add;
+        g += add;
+        b += add;
+      }
+
+      // Creative: Vignette (display-encoded, relative to the cropped frame).
+      if (fxVignetteAmount != 0.0f) {
+        const float ucx = (u - 0.5f) * 2.0f;
+        const float ucy = (v - 0.5f) * 2.0f;
+        const float vRound = 1.0f - (fxVignetteRoundness / 100.0f);
+        const float rx = sign_local(ucx) * std::pow(std::abs(ucx), vRound);
+        const float ry = sign_local(ucy) * std::pow(std::abs(ucy), vRound);
+        const float dist = std::sqrt(rx * rx + ry * ry) * 0.5f;
+        const float vMid = fxVignetteMidpoint / 100.0f;
+        const float vFeather = std::max(fxVignetteFeather / 100.0f, 0.01f);
+        const float vMask =
+            smoothstep_local(vMid - vFeather, vMid + vFeather, dist);
+        if (fxVignetteAmount < 0.0f) {
+          const float k = 1.0f + (fxVignetteAmount / 100.0f) * vMask;
+          r *= k;
+          g *= k;
+          b *= k;
+        } else {
+          const float t = (fxVignetteAmount / 100.0f) * vMask;
+          r = mix_local(r, 1.0f, t);
+          g = mix_local(g, 1.0f, t);
+          b = mix_local(b, 1.0f, t);
+        }
+      }
+
       // 11. Dithering
       float d = dither_noise(x, y) / 255.0f;
       r += d;
@@ -1402,161 +1947,6 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
     }
   });
   stage("pixel loop");
-
-  // 11. Denoising
-  if (denoiseEnabled && denoiseAmount > 0.1f) {
-    LogManager::instance()->log(
-        QString("[ ImageDeveloper ] - Denoising: amount=%1 (rhi=%2)")
-            .arg(denoiseAmount, 0, 'f', 1)
-            .arg((quintptr)rhi),
-        PHOTON_INFO);
-    std::vector<GpuSearcher::SearchResult> gpuMatches;
-    if (rhi) {
-      int w = output.width();
-      int h = output.height();
-      std::vector<float> luma(w * h);
-      for (int y = 0; y < h; ++y) {
-        const uchar* scanline = output.scanLine(y);
-        for (int x = 0; x < w; ++x) {
-          luma[y * w + x] = 0.2126f * scanline[x * 3] +
-                            0.7152f * scanline[x * 3 + 1] +
-                            0.0722f * scanline[x * 3 + 2];
-        }
-      }
-
-      // Safety check: run on Render Thread via GpuSearcher's internal sync
-      // to avoid RHI frame conflicts
-      GpuSearcher searcher(rhi);
-      searcher.setWindow(window);
-      gpuMatches = searcher.runSearch(luma.data(), w, h, 19);
-
-      if (gpuMatches.empty()) {
-        LogManager::instance()->log(
-            "[ ImageDeveloper ] - GPU search produced no matches (possibly due "
-            "to frame conflict or shader error). Falling back to CPU matching.",
-            PHOTON_WARNING);
-      } else {
-        LogManager::instance()->log(
-            QString("[ ImageDeveloper ] - GPU search successful: %1 matches")
-                .arg(gpuMatches.size()),
-            PHOTON_DEBUG);
-      }
-    }
-    photon::DenoiseParams dparams;
-    dparams.searchWindow = denoiseSearchWindow;
-    dparams.groupSize = denoiseGroupSize;
-    dparams.chromaRadius = denoiseChromaRadius;
-    dparams.chromaDenoise = denoiseChromaAmount;
-    dparams.chromaBm3d = denoiseChromaBm3d;
-
-    output = Denoiser::denoise(output, denoiseAmount, nullptr,
-                               denoiseSecondPass, 4, gpuMatches, dparams);
-
-    // Convert back to RGB888 if Denoiser changed format to RGBX64
-    if (output.format() != QImage::Format_RGB888) {
-      output = output.convertToFormat(QImage::Format_RGB888);
-    }
-  }
-  stage("denoise");
-
-  // === Lens corrections (before geometry, display-referred pixels) ===
-  if (lensEnabled) {
-    photon::lensfun::Database::instance().ensureLoaded();
-    const auto profile = photon::lensfun::Database::instance().match(
-        obj["exifMake"].toString(), obj["exifModel"].toString(),
-        obj["exifLens"].toString(), obj["exifFocal"].toDouble(0.0),
-        obj["exifAperture"].toDouble(0.0));
-    if (profile.valid) {
-      output = photon::lensfun::applyProfile(output, profile, lensDistortion,
-                                             lensCA, lensVignetting);
-    }
-  }
-
-  // === Crop & Geometry transforms ===
-  // 1. Orientation steps (90° rotations)
-  int orientSteps =
-      obj.contains("orientationSteps") ? obj["orientationSteps"].toInt() : 0;
-  orientSteps = ((orientSteps % 4) + 4) % 4;
-  if (orientSteps > 0) {
-    QTransform rot;
-    rot.rotate(orientSteps * 90.0);
-    output = output.transformed(rot, Qt::SmoothTransformation);
-  }
-
-  // 2. Flip
-  bool flipH =
-      obj.contains("flipHorizontal") ? obj["flipHorizontal"].toBool() : false;
-  bool flipV =
-      obj.contains("flipVertical") ? obj["flipVertical"].toBool() : false;
-  if (flipH && flipV) {
-    output = output.transformed(QTransform().scale(-1, -1),
-                                Qt::SmoothTransformation);
-  } else if (flipH) {
-    output =
-        output.transformed(QTransform().scale(-1, 1), Qt::SmoothTransformation);
-  } else if (flipV) {
-    output =
-        output.transformed(QTransform().scale(1, -1), Qt::SmoothTransformation);
-  }
-
-  // 3. Straighten (fine rotation)
-  double straighten =
-      obj.contains("straightenAngle") ? obj["straightenAngle"].toDouble() : 0.0;
-  if (std::abs(straighten) > 0.01) {
-    QTransform rot;
-    rot.rotate(straighten);
-    output = output.transformed(rot, Qt::SmoothTransformation);
-  }
-
-  // 4. Crop rect (normalized 0–1)
-  int preCropW = output.width();
-  int preCropH = output.height();
-  int cropLeft = 0;
-  int cropTop = 0;
-  int cropRight = preCropW;
-  int cropBottom = preCropH;
-  if (obj.contains("cropRect")) {
-    auto cropObj = obj["cropRect"].toObject();
-    double cx = cropObj.contains("x") ? cropObj["x"].toDouble() : 0.0;
-    double cy = cropObj.contains("y") ? cropObj["y"].toDouble() : 0.0;
-    double cw = cropObj.contains("w") ? cropObj["w"].toDouble() : 1.0;
-    double ch = cropObj.contains("h") ? cropObj["h"].toDouble() : 1.0;
-    // Only crop if not the full image
-    if (cx > 0.001 || cy > 0.001 || cw < 0.999 || ch < 0.999) {
-      double x0 = std::clamp(cx, 0.0, 1.0);
-      double y0 = std::clamp(cy, 0.0, 1.0);
-      double x1 = std::clamp(cx + cw, 0.0, 1.0);
-      double y1 = std::clamp(cy + ch, 0.0, 1.0);
-      if (x1 > x0 && y1 > y0) {
-        cropLeft = static_cast<int>(std::floor(x0 * preCropW));
-        cropTop = static_cast<int>(std::floor(y0 * preCropH));
-        cropRight = static_cast<int>(std::ceil(x1 * preCropW));
-        cropBottom = static_cast<int>(std::ceil(y1 * preCropH));
-
-        cropLeft = std::clamp(cropLeft, 0, std::max(0, preCropW - 1));
-        cropTop = std::clamp(cropTop, 0, std::max(0, preCropH - 1));
-        cropRight = std::clamp(cropRight, cropLeft + 1, preCropW);
-        cropBottom = std::clamp(cropBottom, cropTop + 1, preCropH);
-
-        int pw = cropRight - cropLeft;
-        int ph = cropBottom - cropTop;
-        if (pw > 0 && ph > 0) output = output.copy(cropLeft, cropTop, pw, ph);
-      }
-    }
-  }
-
-  LogManager::instance()->log(
-      QString("[ ImageDeveloper ] - cropDebug preCrop=%1x%2 cropPx=[%3,%4 -> "
-              "%5,%6] out=%7x%8")
-          .arg(preCropW)
-          .arg(preCropH)
-          .arg(cropLeft)
-          .arg(cropTop)
-          .arg(cropRight)
-          .arg(cropBottom)
-          .arg(output.width())
-          .arg(output.height()),
-      PHOTON_DEBUG);
 
   LogManager::instance()->log(QString("[ ImageDeveloper ] - export END: %1x%2")
                                   .arg(output.width())

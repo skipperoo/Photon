@@ -1,5 +1,8 @@
 #include "RawEngine.h"
 
+#include <QPointer>
+#include <cstring>
+
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
@@ -28,6 +31,7 @@
 #include "CrashReporter.h"
 #include "Calibration.h"
 #include "Denoiser.h"
+#include "SceneWhite.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
 #include "LensFun.h"
@@ -670,6 +674,76 @@ RawEngine::RawEngine(QObject* parent)
     }
   });
 
+  // Denoise engine is a global Settings choice.
+  connect(::AppStateManager::instance(), &::AppStateManager::denoiseEngineChanged,
+          this, &RawEngine::onDenoiseEngineChanged);
+
+  // AI denoise: debounced re-blend of the develop source, and job results.
+  m_aiBlendTimer.setSingleShot(true);
+  m_aiBlendTimer.setInterval(120);
+  connect(&m_aiBlendTimer, &QTimer::timeout, this, [this]() {
+    if (!m_isLoaded || m_isBitmap) return;
+    if (m_geometryBaked && !m_inCropMode) {
+      // The baked buffer derives from the develop source: rebuild it (the
+      // blend is applied when the source is re-created).
+      reloadWithGeometry();
+      return;
+    }
+    {
+      QMutexLocker locker(&m_processorMutex);
+      applyAiBlendLocked();
+    }
+    emit sourcePixelsChanged();
+    requestHistogramUpdate();
+  });
+  connect(&m_aiWatcher, &QFutureWatcher<AiJobResult>::finished, this, [this]() {
+    const AiJobResult r = m_aiWatcher.result();
+    if (r.source == m_aiRunningSource) {
+      m_aiRunning = false;
+      m_aiRunningSource.clear();
+    }
+    if (r.source != m_source) return;  // photo changed meanwhile
+    using photon::ai::Status;
+    if (r.status != Status::Aborted) {
+      // Anything but success means Classic for this photo.
+      m_aiSupport = r.status == Status::Ok ? 1 : 0;
+      m_aiSupportSource = r.source;
+    }
+    switch (r.status) {
+      case Status::Ok:
+        {
+          QMutexLocker locker(&m_processorMutex);
+          m_aiProduct = r.product;
+          m_aiProductSource = r.source;
+        }
+        m_aiTargetAmount = wantsAiDenoise() ? m_denoiseAmount / 100.0f : 0.0f;
+        m_aiTargetColor = wantsAiDenoise() ? m_denoiseColor / 100.0f : 0.0f;
+        setAiStatus(QStringLiteral("AI denoise (%1)")
+                        .arg(photon::ai::deviceDescription()));
+        if (m_hasDenoisedResult) clearDenoisedResult();
+        scheduleAiBlend();
+        break;
+      case Status::Aborted:
+        setAiStatus(QString());
+        break;
+      case Status::Unsupported:
+      case Status::NoModel:
+      case Status::Failed:
+        setAiStatus(r.message.isEmpty()
+                        ? QStringLiteral("AI denoise unavailable - using Classic")
+                        : r.message + QStringLiteral(" - using Classic"));
+        LogManager::instance()->log(
+            QString("[ RawEngine.cpp ] - AI denoise not applied: %1")
+                .arg(r.message),
+            PHOTON_WARNING);
+        // Fall back to Classic for this photo.
+        if (m_denoiseEnabled && m_denoiseAmount > 0.0f) startAsyncDenoise();
+        break;
+    }
+    emit aiDenoiseStateChanged();
+    emit denoisingFinished();
+  });
+
   connect(&m_loadWatcher, &QFutureWatcher<LoadResult>::finished, this,
           [this]() {
             auto res = m_loadWatcher.result();
@@ -692,6 +766,7 @@ RawEngine::RawEngine(QObject* parent)
               loadCameraLookForSource();
               updateLensShader();
               requestHistogramUpdate();
+              updateAiDenoise();
               if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
                 startAsyncDenoise();
               }
@@ -717,9 +792,11 @@ RawEngine::RawEngine(QObject* parent)
               emit geometryBakedChanged();
               updateLensShader();
               requestHistogramUpdate();
+              updateAiDenoise();
               if (m_denoiseEnabled && m_denoiseAmount > 0.0f) {
                 startAsyncDenoise();
               }
+              emit sourcePixelsChanged();
               emit imageLoaded();
             }
           });
@@ -771,9 +848,14 @@ RawEngine::~RawEngine() {
   m_loadWatcher.disconnect();
   m_denoiseWatcher.disconnect();
 
+  m_aiWatcher.disconnect();
+  m_aiBlendTimer.stop();
+
   m_abortDenoise = true;
+  m_abortAi = true;
   m_loadWatcher.waitForFinished();
   m_denoiseWatcher.waitForFinished();
+  m_aiWatcher.waitForFinished();
   m_histogramFuture.waitForFinished();
 
   releaseGpuResources();
@@ -849,6 +931,20 @@ void RawEngine::setSource(const QString& source) {
 
   // 2. Signal abort for any background processing
   m_abortDenoise = true;
+  m_abortAi = true;
+  m_aiBlendTimer.stop();
+  {
+    QMutexLocker locker(&m_processorMutex);
+    m_aiProduct.reset();
+    m_aiProductSource.clear();
+  }
+  m_aiTargetAmount = 0.0f;
+  m_aiTargetColor = 0.0f;
+  m_aiSupport = -1;
+  m_aiSupportSource.clear();
+  m_aiStatus.clear();
+  m_aiProgress = 0.0f;
+  emit aiDenoiseStateChanged();
   m_currentLoadId++;
 
   m_source = source;
@@ -1015,7 +1111,8 @@ void RawEngine::setTemperature(float val) {
 }
 
 void RawEngine::setTemperatureKelvin(float kelvin) {
-  kelvin = std::clamp(kelvin, 2000.0f, 10000.0f);
+  kelvin = std::clamp(kelvin, photon::whitebalance::kMinKelvin,
+                         photon::whitebalance::kMaxKelvin);
   if (qFuzzyCompare(m_temperatureKelvin, kelvin)) return;
   m_temperatureKelvin = kelvin;
   recomputeWhiteBalanceGains();
@@ -1047,10 +1144,12 @@ void RawEngine::resolveAsShotWhiteBalance() {
     // Legacy sidecars stored a relative temperature: map it around the anchor
     // (each ±100 ≈ ±3000 K). New edits store Kelvin directly.
     m_temperatureKelvin = std::clamp(
-        m_asShotKelvin + m_temperature * 30.0f, 2000.0f, 10000.0f);
+        m_asShotKelvin + m_temperature * 30.0f, photon::whitebalance::kMinKelvin,
+                         photon::whitebalance::kMaxKelvin);
     m_temperatureKelvinLoaded = true;
   } else {
-    m_temperatureKelvin = std::clamp(m_temperatureKelvin, 2000.0f, 10000.0f);
+    m_temperatureKelvin = std::clamp(m_temperatureKelvin, photon::whitebalance::kMinKelvin,
+                         photon::whitebalance::kMaxKelvin);
   }
   if (!m_isBitmap && !qFuzzyIsNull(m_temperature)) {
     // RAW rendering uses the Kelvin path; retire the legacy relative value.
@@ -1264,6 +1363,8 @@ void RawEngine::setDenoiseAmount(float val) {
   m_hasDenoisedResult = false;  // Invalidate previous BM3D result
   emit denoiseAmountChanged();
   emit isDefaultChanged();
+  // AI: Amount only changes the blend, the model does not run again.
+  updateAiDenoise();
 }
 
 void RawEngine::setDenoiseSearchWindow(int val) {
@@ -1404,10 +1505,206 @@ void RawEngine::setDenoiseEnabled(bool enabled) {
   } else if (m_isLoaded && m_denoiseAmount > 0.0f) {
     startAsyncDenoise();
   }
+  updateAiDenoise();
+}
+
+QString RawEngine::denoiseMode() const {
+  return ::AppStateManager::instance()->denoiseEngine();
+}
+
+void RawEngine::onDenoiseEngineChanged() {
+  emit denoiseModeChanged();
+  if (m_hasDenoisedResult || m_isDenoising) clearDenoisedResult();
+  updateAiDenoise();
+  if (m_isLoaded && m_denoiseEnabled && m_denoiseAmount > 0.0f) {
+    startAsyncDenoise();  // no-op while AI denoise is active
+  }
+  emit denoisingFinished();
+}
+
+void RawEngine::setDenoiseColor(float val) {
+  val = std::clamp(val, 0.0f, 100.0f);
+  if (qFuzzyCompare(m_denoiseColor, val)) return;
+  m_denoiseColor = val;
+  m_hasDenoisedResult = false;  // Classic: chroma strengths changed
+  emit denoiseColorChanged();
+  emit isDefaultChanged();
+  updateAiDenoise();  // AI: re-blend only
+}
+
+bool RawEngine::aiDenoiseAvailable() const {
+  // Cheap check (no model load on the GUI thread).
+  return photon::ai::isCompiledIn() && photon::ai::modelFilesPresent();
+}
+
+bool RawEngine::wantsAiDenoise() const {
+  return m_denoiseEnabled && (m_denoiseAmount > 0.0f || m_denoiseColor > 0.0f) &&
+         denoiseMode() == QLatin1String("ai");
+}
+
+bool RawEngine::aiDenoiseActive() const {
+  if (!wantsAiDenoise() || m_isBitmap || !aiDenoiseAvailable()) return false;
+  // Unknown support counts as active (job pending), so Classic does not start
+  // only to be replaced; a failed or unsupported photo falls back to Classic.
+  return !(m_aiSupportSource == m_source && m_aiSupport == 0);
+}
+
+void RawEngine::setAiStatus(const QString& status) {
+  if (m_aiStatus == status) return;
+  m_aiStatus = status;
+  emit aiDenoiseStateChanged();
+}
+
+void RawEngine::updateAiDenoise() {
+  if (!m_isLoaded || m_source.isEmpty()) return;
+
+  const bool productReady = m_aiProduct && m_aiProductSource == m_source;
+  const bool on = wantsAiDenoise() && !m_isBitmap && productReady;
+  const float target = on ? m_denoiseAmount / 100.0f : 0.0f;
+  const float targetColor = on ? m_denoiseColor / 100.0f : 0.0f;
+  m_aiTargetAmount = target;
+  m_aiTargetColor = targetColor;
+  const bool blendStale =
+      std::abs(target - m_aiAppliedAmount.load()) > 1e-4f ||
+      std::abs(targetColor - m_aiAppliedColor.load()) > 1e-4f;
+
+  if (!wantsAiDenoise() || m_isBitmap) {
+    // Revert to the plain source if a blend is in place.
+    if (blendStale) scheduleAiBlend();
+    if (m_isBitmap && denoiseMode() == QLatin1String("ai") && m_denoiseEnabled)
+      setAiStatus(QStringLiteral("AI denoise needs a Bayer RAW - using Classic"));
+    else if (!m_aiRunning)
+      setAiStatus(QString());
+    emit aiDenoiseStateChanged();
+    return;
+  }
+
+  if (productReady) {
+    if (blendStale) scheduleAiBlend();
+    return;
+  }
+  if (m_aiSupportSource == m_source && m_aiSupport == 0) return;  // Classic
+  if (m_aiRunning && m_aiRunningSource == m_source) return;
+  if (m_aiWatcher.isRunning()) {
+    // A job for another photo is still unwinding; retry when it ends.
+    QTimer::singleShot(200, this, [this]() { updateAiDenoise(); });
+    return;
+  }
+
+  const QString path = m_source;
+  m_abortAi = false;
+  m_aiRunning = true;
+  m_aiRunningSource = path;
+  m_aiProgress = 0.0f;
+  setAiStatus(QStringLiteral("Preparing AI denoise..."));
+  emit aiDenoiseStateChanged();
+
+  std::atomic<bool>* abortFlag = &m_abortAi;
+  QPointer<RawEngine> self(this);
+  m_aiWatcher.setFuture(QtConcurrent::run([path, abortFlag, self]() {
+    AiJobResult r;
+    r.source = path;
+    if (!photon::ai::isModelAvailable()) {
+      r.status = photon::ai::Status::NoModel;
+      r.message = QStringLiteral("AI model not found");
+      return r;
+    }
+    if (!photon::ai::isSupportedRaw(path)) {
+      r.status = photon::ai::Status::Unsupported;
+      r.support = 0;
+      r.message = QStringLiteral("AI denoise needs a Bayer-sensor RAW");
+      return r;
+    }
+    r.support = 1;
+    auto product = std::make_shared<photon::ai::Product>();
+    int lastPercent = -1;
+    r.status = photon::ai::obtainProduct(
+        path, *product, true, abortFlag,
+        [self, path, &lastPercent](float f) {
+          const int pct = int(f * 100.0f);
+          if (pct == lastPercent || !self) return;
+          lastPercent = pct;
+          QMetaObject::invokeMethod(
+              self.data(),
+              [self, path, f]() {
+                if (!self || self->m_source != path) return;
+                self->m_aiProgress = f;
+                self->setAiStatus(QStringLiteral("AI denoise %1%")
+                                      .arg(int(f * 100.0f)));
+                emit self->aiDenoiseStateChanged();
+              },
+              Qt::QueuedConnection);
+        },
+        &r.message);
+    if (r.status == photon::ai::Status::Ok) r.product = product;
+    return r;
+  }));
+}
+
+void RawEngine::scheduleAiBlend() { m_aiBlendTimer.start(); }
+
+void RawEngine::applyAiBlendLocked() {
+  if (!m_processedImage || m_isBitmap) return;
+  if (m_processedImage->colors != 3 || m_processedImage->bits != 16) return;
+  const int w = m_processedImage->width;
+  const int h = m_processedImage->height;
+  const size_t pixels = size_t(w) * size_t(h);
+  ushort* data = reinterpret_cast<ushort*>(m_processedImage->data);
+
+  // Called with m_processorMutex held; m_aiProduct is only swapped under it.
+  const bool haveProduct = m_aiProduct && m_aiProduct->isValid();
+  const float amount = haveProduct ? m_aiTargetAmount.load() : 0.0f;
+  const float color =
+      (haveProduct && m_aiProduct->hasColor()) ? m_aiTargetColor.load() : 0.0f;
+  const bool blended =
+      m_aiAppliedAmount.load() > 0.0f || m_aiAppliedColor.load() > 0.0f;
+  if (amount <= 0.0f && color <= 0.0f && !blended) return;  // already plain
+
+  // The histogram worker reads the source without the mutex: let it finish
+  // before the pixels change, and drop its blur cache.
+  if (m_histogramUpdatePending) {
+    m_histogramFuture.waitForFinished();
+    m_histogramUpdatePending = false;
+  }
+  m_histFineBlurCache.reset();
+  m_histCoarseBlurCache.reset();
+  m_histBlurSource = nullptr;
+  m_histBlurStep = 0;
+
+  if (m_aiPlain.size() != pixels * 3) {
+    if (blended) return;  // the plain pixels are lost
+    m_aiPlain.assign(data, data + pixels * 3);
+  }
+  if (amount > 0.0f || color > 0.0f) {
+    if (m_aiScaledW != w || m_aiScaledH != h) {
+      m_aiScaled.resize(pixels * 3);
+      photon::ai::resampleRgb16(m_aiProduct->rgb.data(), m_aiProduct->width,
+                                m_aiProduct->height, m_aiScaled.data(), w, h);
+      m_aiScaledColor.clear();
+      if (m_aiProduct->hasColor()) {
+        m_aiScaledColor.resize(pixels * 3);
+        photon::ai::resampleRgb16(m_aiProduct->rgbColor.data(),
+                                  m_aiProduct->width, m_aiProduct->height,
+                                  m_aiScaledColor.data(), w, h);
+      }
+      m_aiScaledW = w;
+      m_aiScaledH = h;
+    }
+    photon::ai::blendDenoised(
+        m_aiPlain.data(), m_aiScaled.data(),
+        m_aiScaledColor.empty() ? nullptr : m_aiScaledColor.data(), data,
+        pixels, amount, color);
+  } else {
+    std::memcpy(data, m_aiPlain.data(), pixels * 3 * sizeof(ushort));
+  }
+  m_aiAppliedAmount = amount;
+  m_aiAppliedColor = color;
 }
 
 void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   if (!m_isLoaded || !m_denoiseEnabled || m_denoiseAmount <= 0.0f) return;
+  // AI denoise replaces the live BM3D for this photo.
+  if (aiDenoiseActive()) return;
 
   // Check if we are just requesting the same ROI again (e.g. slight mouse
   // jitter)
@@ -1619,8 +1916,9 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   dparams.searchWindow = m_denoiseSearchWindow;
   dparams.groupSize = m_denoiseGroupSize;
   dparams.chromaRadius = m_denoiseChromaRadius;
-  dparams.chromaDenoise = m_denoiseChromaAmount;
-  dparams.chromaBm3d = m_denoiseChromaBm3d;
+  // The Color slider drives both Classic chroma stages.
+  dparams.chromaDenoise = m_denoiseColor;
+  dparams.chromaBm3d = m_denoiseColor;
 
   QFuture<QImage> future = QtConcurrent::run(
       [img, amount, abortPtr, useSecondPass, stride, gpuMatches, dparams]() {
@@ -2801,6 +3099,16 @@ void RawEngine::clearProcessedImage() {
     LibRaw::dcraw_clear_mem(m_processedImage);
     m_processedImage = nullptr;
   }
+  m_aiPlain.clear();
+  m_aiPlain.shrink_to_fit();
+  m_aiScaled.clear();
+  m_aiScaled.shrink_to_fit();
+  m_aiScaledColor.clear();
+  m_aiScaledColor.shrink_to_fit();
+  m_aiAppliedColor = 0.0f;
+  m_aiScaledW = 0;
+  m_aiScaledH = 0;
+  m_aiAppliedAmount = 0.0f;
   m_customPixels.clear();
   m_customWidth = 0;
   m_customHeight = 0;
@@ -2815,47 +3123,7 @@ static float srgb_to_linear(float c) {
 
 float RawEngine::computeSceneWhite(const ushort* rgb, int width, int height,
                                    int channels, float percentile) {
-  constexpr int BINS = 2048;
-  constexpr float BIN_SCALE = BINS - 1;
-
-  if (!rgb || width <= 0 || height <= 0 || channels <= 0) return 1.0f;
-
-  const bool monochrome = channels < 3;
-  const int stride = channels;
-
-  uint32_t hist[BINS] = {};
-
-  size_t pixelCount = size_t(width) * size_t(height);
-  size_t step = 4;  // subsample every 4th pixel
-
-  for (size_t i = 0; i < pixelCount; i += step) {
-    float r = rgb[i * stride] / 65535.0f;
-    float g = monochrome ? r : rgb[i * stride + 1] / 65535.0f;
-    float b = monochrome ? r : rgb[i * stride + 2] / 65535.0f;
-
-    // sRGB -> linear, matches your shader's srgb_to_linear()
-    auto decode = [](float x) -> float {
-      return (x <= 0.04045f) ? x / 12.92f
-                             : std::pow((x + 0.055f) / 1.055f, 2.4f);
-    };
-
-    float luma =
-        0.2126f * decode(r) + 0.7152f * decode(g) + 0.0722f * decode(b);
-
-    int bin = static_cast<int>(std::clamp(luma, 0.0f, 1.0f) * BIN_SCALE);
-    hist[bin]++;
-  }
-
-  size_t sampledPixels = (pixelCount + step - 1) / step;
-  size_t threshold = static_cast<size_t>(sampledPixels * percentile);
-  size_t cumulative = 0;
-
-  for (int bin = 0; bin < BINS; ++bin) {
-    cumulative += hist[bin];
-    if (cumulative >= threshold) return (bin + 0.5f) / BIN_SCALE;
-  }
-
-  return 1.0f;
+  return photon::computeSceneWhite(rgb, width, height, channels, percentile);
 }
 
 void RawEngine::computeSceneStats(const ushort* rgb, int width, int height,
@@ -3228,6 +3496,7 @@ QImage RawEngine::getProcessedImage() {
 
     m_processedImage = m_processor->dcraw_make_mem_image(&ret);
     if (!m_processedImage) return QImage();
+    applyAiBlendLocked();
   }
 
   const int width = m_processedImage->width;
@@ -3299,6 +3568,7 @@ static QJsonObject stateToJson(const RawEngine* e) {
   obj["denoiseChromaRadius"] = e->denoiseChromaRadius();
   obj["denoiseChromaAmount"] = e->denoiseChromaAmount();
   obj["denoiseChromaBm3d"] = e->denoiseChromaBm3d();
+  obj["denoiseColor"] = e->denoiseColor();
   obj["clarity"] = e->clarity();
   obj["dehaze"] = e->dehaze();
   obj["structure"] = e->structure();
@@ -3474,6 +3744,13 @@ static void applyJsonToState(RawEngine* e, const QJsonObject& obj) {
     e->setDenoiseChromaAmount(obj["denoiseChromaAmount"].toDouble());
   if (obj.contains("denoiseChromaBm3d"))
     e->setDenoiseChromaBm3d(obj["denoiseChromaBm3d"].toDouble());
+  // Colour noise reduction; older edits carry the Classic chroma amount.
+  // (The engine is a global Settings choice: a legacy "denoiseMode" key is
+  // ignored.)
+  if (obj.contains("denoiseColor"))
+    e->setDenoiseColor(obj["denoiseColor"].toDouble());
+  else if (obj.contains("denoiseChromaAmount"))
+    e->setDenoiseColor(obj["denoiseChromaAmount"].toDouble());
   if (obj.contains("clarity")) e->setClarity(obj["clarity"].toDouble());
   if (obj.contains("dehaze")) e->setDehaze(obj["dehaze"].toDouble());
   if (obj.contains("structure")) e->setStructure(obj["structure"].toDouble());
@@ -3670,6 +3947,7 @@ static void resetToDefaults(RawEngine* e) {
   e->setDenoiseChromaRadius(4);
   e->setDenoiseChromaAmount(50.0f);
   e->setDenoiseChromaBm3d(50.0f);
+  e->setDenoiseColor(50.0f);
   e->setClarity(0.0f);
   e->setDehaze(0.0f);
   e->setStructure(0.0f);
@@ -4801,6 +5079,7 @@ void RawEngine::reloadWithGeometry() {
         if (ret != LIBRAW_SUCCESS) return LoadResult{false, loadId};
         m_processedImage = m_processor->dcraw_make_mem_image(&ret);
         if (!m_processedImage) return LoadResult{false, loadId};
+        applyAiBlendLocked();
       }
 
       int w = m_processedImage->width;

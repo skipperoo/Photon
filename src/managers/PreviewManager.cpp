@@ -1,4 +1,7 @@
 #include "PreviewManager.h"
+#include "EditStack.h"
+
+#include "../engine/AiDenoiser.h"
 
 #include <libraw/libraw.h>
 
@@ -198,7 +201,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
       QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
       QJsonArray arr = doc.array();
       if (!arr.isEmpty()) {
-        lastState = arr.last().toObject();
+        lastState = photon::editstack::currentState(arr);
       }
     }
   }
@@ -245,6 +248,15 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
           int ret = 0;
           libraw_processed_image_t* mem = processor.dcraw_make_mem_image(&ret);
           if (mem && mem->type == LIBRAW_IMAGE_BITMAP) {
+            // AI denoise: use the cached product only (never run the model
+            // for a library preview).
+            if (mem->colors == 3 && mem->bits == 16) {
+              lastState["denoiseMode"] =
+                  ::AppStateManager::instance()->denoiseEngine();
+              photon::ai::applyToDevelopSource(
+                  rawPath, reinterpret_cast<ushort*>(mem->data), mem->width,
+                  mem->height, lastState, false);
+            }
             LogManager::instance()->log(
                 QString("[ PreviewManager ] - Developing image: %1 (%2x%3)")
                     .arg(rawPath)

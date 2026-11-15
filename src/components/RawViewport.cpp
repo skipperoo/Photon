@@ -370,6 +370,32 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     m_textureDirty = true;
     update();
   });
+  // Every change of denoise state can switch the live NLM stand-in on/off.
+  connect(&m_engine, &RawEngine::denoisingFinished, this,
+          &RawViewport::liveDenoiseAmountChanged);
+  connect(&m_engine, &RawEngine::isDenoisingChanged, this,
+          &RawViewport::liveDenoiseAmountChanged);
+  connect(&m_engine, &RawEngine::denoiseAmountChanged, this,
+          &RawViewport::liveDenoiseAmountChanged);
+  connect(&m_engine, &RawEngine::denoiseEnabledChanged, this,
+          &RawViewport::liveDenoiseAmountChanged);
+  connect(&m_engine, &RawEngine::denoiseModeChanged, this, [this]() {
+    emit denoiseModeChanged();
+    emit liveDenoiseAmountChanged();
+    m_textureDirty = true;
+    update();
+  });
+  connect(&m_engine, &RawEngine::denoiseColorChanged, this,
+          &RawViewport::denoiseColorChanged);
+  connect(&m_engine, &RawEngine::aiDenoiseStateChanged, this, [this]() {
+    emit aiDenoiseStateChanged();
+    emit liveDenoiseAmountChanged();
+  });
+  // AI denoise blends into the develop source in place: re-upload it.
+  connect(&m_engine, &RawEngine::sourcePixelsChanged, this, [this]() {
+    m_textureDirty = true;
+    update();
+  });
 
   // HSL Connections
   connect(&m_engine, &RawEngine::hslRedHueChanged, this, [this]() {
@@ -1353,6 +1379,19 @@ QRectF RawViewport::visibleImageRect() {
 
 QVariantMap RawViewport::currentSettings() const {
   return m_engine.currentSettings();
+}
+
+float RawViewport::liveDenoiseAmount() const {
+  if (!m_engine.denoiseEnabled() || m_engine.hasDenoisedResult() ||
+      m_engine.aiDenoiseActive())
+    return 0.0f;
+  return m_engine.denoiseAmount();
+}
+
+void RawViewport::setDenoiseColor(float val) {
+  if (qFuzzyCompare(m_engine.denoiseColor(), val)) return;
+  if (m_engine.hasDenoisedResult()) m_textureDirty = true;
+  m_engine.setDenoiseColor(val);
 }
 
 void RawViewport::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {

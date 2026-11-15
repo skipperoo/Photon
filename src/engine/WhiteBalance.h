@@ -10,9 +10,16 @@
 namespace photon {
 namespace whitebalance {
 
-// Planckian locus (CIE 1931) approximation, Kang et al. 2002.
+// RAW temperature slider range (Lightroom-like).
+constexpr float kMinKelvin = 2000.0f;
+constexpr float kMaxKelvin = 50000.0f;
+
+// Planckian locus (CIE 1931) approximation, Kang et al. 2002. The published
+// fit covers 1667-25000 K; its high-temperature branch is a cubic in 1/T that
+// converges to the locus limit (x -> 0.2404), so it extends smoothly to
+// 50000 K (the remaining change above 25000 K is small).
 inline void planckianXy(float kelvin, float& outX, float& outY) {
-  const float t = std::clamp(kelvin, 1667.0f, 25000.0f);
+  const float t = std::clamp(kelvin, 1667.0f, kMaxKelvin);
   const float t2 = t * t;
   const float t3 = t2 * t;
   float x;
@@ -60,8 +67,9 @@ inline void relativeGains(float targetKelvin, float referenceKelvin,
                           float gains[3]) {
   float target[3];
   float reference[3];
-  planckianLinearRgb(std::clamp(targetKelvin, 2000.0f, 10000.0f), target);
-  planckianLinearRgb(std::clamp(referenceKelvin, 2000.0f, 10000.0f), reference);
+  planckianLinearRgb(std::clamp(targetKelvin, kMinKelvin, kMaxKelvin), target);
+  planckianLinearRgb(std::clamp(referenceKelvin, kMinKelvin, kMaxKelvin),
+                     reference);
   gains[0] = reference[0] / target[0];
   gains[1] = 1.0f;
   gains[2] = reference[2] / target[2];

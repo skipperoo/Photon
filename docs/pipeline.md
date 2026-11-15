@@ -1,7 +1,7 @@
 # Photon Develop Pipeline
 
 Living reference for how the develop pipeline works, where each feature sits, and what changed.
-Last updated: 2026-10-28.
+Last updated: 2026-11-15.
 
 ## 1. Overview
 
@@ -27,7 +27,7 @@ Rule (see `AGENTS.md`): any pipeline change must be applied to all three, with t
 
 | # | Stage | Notes |
 |---|---|---|
-| 0 | GPU NLM denoise | live preview approximation (`apply_gpu_denoise`) |
+| 0 | GPU NLM denoise | Classic-mode stand-in only while no BM3D result is shown (`liveDenoiseAmount`); off when denoise is disabled or AI denoise is active |
 | 0.5 | Local-contrast masks + Sharpness / Structure / Dehaze / Centrè | |
 | 1 | White balance | temp/tint multipliers; RAW adds the Kelvin gains (`wbGain`) |
 | 2 | Exposure | + positive-EV highlight knee vs `sceneWhite` |
@@ -47,10 +47,19 @@ Rule (see `AGENTS.md`): any pipeline change must be applied to all three, with t
 
 Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after toggle — Phase 40.3 replaces this with modes).
 
+### Develop source (preview, export, previews)
+
+Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or the decoded bitmap). With **AI denoise** (Settings engine "ai", Bayer RAW) the source is the two-slider blend of plain, AI product and AI + colour-pass product (`Y = lerp(Yp, Yai, NR)`, `C = lerp(lerp(Cp, Cai, NR), Ccol, Color)`), where the products are the cached RawNIND result and its chroma BM3D + guided-filter pass in exactly LibRaw's output space/orientation (`photon::ai`, see `features.md`). The engine blends it into `m_processedImage` in place (texture, histogram and geometry bake all see it); `ExportManager` / `PreviewManager` blend it into their mem image (`applyToDevelopSource`). Scene white is measured on the plain source in every path.
+
 ### CPU export order (`ImageDeveloper.cpp`)
 
+0. Scene white (`photon::computeSceneWhite`, same as the preview's load-time value) + Photon001 scene stats, on the unmodified source
+0a. Classic denoise (BM3D, pre-edit, like the preview) unless the source is AI-denoised
+0b. Lens corrections (16-bit; vignetting gain in linear light, like the shader)
+0c. Geometry: orientation / flip / straighten / crop (identical to the preview bake) — the pipeline below runs on the cropped frame
 1. sRGB16 → linear (LUT)
-2. Two-scale Gaussian precompute
+2. Two-scale Gaussian precompute; Scharr edge mask (sharpen mask) on linear luma
+2b. Sharpness (edge mask × focus gate) / Structure / Dehaze / Centrè (shader stage 0.5)
 3. WB + Exposure (same formulas)
 4. Photon001 tone ranges (`apply_photon001_tone_ranges_cpp`) with host-computed scene stats
 4b. Calibration (`photon::calibration::apply`)
@@ -61,15 +70,15 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 9. AgX
 10. Tone curve LUT (display-encoded; parametric or point curves per `toneCurveMode`)
 11. Black & White mix
-12. linear → sRGB + dither
-13. BM3D denoise (two-pass at export)
-14. Geometry: orientation / flip / straighten / crop
+12. linear → sRGB
+12b. Film grain (image-relative coordinates, long edge = 2000 units) / Vignette (cropped frame)
+13. Dither + 8-bit output
 
-**Known gaps (pre-existing):** GPU-only effects (Sharpness, Structure, Dehaze, Centrè, Grain, Vignette) are not applied on export; denoise differs between preview (NLM) and export (BM3D). Both are tracked as future work (denoise) and parity debt.
+**Known gaps:** the preview's texel-sized radii (local-contrast blurs, sharpen mask, focus gate) follow the displayed texture, which is half size at fit zoom, so at fit the preview's Clarity/Sharpness radius is ~2× the export's (export matches the 100 % view). Export clamps the lens vignetting gain at white (16-bit storage).
 
 ### Histogram
 
-`RawEngine::requestHistogramUpdate` duplicates the tone pipeline on the processed image; it currently stops at color grading and omits saturation/vibrance/tonemap/curve. Blur results are cached per processed image (`ensureHistogramBlurCache`). Any stage added/retuned must be mirrored here.
+`RawEngine::requestHistogramUpdate` duplicates the tone pipeline on the processed image (AI-denoised when active; the blend invalidates its blur cache); it currently stops at color grading and omits saturation/vibrance/tonemap/curve. Blur results are cached per processed image (`ensureHistogramBlurCache`). Any stage added/retuned must be mirrored here.
 
 ## 2. Feature hook points
 
@@ -83,8 +92,10 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | Lensfun (40.6) | real-time GPU (`lensShader` uniforms, baked-image space) + CPU export before geometry | DONE (`9f1df25`) |
 | HDR merge (40.7) | tool before the develop pipeline: merged linear DNG enters the library as a normal RAW file | DONE (`d538d7f`) |
 | Camera look (40.8) | display-domain tone LUT (luminance pre-curve, per-photo amount); skipped for AgX | DONE (`8531c59`) |
-| RAW Kelvin WB (post-release) | white-balance gains in the final shader + Photon001 log pass, CPU export and histogram (per photo, 2000–10000 K) | DONE (`7bc48f4`) |
+| RAW Kelvin WB (post-release) | white-balance gains in the final shader + Photon001 log pass, CPU export and histogram (per photo, 2000–50000 K since 2026-11-15) | DONE (`7bc48f4`) |
 | Editable slider values (post-release) | UI only (click-to-edit number labels) | DONE (`7bc48f4`) |
+| Export parity (post-release) | export: scene white, pre-edit denoise, linear lens vignetting, geometry before the pipeline, + Sharpness/Structure/Dehaze/Centrè/Grain/Vignette | pending confirmation |
+| AI denoise (post-release) | develop source (before every stage): cached RawNIND product blended by Amount, all three paths | pending confirmation |
 | Local masks / adjustments | per-pixel stage | future TBD |
 | Tone-slider rewrite (filmic LUT + edge-aware HL/SHD) | replaces Photon001 delta for those ranges | future TBD |
 
@@ -92,7 +103,9 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 
 - Non-destructive edits: JSON edit stacks in `.PhotonData/edits/<image>.json` (undo/redo in memory).
 - Planned: `processVersion` per photo (40.5) for future rendering retunes; persisted per-photo history snapshots (40.5). Phase 40.4 applies globally without a gate (decided 2026-10-12).
-- Denoise currently recomputed per view/export (no product cache) — future TBD.
+- Classic denoise is recomputed per view/export (no product cache).
+- AI denoise products are cached per photo in `.PhotonData/denoise/<file>.ai-<key>.pdn` and the colour pass in `<file>.aic-<key>.pdn` (key = model fingerprint + algorithm/colour version + file size/mtime; 12-bit, MED-predicted, deflated strips; ~45 MB each per 24 MP). The edit stack stores `denoiseAmount` / `denoiseColor`; the engine is a global setting (`denoise/engine`, `denoise/aiDevice`).
+- Sidecar format: states, then an optional `{"__index": i}` marker selecting the current state; always read through `photon::editstack` (`src/managers/EditStack.h`).
 
 ## 4. Change history
 
@@ -109,3 +122,8 @@ Early exits: `isPreview` (embedded/preview JPG) and `showOriginal` (before/after
 | 2026-10-13 | HDR merge tool: radiance merge with EXIF-validated gains, SIFT+RANSAC alignment, 4 deghost levels, linear DNG output (atomic `.part` write, uncompressed thumbnail) and a preview dialog | bracketed-exposure merge (Phase 40.7) | commit `d538d7f` |
 | 2026-10-13 | Camera look: quantile-matched tone curve fitted from the embedded camera JPEG (white-anchored highlights, opt-in per-photo amount), composed into the tone LUT so preview/export/histogram agree | camera-look baseline (Phase 40.8) | commit `8531c59` |
 | 2026-10-28 | RAW Kelvin white balance (2000–10000 K, per photo, all three paths) + click-to-edit slider values; denoise now runs in baked geometry space and stale results are discarded (fixes crops snapping back) | post-release refinements | commit `7bc48f4` |
+| 2026-11-15 | Export parity: scene white measured like the preview, Classic denoise pre-edit, lens vignetting in linear light, geometry before the pipeline, Sharpness/Structure/Dehaze/Centrè/Grain/Vignette on export; live NLM no longer stacks on BM3D or runs with denoise off; grain in image-relative coordinates | exports match the preview | branch `feature/ai-denoise` |
+| 2026-11-15 | Denoise panel reduced to Noise Reduction + Color; AI → colour pass (chroma BM3D 1/4 + guided filter 1/2) cached per photo; engine (AI/Classic) and AI device (Auto/CPU/GPU) in Settings | simpler controls, AI-quality chroma | branch `feature/ai-denoise` |
+| 2026-11-15 | Edit-stack reads fixed (export/previews/batch edits used the `__index` marker instead of the current state) | exports render the edits | branch `feature/ai-denoise` |
+| 2026-11-15 | AI denoise (RawNIND UtNet2 via ncnn, Vulkan/CPU): Bayer → camera RGB once per photo, pushed through LibRaw's colour/curve, cached, Amount = blend; Classic BM3D kept as engine choice/fallback | ML denoise | branch `feature/ai-denoise` |
+| 2026-11-15 | RAW temperature range extended to 50000 K with a logarithmic slider (`ControlGroup` toSlider/fromSlider mapping) | Lightroom-like range | branch `feature/ai-denoise` |

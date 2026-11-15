@@ -42,6 +42,16 @@ class AppStateManager : public QObject {
                  logLocationChanged)
   Q_PROPERTY(bool previewDenoiseFull READ previewDenoiseFull WRITE
                  setPreviewDenoiseFull NOTIFY previewDenoiseFullChanged)
+  // Denoise engine for every photo: "ai" (default; Classic fallback when a
+  // photo is not supported) or "classic".
+  Q_PROPERTY(QString denoiseEngine READ denoiseEngine WRITE setDenoiseEngine
+                 NOTIFY denoiseEngineChanged)
+  // Device for AI denoise: "Auto", "CPU" or a GPU name from aiDenoiseDevices.
+  Q_PROPERTY(QString aiDenoiseDevice READ aiDenoiseDevice WRITE
+                 setAiDenoiseDevice NOTIFY aiDenoiseDeviceChanged)
+  Q_PROPERTY(QStringList aiDenoiseDevices READ aiDenoiseDevices NOTIFY
+                 availableGpusChanged)
+  Q_PROPERTY(bool aiDenoiseAvailable READ aiDenoiseAvailable CONSTANT)
   Q_PROPERTY(
       QString logLevel READ logLevel WRITE setLogLevel NOTIFY logLevelChanged)
   Q_PROPERTY(int cacheSizeGB READ cacheSizeGB WRITE setCacheSizeGB NOTIFY
@@ -78,6 +88,10 @@ class AppStateManager : public QObject {
   bool isDarkMode() const { return m_isDarkMode; }
   QString accentColor() const { return m_accentColor; }
   bool previewDenoiseFull() const { return m_previewDenoiseFull; }
+  QString denoiseEngine() const { return m_denoiseEngine; }
+  QString aiDenoiseDevice() const { return m_aiDenoiseDevice; }
+  QStringList aiDenoiseDevices() const;
+  bool aiDenoiseAvailable() const;
   QString logLocation() const;
   QString logLevel() const;
   int cacheSizeGB() const { return m_cacheSizeGB; }
@@ -115,6 +129,8 @@ class AppStateManager : public QObject {
   void setIsDarkMode(bool dark);
   void setAccentColor(const QString& color);
   void setPreviewDenoiseFull(bool full);
+  void setDenoiseEngine(const QString& engine);
+  void setAiDenoiseDevice(const QString& device);
   void setLogLocation(const QString& location);
   void setLogLevel(const QString& level);
   void setCacheSizeGB(int size);
@@ -134,6 +150,8 @@ class AppStateManager : public QObject {
   void isDarkModeChanged();
   void accentColorChanged();
   void previewDenoiseFullChanged();
+  void denoiseEngineChanged();
+  void aiDenoiseDeviceChanged();
   void logLocationChanged();
   void logLevelChanged();
   void cacheSizeGBChanged();
@@ -154,6 +172,8 @@ class AppStateManager : public QObject {
   bool m_isDarkMode = true;
   QString m_accentColor = "#3b82f6";  // Default Blue
   bool m_previewDenoiseFull = false;
+  QString m_denoiseEngine = QStringLiteral("ai");
+  QString m_aiDenoiseDevice = QStringLiteral("Auto");
   int m_cacheSizeGB = 10;
   int m_scanIntervalSeconds = 10;
 
@@ -165,6 +185,8 @@ class AppStateManager : public QObject {
   static constexpr const char* KEY_CACHE_SIZE = "performance/cacheSizeGB";
   static constexpr const char* KEY_DARK_MODE = "ui/darkMode";
   static constexpr const char* KEY_ACCENT_COLOR = "ui/accentColor";
+  static constexpr const char* KEY_DENOISE_ENGINE = "denoise/engine";
+  static constexpr const char* KEY_AI_DENOISE_DEVICE = "denoise/aiDevice";
   static constexpr const char* KEY_PREVIEW_DENOISE_FULL =
       "performance/previewDenoiseFull";
   static constexpr const char* KEY_SCAN_INTERVAL =

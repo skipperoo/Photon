@@ -13,6 +13,12 @@ ColumnLayout {
     property real stepSize: 0
     property int snapMode: 0
     property var trackRamp: null
+    // Optional non-linear slider scale: toSlider(value) -> position 0..1 and
+    // fromSlider(position) -> value. The label and typed values stay in value
+    // units (from/to/stepSize); only the slider track uses the mapping.
+    property var toSlider: null
+    property var fromSlider: null
+    readonly property bool mapped: toSlider !== null && fromSlider !== null
     signal moved(real val)
     signal released()
 
@@ -51,17 +57,23 @@ ColumnLayout {
         }
     }
 
+    function sliderToValue(p) {
+        var v = root.fromSlider(p)
+        if (root.stepSize > 0) v = Math.round(v / root.stepSize) * root.stepSize
+        return Math.max(root.from, Math.min(root.to, v))
+    }
+
     PhotonSlider {
         id: slider
         Layout.fillWidth: true
-        from: root.from
-        to: root.to
-        value: root.value
-        stepSize: root.stepSize
+        from: root.mapped ? 0 : root.from
+        to: root.mapped ? 1 : root.to
+        value: root.mapped ? root.toSlider(root.value) : root.value
+        stepSize: root.mapped ? 0 : root.stepSize
         snapMode: root.snapMode
-        defaultValue: root.defaultValue
+        defaultValue: root.mapped ? root.toSlider(root.defaultValue) : root.defaultValue
         trackRamp: root.trackRamp
-        onMoved: root.moved(value)
+        onMoved: root.moved(root.mapped ? root.sliderToValue(value) : value)
         onReleased: root.released()
         onDoubleClicked: {
             root.moved(root.defaultValue)
@@ -69,7 +81,9 @@ ColumnLayout {
         }
         Connections {
             target: root
-            function onValueChanged() { slider.value = root.value; }
+            function onValueChanged() {
+                slider.value = root.mapped ? root.toSlider(root.value) : root.value;
+            }
         }
     }
 }

@@ -27,8 +27,25 @@ export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
 exec "$APPDIR/usr/bin/Photon" "$@"
 EOF
 chmod +x AppDir/AppRun
+
+# AI denoise model (RawNIND, GPL-3.0): staged by cmake/AiDenoiseModel.cmake in
+# build_dir/models; the app looks for it in <executable dir>/models.
+# linuxdeploy only copies the executable, so bundle it explicitly.
+if [ -f build_dir/models/rawnind_bayer.ncnn.param ] && [ -f build_dir/models/rawnind_bayer.ncnn.bin ]; then
+    mkdir -p AppDir/usr/bin/models
+    cp build_dir/models/* AppDir/usr/bin/models/
+    echo "[ build_internal.sh ] - Bundled AI denoise model"
+else
+    echo "[ build_internal.sh ] - ERROR: AI denoise model missing in build_dir/models (configure step failed to fetch it?)"
+    exit 1
+fi
+
 # Run linuxdeploy
-linuxdeploy --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png --plugin qt --output appimage
+# The Vulkan loader must come from the host: it has to match the installed GPU
+# drivers. Ubuntu 22.04's old loader returned null entry points with current
+# NVIDIA drivers and crashed GPU initialisation (AI denoise).
+linuxdeploy --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png \
+    --exclude-library "libvulkan.so*" --plugin qt --output appimage
 
 # Move and rename output
 mkdir -p /app/dist/linux

@@ -29,6 +29,7 @@ configure_file(
 )
 
 option(PHOTON_ENABLE_ASAN "Build with AddressSanitizer" OFF)
+option(PHOTON_ENABLE_AI_DENOISE "Build AI denoise (ncnn + RawNIND model)" ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent GuiPrivate)
 find_package(Vulkan REQUIRED)
@@ -54,12 +55,19 @@ endif()
 
 qt_standard_project_setup(REQUIRES 6.10)
 
+if(PHOTON_ENABLE_AI_DENOISE)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Ncnn.cmake)
+endif()
+
 qt_add_executable(Photon
     src/main.cpp
     src/engine/RawEngine.cpp
     src/engine/RawEngine.h
     src/engine/Denoiser.cpp
     src/engine/Denoiser.h
+    src/engine/DenoiseChroma.h
+    src/engine/AiDenoiser.cpp
+    src/engine/AiDenoiser.h
     src/engine/GpuSearcher.cpp
     src/engine/GpuSearcher.h
     src/engine/GpuChromaFilter.cpp
@@ -76,6 +84,7 @@ qt_add_executable(Photon
     src/engine/CameraLook.h
     src/engine/CameraLookMath.h
     src/engine/DevelopProfile.h
+    src/engine/SceneWhite.h
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
     src/engine/patch_search.comp
@@ -86,6 +95,7 @@ qt_add_executable(Photon
     src/components/ToneLutProvider.h
     src/managers/AppStateManager.cpp
     src/managers/AppStateManager.h
+    src/managers/EditStack.h
     src/managers/ThumbnailProvider.cpp
     src/managers/ThumbnailProvider.h
     src/managers/ThumbnailImageProvider.cpp
@@ -156,6 +166,8 @@ qt_add_qml_module(Photon
         src/engine/RawEngine.h
         src/engine/Denoiser.cpp
         src/engine/Denoiser.h
+        src/engine/AiDenoiser.cpp
+        src/engine/AiDenoiser.h
         src/engine/GpuSearcher.cpp
         src/engine/GpuSearcher.h
         src/engine/GpuChromaFilter.cpp
@@ -356,6 +368,13 @@ set_target_properties(Photon PROPERTIES
 
 
 include(GNUInstallDirs)
+
+if(PHOTON_ENABLE_AI_DENOISE)
+    target_link_libraries(Photon PRIVATE ncnn)
+    target_compile_definitions(Photon PRIVATE PHOTON_HAS_AI_DENOISE=1)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/AiDenoiseModel.cmake)
+endif()
+
 install(TARGETS Photon
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

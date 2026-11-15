@@ -1,8 +1,11 @@
 #include "Denoiser.h"
+#include "DenoiseChroma.h"
 #include "GpuChromaFilter.h"
+#include "../managers/LogManager.h"
 
 #include <immintrin.h>
 
+#include <QElapsedTimer>
 #include <QRgba64>
 #include <QtConcurrent>
 #include <cmath>
@@ -205,6 +208,176 @@ QImage Denoiser::denoiseCpu(
   });
 
   return output;
+}
+
+QImage Denoiser::denoiseChroma(const QImage& input, float strength,
+                               std::atomic<bool>* abort) {
+  if (input.isNull()) return QImage();
+  const QImage src = (input.format() == QImage::Format_RGBX64 ||
+                      input.format() == QImage::Format_RGBA64)
+                         ? input
+                         : input.convertToFormat(QImage::Format_RGBX64);
+  const int width = src.width();
+  const int height = src.height();
+  const int size = width * height;
+  strength = std::clamp(strength, 0.0f, 1.0f);
+  if (strength <= 0.0f || width < 64 || height < 64) return src.copy();
+
+  // Chroma BM3D runs at 1/kChromaScale resolution; sigma is on the 0..255
+  // Cb/Cr scale of those reduced planes.
+  constexpr int kChromaScale = 4;
+  constexpr int kGuidedScale = 2;
+  constexpr int kChromaStride = 8;
+  constexpr bool kChromaStep2 = true;
+  constexpr float kChromaSigmaFull = 10.0f;
+
+  std::vector<float> r_ch(size), g_ch(size), b_ch(size);
+  std::vector<int> pixelRows(height);
+  std::iota(pixelRows.begin(), pixelRows.end(), 0);
+  {
+    const QRgba64* bits = reinterpret_cast<const QRgba64*>(src.constBits());
+    QtConcurrent::blockingMap(pixelRows, [&](int y) {
+      for (int i = y * width, e = i + width; i < e; ++i) {
+        r_ch[i] = bits[i].red() / 257.0f;
+        g_ch[i] = bits[i].green() / 257.0f;
+        b_ch[i] = bits[i].blue() / 257.0f;
+      }
+    });
+  }
+  std::vector<float> y_ch, cb_ch, cr_ch;
+  rgb_to_ycbcr(r_ch, g_ch, b_ch, y_ch, cb_ch, cr_ch);
+  if (abort && abort->load()) return QImage();
+
+  // Colour noise is coarse, so the pass works on reduced planes: chroma BM3D
+  // at 1/kChromaScale and the guided filter at 1/kGuidedScale (like 4:2:0
+  // colour), then a bilinear upsample. The guided filter snaps colour to the
+  // (AI-clean) luma edges of the same resolution.
+  QElapsedTimer timer;
+  timer.start();
+  auto downsample = [](const std::vector<float>& full, int fw, int fh, int f,
+                       int& ow, int& oh) {
+    ow = (fw + f - 1) / f;
+    oh = (fh + f - 1) / f;
+    std::vector<float> small(static_cast<size_t>(ow) * oh);
+    std::vector<int> rows(oh);
+    std::iota(rows.begin(), rows.end(), 0);
+    QtConcurrent::blockingMap(rows, [&, f, fw, fh, ow](int y) {
+      for (int x = 0; x < ow; ++x) {
+        float acc = 0.0f;
+        int n = 0;
+        for (int dy = 0; dy < f; ++dy) {
+          const int yy = std::min(y * f + dy, fh - 1);
+          for (int dx = 0; dx < f; ++dx) {
+            const int xx = std::min(x * f + dx, fw - 1);
+            acc += full[static_cast<size_t>(yy) * fw + xx];
+            ++n;
+          }
+        }
+        small[static_cast<size_t>(y) * ow + x] = acc / float(n);
+      }
+    });
+    return small;
+  };
+  auto upsample = [](const std::vector<float>& small, int sw, int sh,
+                     int dw, int dh) {
+    std::vector<float> full(static_cast<size_t>(dw) * dh);
+    const float sx = float(sw) / float(dw);
+    const float sy = float(sh) / float(dh);
+    std::vector<int> rows(dh);
+    std::iota(rows.begin(), rows.end(), 0);
+    QtConcurrent::blockingMap(rows, [&, sw, sh, dw, sx, sy](int y) {
+      const float fy = std::clamp((y + 0.5f) * sy - 0.5f, 0.0f, float(sh - 1));
+      const int y0 = int(fy);
+      const int y1 = std::min(y0 + 1, sh - 1);
+      const float ty = fy - y0;
+      for (int x = 0; x < dw; ++x) {
+        const float fx =
+            std::clamp((x + 0.5f) * sx - 0.5f, 0.0f, float(sw - 1));
+        const int x0 = int(fx);
+        const int x1 = std::min(x0 + 1, sw - 1);
+        const float tx = fx - x0;
+        const float a = small[static_cast<size_t>(y0) * sw + x0];
+        const float b = small[static_cast<size_t>(y0) * sw + x1];
+        const float c = small[static_cast<size_t>(y1) * sw + x0];
+        const float d = small[static_cast<size_t>(y1) * sw + x1];
+        full[static_cast<size_t>(y) * dw + x] =
+            (a + (b - a) * tx) + ((c + (d - c) * tx) - (a + (b - a) * tx)) * ty;
+      }
+    });
+    return full;
+  };
+
+  // 1. Chroma BM3D (block matching guided by luma).
+  int qw = 0, qh = 0;
+  const std::vector<float> y_q = downsample(y_ch, width, height, kChromaScale, qw, qh);
+  std::vector<std::vector<float>> cbcr_q = {
+      downsample(cb_ch, width, height, kChromaScale, qw, qh),
+      downsample(cr_ch, width, height, kChromaScale, qw, qh)};
+  Bm3dParams chromaParams = Bm3dParams::fromIntensity(0.5f);
+  chromaParams.sigma = kChromaSigmaFull * strength;
+  DctTables tables;
+  auto cbcr_clean = bm3d_process_joint(
+      cbcr_q, qw, qh, chromaParams, tables, abort, kChromaStep2,
+      kChromaStride, {}, SEARCH_WINDOW, MAX_GROUP_SIZE, &y_q);
+  if (abort && abort->load()) return QImage();
+  const qint64 bm3dMs = timer.restart();
+
+  // 2. Multi-scale guided filter at 1/kGuidedScale, guided by the luma.
+  int gw = 0, gh = 0;
+  const std::vector<float> y_g = downsample(y_ch, width, height, kGuidedScale, gw, gh);
+  const std::vector<float> cb_g = upsample(cbcr_clean[0], qw, qh, gw, gh);
+  const std::vector<float> cr_g = upsample(cbcr_clean[1], qw, qh, gw, gh);
+  constexpr int kChromaRadius = 4;
+  const float guided = 100.0f * strength;
+  std::vector<float> cb_go(static_cast<size_t>(gw) * gh);
+  std::vector<float> cr_go(static_cast<size_t>(gw) * gh);
+  bool gpuOk = GpuChromaFilter::run(y_g.data(), cb_g.data(), cb_go.data(), gw,
+                                    gh, kChromaRadius, guided);
+  if (gpuOk) {
+    gpuOk = GpuChromaFilter::run(y_g.data(), cr_g.data(), cr_go.data(), gw, gh,
+                                 kChromaRadius, guided);
+  }
+  if (!gpuOk) {
+    multiscale_guided_filter(y_g.data(), cb_g.data(), cb_go.data(), gw, gh,
+                             kChromaRadius, guided);
+    if (abort && abort->load()) return QImage();
+    multiscale_guided_filter(y_g.data(), cr_g.data(), cr_go.data(), gw, gh,
+                             kChromaRadius, guided);
+  }
+  if (abort && abort->load()) return QImage();
+  const std::vector<float> cb_out = upsample(cb_go, gw, gh, width, height);
+  const std::vector<float> cr_out = upsample(cr_go, gw, gh, width, height);
+
+  LogManager::instance()->log(
+      QString("[ Denoiser.cpp ] - colour pass %1x%2: BM3D (1/%3) %4 ms, "
+              "guided filter (1/%7) %5 ms (%6)")
+          .arg(width)
+          .arg(height)
+          .arg(kChromaScale)
+          .arg(bm3dMs)
+          .arg(timer.elapsed())
+          .arg(gpuOk ? "GPU" : "CPU")
+          .arg(kGuidedScale),
+      PHOTON_INFO);
+
+  std::vector<float> r_out, g_out, b_out;
+  ycbcr_to_rgb(y_ch, cb_out, cr_out, r_out, g_out, b_out);
+  QImage output(width, height, QImage::Format_RGBX64);
+  QRgba64* out_bits = reinterpret_cast<QRgba64*>(output.bits());
+  QtConcurrent::blockingMap(pixelRows, [&](int y) {
+    for (int i = y * width, e = i + width; i < e; ++i) {
+      out_bits[i] = QRgba64::fromRgba64(
+          ushort(std::clamp(r_out[i], 0.0f, 255.0f) * 257.0f + 0.5f),
+          ushort(std::clamp(g_out[i], 0.0f, 255.0f) * 257.0f + 0.5f),
+          ushort(std::clamp(b_out[i], 0.0f, 255.0f) * 257.0f + 0.5f), 65535);
+    }
+  });
+  return output;
+}
+
+QImage denoiseChromaOnly(const QImage& input, float strength,
+                         std::atomic<bool>* abort) {
+  return Denoiser::denoiseChroma(input, strength, abort);
 }
 
 std::vector<std::vector<float>> Denoiser::bm3d_process_joint(
@@ -906,8 +1079,10 @@ void Denoiser::box_filter(const float* src, float* dst, int width, int height,
   int size = width * height;
   std::vector<float> tmp(size);
 
-  // Horizontal pass: running sum along each row
-  for (int y = 0; y < height; ++y) {
+  // Horizontal pass: running sum along each row (rows in parallel)
+  std::vector<int> rowIdx(height);
+  std::iota(rowIdx.begin(), rowIdx.end(), 0);
+  QtConcurrent::blockingMap(rowIdx, [&](int y) {
     const float* row_in = src + y * width;
     float* row_out = tmp.data() + y * width;
 
@@ -927,12 +1102,14 @@ void Denoiser::box_filter(const float* src, float* dst, int width, int height,
       int right = std::min(width - 1, x + radius);
       row_out[x] = sum / static_cast<float>(right - left + 1);
     }
-  }
+  });
 
   // Vertical pass: running sum along each column
-  // Process 8 columns at a time with AVX2
-  int x = 0;
-  for (; x <= width - 8; x += 8) {
+  // Process 8 columns at a time with AVX2 (column blocks in parallel)
+  std::vector<int> colBlocks(width / 8);
+  std::iota(colBlocks.begin(), colBlocks.end(), 0);
+  QtConcurrent::blockingMap(colBlocks, [&](int block) {
+    const int x = block * 8;
     __m256 v_sum = _mm256_setzero_ps();
     // Initialize window for first row
     for (int y = 0; y <= radius && y < height; ++y) {
@@ -955,7 +1132,8 @@ void Denoiser::box_filter(const float* src, float* dst, int width, int height,
       float inv_count = 1.0f / static_cast<float>(bottom - top + 1);
       _mm256_storeu_ps(&dst[y * width + x], _mm256_mul_ps(v_sum, _mm256_set1_ps(inv_count)));
     }
-  }
+  });
+  int x = (width / 8) * 8;
   // Scalar tail for remaining columns
   for (; x < width; ++x) {
     float sum = 0.0f;

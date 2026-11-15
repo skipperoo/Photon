@@ -173,6 +173,23 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(QString previewPath READ previewPath NOTIFY previewPathChanged)
   Q_PROPERTY(QImage previewImage READ previewImage NOTIFY previewImageChanged)
   Q_PROPERTY(bool isDenoising READ isDenoising NOTIFY isDenoisingChanged)
+  // Strength of the shader's live NLM stand-in: only while denoise is on and
+  // no finished (BM3D) result is on screen, so it never stacks on top of it.
+  Q_PROPERTY(float liveDenoiseAmount READ liveDenoiseAmount NOTIFY
+                 liveDenoiseAmountChanged)
+  Q_PROPERTY(QString denoiseMode READ denoiseMode NOTIFY denoiseModeChanged)
+  Q_PROPERTY(float denoiseColor READ denoiseColor WRITE setDenoiseColor NOTIFY
+                 denoiseColorChanged)
+  Q_PROPERTY(bool aiDenoiseAvailable READ aiDenoiseAvailable NOTIFY
+                 aiDenoiseStateChanged)
+  Q_PROPERTY(
+      bool aiDenoiseActive READ aiDenoiseActive NOTIFY aiDenoiseStateChanged)
+  Q_PROPERTY(
+      bool aiDenoiseRunning READ aiDenoiseRunning NOTIFY aiDenoiseStateChanged)
+  Q_PROPERTY(float aiDenoiseProgress READ aiDenoiseProgress NOTIFY
+                 aiDenoiseStateChanged)
+  Q_PROPERTY(
+      QString aiDenoiseStatus READ aiDenoiseStatus NOTIFY aiDenoiseStateChanged)
   Q_PROPERTY(
       bool isPanning READ isPanning WRITE setIsPanning NOTIFY isPanningChanged)
   Q_PROPERTY(
@@ -521,6 +538,15 @@ class RawViewport : public QQuickItem {
   QString previewPath() const { return m_engine.previewPath(); }
   QImage previewImage() const { return m_engine.previewImage(); }
   bool isDenoising() const { return m_engine.isDenoising(); }
+  float liveDenoiseAmount() const;
+  QString denoiseMode() const { return m_engine.denoiseMode(); }
+  float denoiseColor() const { return m_engine.denoiseColor(); }
+  void setDenoiseColor(float val);
+  bool aiDenoiseAvailable() const { return m_engine.aiDenoiseAvailable(); }
+  bool aiDenoiseActive() const { return m_engine.aiDenoiseActive(); }
+  bool aiDenoiseRunning() const { return m_engine.aiDenoiseRunning(); }
+  float aiDenoiseProgress() const { return m_engine.aiDenoiseProgress(); }
+  QString aiDenoiseStatus() const { return m_engine.aiDenoiseStatus(); }
   bool isPanning() const { return m_engine.isPanning(); }
   void setIsPanning(bool panning);
 
@@ -763,6 +789,10 @@ class RawViewport : public QQuickItem {
   void showSharpenMaskChanged();
   void denoiseEnabledChanged();
   void isDenoisingChanged();
+  void liveDenoiseAmountChanged();
+  void denoiseModeChanged();
+  void denoiseColorChanged();
+  void aiDenoiseStateChanged();
   void isLoadingChanged();
   void previewPathChanged();
   void previewImageChanged();

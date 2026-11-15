@@ -16,6 +16,8 @@ add_executable(tst_RawEngine
     ../src/engine/CameraLookMath.h
     ../src/engine/Denoiser.cpp
     ../src/engine/Denoiser.h
+    ../src/engine/AiDenoiser.cpp
+    ../src/engine/AiDenoiser.h
  ../src/engine/GpuSearcher.cpp
  ../src/engine/GpuSearcher.h
  ../src/engine/GpuChromaFilter.cpp
@@ -61,6 +63,12 @@ else()
         PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
+endif()
+# AI denoise: link ncnn when the app builds it, so the engine integration
+# test can run the real model (it skips without the model or sample RAW).
+if(TARGET ncnn)
+    target_link_libraries(tst_RawEngine PRIVATE ncnn)
+    target_compile_definitions(tst_RawEngine PRIVATE PHOTON_HAS_AI_DENOISE=1)
 endif()
 if(NOT MSVC)
     target_compile_options(tst_RawEngine PRIVATE -mavx2 -mfma)
@@ -111,6 +119,8 @@ add_executable(tst_AppStateManager
     ../src/managers/FileScanner.h
  ../src/engine/Denoiser.cpp
  ../src/engine/Denoiser.h
+ ../src/engine/AiDenoiser.cpp
+ ../src/engine/AiDenoiser.h
  ../src/engine/GpuSearcher.cpp
  ../src/engine/GpuSearcher.h
  ../src/engine/GpuChromaFilter.cpp

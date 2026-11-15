@@ -36,10 +36,25 @@ QtObject {
         return Qt.rgba(r / m, g / m, b / m, 1.0)
     }
 
+    // RAW temperature scale: 2000-50000 K on a logarithmic track (equal
+    // slider distances = equal temperature ratios; 5500 K sits near 31 %,
+    // 10000 K at the middle).
+    readonly property real kelvinMin: 2000
+    readonly property real kelvinMax: 50000
+    function kelvinToPosition(k) {
+        var kk = Math.max(kelvinMin, Math.min(kelvinMax, k))
+        return Math.log(kk / kelvinMin) / Math.log(kelvinMax / kelvinMin)
+    }
+    function positionToKelvin(p) {
+        var pp = Math.max(0, Math.min(1, p))
+        return kelvinMin * Math.pow(kelvinMax / kelvinMin, pp)
+    }
+
     // RAW temperature track: the correction colour at each Kelvin value
-    // (2000 K -> blue, 10000 K -> amber), from the Planckian locus.
+    // (2000 K -> blue, 50000 K -> amber), from the Planckian locus; t is the
+    // slider position on the logarithmic scale above.
     function kelvinTemperature(t) {
-        var K = Math.max(1667, Math.min(25000, 2000 + Math.max(0, Math.min(1, t)) * 8000))
+        var K = Math.max(1667, Math.min(kelvinMax, positionToKelvin(t)))
         var K2 = K * K
         var K3 = K2 * K
         var x

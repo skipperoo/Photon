@@ -94,8 +94,8 @@ Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or 
 | Camera look (40.8) | display-domain tone LUT (luminance pre-curve, per-photo amount); skipped for AgX | DONE (`8531c59`) |
 | RAW Kelvin WB (post-release) | white-balance gains in the final shader + Photon001 log pass, CPU export and histogram (per photo, 2000–50000 K since 2026-11-15) | DONE (`7bc48f4`) |
 | Editable slider values (post-release) | UI only (click-to-edit number labels) | DONE (`7bc48f4`) |
-| Export parity (post-release) | export: scene white, pre-edit denoise, linear lens vignetting, geometry before the pipeline, + Sharpness/Structure/Dehaze/Centrè/Grain/Vignette | pending confirmation |
-| AI denoise (post-release) | develop source (before every stage): cached RawNIND product blended by Amount, all three paths | pending confirmation |
+| Export parity (post-release) | export: scene white, pre-edit denoise, linear lens vignetting, geometry before the pipeline, + Sharpness/Structure/Dehaze/Centrè/Grain/Vignette | DONE (`8d9156e`) |
+| AI denoise (post-release) | develop source (before every stage): cached RawNIND product blended by Amount, all three paths | DONE (`8d9156e`) |
 | Local masks / adjustments | per-pixel stage | future TBD |
 | Tone-slider rewrite (filmic LUT + edge-aware HL/SHD) | replaces Photon001 delta for those ranges | future TBD |
 
@@ -122,8 +122,8 @@ Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or 
 | 2026-10-13 | HDR merge tool: radiance merge with EXIF-validated gains, SIFT+RANSAC alignment, 4 deghost levels, linear DNG output (atomic `.part` write, uncompressed thumbnail) and a preview dialog | bracketed-exposure merge (Phase 40.7) | commit `d538d7f` |
 | 2026-10-13 | Camera look: quantile-matched tone curve fitted from the embedded camera JPEG (white-anchored highlights, opt-in per-photo amount), composed into the tone LUT so preview/export/histogram agree | camera-look baseline (Phase 40.8) | commit `8531c59` |
 | 2026-10-28 | RAW Kelvin white balance (2000–10000 K, per photo, all three paths) + click-to-edit slider values; denoise now runs in baked geometry space and stale results are discarded (fixes crops snapping back) | post-release refinements | commit `7bc48f4` |
-| 2026-11-15 | Export parity: scene white measured like the preview, Classic denoise pre-edit, lens vignetting in linear light, geometry before the pipeline, Sharpness/Structure/Dehaze/Centrè/Grain/Vignette on export; live NLM no longer stacks on BM3D or runs with denoise off; grain in image-relative coordinates | exports match the preview | branch `feature/ai-denoise` |
-| 2026-11-15 | Denoise panel reduced to Noise Reduction + Color; AI → colour pass (chroma BM3D 1/4 + guided filter 1/2) cached per photo; engine (AI/Classic) and AI device (Auto/CPU/GPU) in Settings | simpler controls, AI-quality chroma | branch `feature/ai-denoise` |
-| 2026-11-15 | Edit-stack reads fixed (export/previews/batch edits used the `__index` marker instead of the current state) | exports render the edits | branch `feature/ai-denoise` |
-| 2026-11-15 | AI denoise (RawNIND UtNet2 via ncnn, Vulkan/CPU): Bayer → camera RGB once per photo, pushed through LibRaw's colour/curve, cached, Amount = blend; Classic BM3D kept as engine choice/fallback | ML denoise | branch `feature/ai-denoise` |
-| 2026-11-15 | RAW temperature range extended to 50000 K with a logarithmic slider (`ControlGroup` toSlider/fromSlider mapping) | Lightroom-like range | branch `feature/ai-denoise` |
+| 2026-11-15 | Export parity: scene white measured like the preview, Classic denoise pre-edit, lens vignetting in linear light, geometry before the pipeline, Sharpness/Structure/Dehaze/Centrè/Grain/Vignette on export; live NLM no longer stacks on BM3D or runs with denoise off; grain in image-relative coordinates | exports match the preview | commit `8d9156e` |
+| 2026-11-15 | Denoise panel reduced to Noise Reduction + Color; AI → colour pass (chroma BM3D 1/4 + guided filter 1/2) cached per photo; engine (AI/Classic) and AI device (Auto/CPU/GPU) in Settings | simpler controls, AI-quality chroma | commit `8d9156e` |
+| 2026-11-15 | Edit-stack reads fixed (export/previews/batch edits used the `__index` marker instead of the current state) | exports render the edits | commit `8d9156e` |
+| 2026-11-15 | AI denoise (RawNIND UtNet2 via ncnn, Vulkan/CPU): Bayer → camera RGB once per photo, pushed through LibRaw's colour/curve, cached, Amount = blend; Classic BM3D kept as engine choice/fallback | ML denoise | commit `8d9156e` |
+| 2026-11-15 | RAW temperature range extended to 50000 K with a logarithmic slider (`ControlGroup` toSlider/fromSlider mapping) | Lightroom-like range | commit `8d9156e` |

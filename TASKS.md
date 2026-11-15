@@ -723,6 +723,7 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.6 | Lensfun integration | DONE | `9f1df25` |
 | 40.7 | HDR merge (OpenCV alignment) | DONE | `d538d7f` |
 | 40.8 | Camera-look fitting from embedded JPEG | DONE | `8531c59` |
+| 40.9 | AI denoise (RawNIND/ncnn) + colour pass, export parity, 50000 K WB | DONE | `8d9156e` |
 
 ## 40.1 Calibration panel — DONE
 
@@ -892,13 +893,26 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 
 **Visual confirmation:** RAW vs camera JPEG of the same shot — the fitted rendering is close in contrast/tonality with highlight detail preserved; sliders behave relative to the fitted baseline; amount 0 returns to today's rendering.
 
+## 40.9 AI denoise + export parity — DONE
+
+> Implemented and confirmed visually 2026-11-15 on `feature/ai-denoise`, committed `8d9156e`. Feasibility study in `research/ai-denoise.md` (local).
+
+- [x] **AI denoise:** RawNIND UtNet2 (GPL-3.0 weights, darktable-ai `model_bayer.onnx`) via ncnn 20261020, built from pinned source with Vulkan. The model runs once per photo on the Bayer mosaic; its camera-RGB output is fitted (3×3 LS) onto LibRaw's linear output and written back so LibRaw applies its own curve and orientation. The product is cached in `.PhotonData/denoise` (12-bit, MED + deflate). GPU blobs are fp32 (fp16 overflows on the 1e6 output scale). Measured on a 24 MP photo: ~5–8 s on a GTX 1650, ~25 s on the CPU.
+- [x] **Colour pass:** chroma BM3D (1/4) + guided filter (1/2) on the AI result, cached; Detail keeps Denoise / Noise Reduction / Color (instant YCbCr blends).
+- [x] **Settings:** engine AI (default) / Classic, which also covers unsupported photos (X-Trans, bitmaps, no model); AI device Auto / CPU / GPU by name.
+- [x] **Packaging:** model downloaded and converted with pnnx at configure time (SHA-256 pinned), bundled in `bin/models`. The AppImage copies it and no longer bundles the Vulkan loader (an old loader crashed ncnn GPU init). A GPU-init crash marker falls back to the CPU next session. ncnn nets are released before ncnn's exit handler (the reverse order deadlocked the NVIDIA driver).
+- [x] **Export parity:** export, previews and batch edits read the history-selected state (`EditStack.h`; they used the `__index` marker, so exports had no edits). Scene white is measured like the preview; Classic denoise runs pre-edit; lens vignetting is applied in linear light; geometry runs before the pipeline; Sharpness/Structure/Dehaze/Centrè/Grain/Vignette are ported to export; the live NLM is gated.
+- [x] **RAW temperature:** 2000–50000 K on a logarithmic slider.
+- [x] Tests: tiling/mock-model runner, cache round trip, blends, engine integration on a real ARW (when the model and sample exist), edit-stack, export-uses-history, 50000 K gains.
+
 ## Future work - To Be Discussed
 
 Deferred (candidates, not scheduled; priorities to be discussed):
 
 - [ ] **Basic-slider tone rewrite** — filmic luminance LUT (contrast/whites/blacks) + edge-aware guided-filter base for highs/shadows. Biggest remaining quality win; must ship behind process version.
-- [ ] **Denoise product cache** — full-res result computed once, disk-cached, Amount as blend of two buffers; keeps BM3D, no ML dependency.
-- [ ] **AI denoise (ONNX U-Net)** — needs an inference runtime + model licensing review (weights are GPL-3.0, user-installed).
+- [x] **Denoise product cache** — done for AI denoise in 40.9 (Classic BM3D still recomputes per view).
+- [x] **AI denoise** — shipped in 40.9 (RawNIND via ncnn, weights bundled).
+- [ ] **AI denoise follow-ups** — linear-RGB RawNIND variant for X-Trans/DNG, cache size limit/eviction, GPU guided filter in the colour pass (shared Vulkan context), resolution-normalised texel radii in the preview.
 - [ ] **Panorama finishing** — boundary warp, auto crop, fill edges; enable gain compensation by default.
 - [ ] **Camera-look full model** — chroma curve (colourfulness by display luminance) and colour fitting (per-photo chromaticity matrix, per-model hue/sat tables, profile store pooled from previews). The shipped cut (Phase 40.8) is the opt-in fitted luminance curve with white-anchored highlights.
 - [ ] **Profiles browser** — live thumbnails, hover preview, `.cube` LUT import, Amount slider.

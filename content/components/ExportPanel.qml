@@ -53,6 +53,16 @@ FolderDialog {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 5
+                    Text { text: "Color space"; color: Theme.mutedFg; font: Theme.fontSmall }
+                    ComboBox {
+                        id: colorSpaceCombo
+                        model: ["sRGB", "Adobe RGB"]
+                        Layout.fillWidth: true
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
                     visible: formatCombo.currentText === "TIFF"
                     Text { text: "Bit depth"; color: Theme.mutedFg; font: Theme.fontSmall }
                     ComboBox {
@@ -188,7 +198,7 @@ FolderDialog {
                 text: "Start Export"
                 enabled: !ExportManager.isExporting && AppState.selectionCount > 0
                 onClicked: {
-                    ExportManager.startExport(AppState.selectedImages, folderInput.text, formatCombo.currentText, Math.round(qualitySlider.value), bitDepthCombo.currentIndex === 1 ? 16 : 8)
+                    ExportManager.startExport(AppState.selectedImages, folderInput.text, formatCombo.currentText, Math.round(qualitySlider.value), bitDepthCombo.currentIndex === 1 ? 16 : 8, colorSpaceCombo.currentIndex === 1 ? "adobergb" : "srgb")
                 }
             }
         }

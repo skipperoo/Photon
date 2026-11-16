@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <QColorSpace>
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -1558,6 +1559,11 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   const bool output16 = obj.value("outputBits").toInt(8) == 16;
   QImage output(width, height,
                 output16 ? QImage::Format_RGBX64 : QImage::Format_RGB888);
+  // "outputColorSpace": "adobergb" converts the final sRGB-encoded values to
+  // Adobe RGB (1998); the ICC profile is embedded by QImageWriter either way.
+  const bool outputAdobe = obj.value("outputColorSpace").toString() == "adobergb";
+  output.setColorSpace(outputAdobe ? QColorSpace(QColorSpace::AdobeRgb)
+                                   : QColorSpace(QColorSpace::SRgb));
 
   // Film grain lives in image-relative coordinates (long edge = 2000 units),
   // matching RawViewport.frag, so the grain looks the same at any resolution.
@@ -1902,6 +1908,18 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         }
       }
 
+      if (outputAdobe) {
+        // linear sRGB -> linear Adobe RGB (both D65), then gamma 563/256
+        auto lin = [](float v) {
+          v = std::clamp(v, 0.0f, 1.0f);
+          return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
+        };
+        const float lr = lin(r), lg = lin(g), lb = lin(b);
+        auto enc = [](float v) { return std::pow(std::clamp(v, 0.0f, 1.0f), 256.0f / 563.0f); };
+        r = enc(0.7151627f * lr + 0.2848373f * lg);
+        g = enc(lg);
+        b = enc(0.0411705f * lg + 0.9588295f * lb);
+      }
       if (output16) {
         auto q16 = [](float v) { return quint16(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f)); };
         quint16* px = reinterpret_cast<quint16*>(scanline) + size_t(x) * 4;

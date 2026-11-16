@@ -10,6 +10,7 @@
 #include <QMap>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QColorSpace>
 #include <QImageWriter>
 #include <QtTest>
 #include <vector>
@@ -80,6 +81,7 @@ class TestRawEngine : public QObject {
   void testToneMaskEncoding();
   void testToneSlidersMatchReference();
   void testExport16BitTiff();
+  void testExportAdobeRgb();
   void testEditStackCurrentState();
   void testExportUsesHistorySelectedState();
 };
@@ -3159,6 +3161,38 @@ void TestRawEngine::testExport16BitTiff() {
   const QImage back64 = back.convertToFormat(QImage::Format_RGBX64);
   QCOMPARE(reinterpret_cast<const quint16*>(back64.constScanLine(4))[128 * 4 + 1],
            reinterpret_cast<const quint16*>(img16.constScanLine(4))[128 * 4 + 1]);
+}
+
+void TestRawEngine::testExportAdobeRgb() {
+  // Colour patches: the Adobe RGB export converted back to sRGB by Qt's
+  // colour management matches the sRGB export, and the profile is embedded.
+  const int w = 64, h = 16;
+  const ushort patches[4][3] = {{46000, 46000, 46000}, {60000, 9000, 9000}, {9000, 52000, 12000}, {12000, 16000, 58000}};
+  std::vector<ushort> src(size_t(w) * h * 3);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      for (int c = 0; c < 3; ++c) src[(size_t(y) * w + x) * 3 + c] = patches[x / 16][c];
+  QJsonObject s;
+  s["contrast"] = 1.0; s["profile"] = "normal"; s["denoiseEnabled"] = false;
+  const QImage srgb = photon::ImageDeveloper::develop(src.data(), w, h, s);
+  s["outputColorSpace"] = "adobergb";
+  const QImage adobe = photon::ImageDeveloper::develop(src.data(), w, h, s);
+  QCOMPARE(srgb.colorSpace(), QColorSpace(QColorSpace::SRgb));
+  QCOMPARE(adobe.colorSpace(), QColorSpace(QColorSpace::AdobeRgb));
+  QVERIFY(adobe != srgb);
+  const QImage back = adobe.convertedToColorSpace(QColorSpace(QColorSpace::SRgb)).convertToFormat(QImage::Format_RGB888);
+  for (int p = 0; p < 4; ++p) {
+    const QColor a = back.pixelColor(p * 16 + 8, 8), b = srgb.pixelColor(p * 16 + 8, 8);
+    // (8-bit round trip through another gamma: dark channels move a few levels)
+    QVERIFY2(std::abs(a.red() - b.red()) <= 4 && std::abs(a.green() - b.green()) <= 4 && std::abs(a.blue() - b.blue()) <= 4,
+             qPrintable(QString("patch %1: %2 vs %3").arg(p).arg(a.name(), b.name())));
+  }
+  QTemporaryDir dir;
+  for (const char* fmt : {"jpg", "tif"}) {
+    const QString path = dir.filePath(QString("out.%1").arg(fmt));
+    QVERIFY(QImageWriter(path, fmt).write(adobe));
+    QCOMPARE(QImage(path).colorSpace(), QColorSpace(QColorSpace::AdobeRgb));
+  }
 }
 
 QTEST_MAIN(TestRawEngine)

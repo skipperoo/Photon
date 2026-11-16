@@ -1554,7 +1554,10 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   }
   stage("detail blur");
 
-  QImage output(width, height, QImage::Format_RGB888);
+  // "outputBits": 16 renders RGBX64 (16-bit TIFF export), otherwise 8-bit.
+  const bool output16 = obj.value("outputBits").toInt(8) == 16;
+  QImage output(width, height,
+                output16 ? QImage::Format_RGBX64 : QImage::Format_RGB888);
 
   // Film grain lives in image-relative coordinates (long edge = 2000 units),
   // matching RawViewport.frag, so the grain looks the same at any resolution.
@@ -1899,7 +1902,16 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         }
       }
 
-      // 11. Dithering
+      if (output16) {
+        auto q16 = [](float v) { return quint16(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f)); };
+        quint16* px = reinterpret_cast<quint16*>(scanline) + size_t(x) * 4;
+        px[0] = q16(r);
+        px[1] = q16(g);
+        px[2] = q16(b);
+        px[3] = 65535;
+        continue;
+      }
+      // 11. Dithering (8-bit output only)
       float d = dither_noise(x, y) / 255.0f;
       r += d;
       g += d;

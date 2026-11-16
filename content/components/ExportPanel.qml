@@ -53,6 +53,17 @@ FolderDialog {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 5
+                    visible: formatCombo.currentText === "TIFF"
+                    Text { text: "Bit depth"; color: Theme.mutedFg; font: Theme.fontSmall }
+                    ComboBox {
+                        id: bitDepthCombo
+                        model: ["8-bit", "16-bit"]
+                        Layout.fillWidth: true
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
                     visible: formatCombo.currentText === "JPG"
                     Text { text: "Quality"; color: Theme.mutedFg; font: Theme.fontSmall }
                     RowLayout {
@@ -177,7 +188,7 @@ FolderDialog {
                 text: "Start Export"
                 enabled: !ExportManager.isExporting && AppState.selectionCount > 0
                 onClicked: {
-                    ExportManager.startExport(AppState.selectedImages, folderInput.text, formatCombo.currentText, Math.round(qualitySlider.value))
+                    ExportManager.startExport(AppState.selectedImages, folderInput.text, formatCombo.currentText, Math.round(qualitySlider.value), bitDepthCombo.currentIndex === 1 ? 16 : 8)
                 }
             }
         }

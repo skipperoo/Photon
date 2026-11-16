@@ -30,7 +30,8 @@ ExportManager::~ExportManager() { cancelExport(); }
 
 void ExportManager::startExport(const QStringList& paths,
                                 const QString& outputFolder,
-                                const QString& format, int quality) {
+                                const QString& format, int quality,
+                                int bitDepth) {
   if (m_isExporting) return;
 
   m_isExporting = true;
@@ -41,8 +42,8 @@ void ExportManager::startExport(const QStringList& paths,
   emit progressChanged();
 
   QFuture<void> future =
-      QtConcurrent::run([this, paths, outputFolder, format, quality]() {
-        processExport(paths, outputFolder, format, quality);
+      QtConcurrent::run([this, paths, outputFolder, format, quality, bitDepth]() {
+        processExport(paths, outputFolder, format, quality, bitDepth);
       });
   m_watcher.setFuture(future);
 
@@ -62,7 +63,9 @@ void ExportManager::cancelExport() {
 
 void ExportManager::processExport(const QStringList& paths,
                                   const QString& outputFolder,
-                                  const QString& format, int quality) {
+                                  const QString& format, int quality,
+                                  int bitDepth) {
+  const bool tiff = format.toLower().startsWith("tif");
   QDir().mkpath(outputFolder);
 
   for (const QString& path : paths) {
@@ -103,6 +106,7 @@ void ExportManager::processExport(const QStringList& paths,
     // 2. Load pixels: LibRaw for RAW, ImageDecoder for JPEG/TIFF
     QImage result;
     lastState["denoiseSecondPass"] = true;
+    lastState["outputBits"] = tiff && bitDepth == 16 ? 16 : 8;
 
     if (ImageDecoder::isBitmap(path)) {
       LogManager::instance()->log(

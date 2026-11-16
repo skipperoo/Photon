@@ -10,6 +10,7 @@
 #include <QMap>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QImageWriter>
 #include <QtTest>
 #include <vector>
 
@@ -78,6 +79,7 @@ class TestRawEngine : public QObject {
   void testToneBandsLocalNoHaloKeepDetail();
   void testToneMaskEncoding();
   void testToneSlidersMatchReference();
+  void testExport16BitTiff();
   void testEditStackCurrentState();
   void testExportUsesHistorySelectedState();
 };
@@ -3120,6 +3122,43 @@ void TestRawEngine::testToneSlidersMatchReference() {
     QVERIFY2(err < fitted * 1.25,
              qPrintable(QString("%1 drifted from Reference: error %2, fitted %3").arg(slider).arg(err).arg(fitted)));
   }
+}
+
+void TestRawEngine::testExport16BitTiff() {
+  // A smooth ramp: the 16-bit develop matches the 8-bit one (within its
+  // dither), keeps finer steps, and survives a TIFF round trip at 16 bits.
+  const int w = 256, h = 8;
+  std::vector<ushort> src(size_t(w) * h * 3);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      for (int c = 0; c < 3; ++c) src[(size_t(y) * w + x) * 3 + c] = ushort(x * 64 + 2000);
+  QJsonObject s;
+  s["contrast"] = 1.0; s["profile"] = "normal"; s["denoiseEnabled"] = false;
+  const QImage img8 = photon::ImageDeveloper::develop(src.data(), w, h, s);
+  s["outputBits"] = 16;
+  const QImage img16 = photon::ImageDeveloper::develop(src.data(), w, h, s);
+  QCOMPARE(img8.format(), QImage::Format_RGB888);
+  QCOMPARE(img16.format(), QImage::Format_RGBX64);
+  int distinct16 = 0, distinct8 = 0;
+  quint16 prev16 = 0; uchar prev8 = 0;
+  for (int x = 0; x < w; ++x) {
+    const quint16 v16 = reinterpret_cast<const quint16*>(img16.constScanLine(4))[x * 4 + 1];
+    const uchar v8 = img8.constScanLine(4)[x * 3 + 1];
+    QVERIFY2(std::abs(v16 / 257.0 - v8) <= 1.5, qPrintable(QString("x %1: %2 vs %3").arg(x).arg(v16).arg(v8)));
+    if (x == 0 || v16 != prev16) ++distinct16;
+    if (x == 0 || v8 != prev8) ++distinct8;
+    prev16 = v16; prev8 = v8;
+  }
+  QVERIFY2(distinct16 > distinct8, qPrintable(QString("%1 vs %2 levels").arg(distinct16).arg(distinct8)));
+  QTemporaryDir dir;
+  const QString path = dir.filePath("out.tif");
+  QVERIFY(QImageWriter(path, "tif").write(img16));
+  const QImage back(path);
+  QVERIFY(!back.isNull());
+  QCOMPARE(back.depth(), 64);
+  const QImage back64 = back.convertToFormat(QImage::Format_RGBX64);
+  QCOMPARE(reinterpret_cast<const quint16*>(back64.constScanLine(4))[128 * 4 + 1],
+           reinterpret_cast<const quint16*>(img16.constScanLine(4))[128 * 4 + 1]);
 }
 
 QTEST_MAIN(TestRawEngine)

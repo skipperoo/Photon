@@ -20,6 +20,8 @@
 #include "Calibration.h"
 #include "Denoiser.h"
 #include "SceneWhite.h"
+#include "ToneMask.h"
+#include "ToneMath.h"
 #include "LensFun.h"
 #include "CameraLook.h"
 #include "DevelopProfile.h"
@@ -227,7 +229,7 @@ static void apply_luma_target_cpp(float& r, float& g, float& b, float lumaIn,
   targetLuma = std::max(targetLuma, 0.0f);
   float safeLuma = std::max(lumaIn, 1e-4f);
   float lumaRatio = targetLuma / safeLuma;
-  float maxRatio = 1.0f + 9.0f * smoothstep_local(0.0f, 0.08f, lumaIn);
+  float maxRatio = photon::tone::liftCap(lumaIn);
   float safeRatio = std::clamp(lumaRatio, 0.0f, maxRatio);
   r *= safeRatio;
   g *= safeRatio;
@@ -528,32 +530,8 @@ static float photon001_encode_log_luma_cpp(float linearLuma) {
       std::max(linearLuma + PHOTON001_FLARE_LINEAR_CPP, PHOTON001_EPS_CPP));
 }
 
-static float photon001_decode_log_luma_cpp(float logLuma) {
-  return std::max(std::exp2(logLuma) - PHOTON001_FLARE_LINEAR_CPP,
-                  PHOTON001_EPS_CPP);
-}
-
-static float endpoint_pin_mask_component_cpp(float x) {
-  x = std::clamp(x, 0.0f, 1.0f);
-  const float inv = 1.0f - x;
-  const float inv2 = inv * inv;
-  const float inv4 = inv2 * inv2;
-  const float inv8 = inv4 * inv4;
-  const float inv16 = inv8 * inv8;
-  const float base = 1.0f - inv8;
-  const float strong = 1.0f - inv16;
-  return mix_local(base, strong, smoothstep_local(0.35f, 1.0f, x));
-}
-
 static float photon001_log_luma_cpp(const Vec3fCpp& c) {
   return photon001_encode_log_luma_cpp(photon001_working_luma_linear_cpp(c));
-}
-
-static float photon001_tent_weight_cpp(float value, float center,
-                                       float halfWidth) {
-  return std::max(
-      1.0f - std::abs(value - center) / std::max(halfWidth, PHOTON001_EPS_CPP),
-      0.0f);
 }
 
 struct Photon001SceneStatsCpp {
@@ -602,128 +580,98 @@ static Photon001SceneStatsCpp photon001_compute_scene_stats_cpp(
           std::clamp(rangeStops / 12.0f, 0.5f, 1.2f)};
 }
 
-static float photon001_local_laplacian_mask_cpp(float srcLog, float blurFineLog,
-                                                 float blurCoarseLog) {
-  const float lapFine = srcLog - blurFineLog;
-  const float lapMid = blurFineLog - blurCoarseLog;
-  return std::clamp(lapFine + 0.6f * lapMid, -2.5f, 2.5f);
+// White balance + exposure (gain and highlight roll-off), as the main loop
+// and the GPU log pass (Photon001Log.frag) apply them.
+static Vec3fCpp photon001_wb_exposure_cpp(Vec3fCpp c, float rWb, float gWb,
+                                          float bWb, float expMult, float ev) {
+  c.r *= rWb * expMult;
+  c.g *= gWb * expMult;
+  c.b *= bWb * expMult;
+  if (ev > 0.0f) {
+    const float luma = get_luma_cpp(std::max(0.0f, c.r), std::max(0.0f, c.g),
+                                    std::max(0.0f, c.b));
+    const float target = photon::tone::exposureLuma(luma / expMult, ev);
+    if (target < luma) apply_luma_target_cpp(c.r, c.g, c.b, luma, target);
+  }
+  return c;
 }
 
+// Separable blur of a log-luminance image with the GPU taps
+// (Photon001GaussianSmall/Big.frag: sigma 1 / 3.5 px, linear filtering).
+static void photon001_blur_log_cpp(const std::vector<float>& in, int width,
+                                   int height, bool coarse,
+                                   std::vector<float>& out) {
+  static const float kFine[][2] = {{1.18242552f, 0.29596257f},
+                                   {3.02931223f, 0.00456569f}};
+  static const float kCoarse[][2] = {
+      {1.46942595f, 0.20624514f}, {3.42905340f, 0.13826867f},
+      {5.38960340f, 0.06731104f}, {7.35154728f, 0.02378969f},
+      {9.31528835f, 0.00610264f}, {11.28114775f, 0.00113588f},
+      {13.24935770f, 0.00015335f}};
+  const float center = coarse ? 0.11398719f : 0.39894347f;
+  const float(*taps)[2] = coarse ? kCoarse : kFine;
+  const int tapCount = coarse ? 7 : 2;
+  auto pass = [&](const std::vector<float>& src, std::vector<float>& dst,
+                  bool horizontal) {
+    dst.resize(src.size());
+    std::vector<int> rows(height);
+    std::iota(rows.begin(), rows.end(), 0);
+    QtConcurrent::blockingMap(rows, [&](int y) {
+      for (int x = 0; x < width; ++x) {
+        auto at = [&](float off) {
+          const float p = (horizontal ? float(x) : float(y)) + off;
+          const int n = horizontal ? width : height;
+          const float pc = std::clamp(p, 0.0f, float(n - 1));
+          const int p0 = int(pc);
+          const int p1 = std::min(p0 + 1, n - 1);
+          const float t = pc - float(p0);
+          const size_t i0 = horizontal ? size_t(y) * width + p0
+                                       : size_t(p0) * width + x;
+          const size_t i1 = horizontal ? size_t(y) * width + p1
+                                       : size_t(p1) * width + x;
+          return src[i0] + (src[i1] - src[i0]) * t;
+        };
+        float v = center * src[size_t(y) * width + x];
+        for (int k = 0; k < tapCount; ++k)
+          v += taps[k][1] * (at(taps[k][0]) + at(-taps[k][0]));
+        dst[size_t(y) * width + x] = v;
+      }
+    });
+  };
+  std::vector<float> tmp;
+  pass(in, tmp, true);
+  pass(tmp, out, false);
+}
+
+// color: the pixel at the tone stage (after the local-contrast effects);
+// pass: the same pixel after WB + exposure only (the GPU log pass), which
+// drives the tone math; fineLog / coarseLog: its blurred working log
+// luminance (photon001_blur_log_cpp), or NAN when no detail is needed.
 static Vec3fCpp apply_photon001_tone_ranges_cpp(
-    const Vec3fCpp& color, const Vec3fCpp& blurredFine,
-    const Vec3fCpp& blurredCoarse, float highlightsAmt, float shadowsAmt,
-    float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm,
-    const Photon001SceneStatsCpp& sceneStats) {
+    const Vec3fCpp& color, const Vec3fCpp& pass, float fineLog,
+    float coarseLog, float highlightsAmt, float shadowsAmt, float whitesAmt,
+    float blacksAmt, float clarityAmt, const Photon001SceneStatsCpp& sceneStats,
+    float bandScale, const photon::tone::ToneMaskSample& maskSample,
+    float exposureEv, float hlCenter) {
+  // Shared with the histogram (ToneMath.h); Photon001Delta.frag mirrors it.
   const float srcGrayLinear = photon001_working_luma_linear_cpp(color);
   const float srcGrayLog = photon001_encode_log_luma_cpp(srcGrayLinear);
-  const float blurFineLog = photon001_log_luma_cpp(blurredFine);
-  const float blurCoarseLog = photon001_log_luma_cpp(blurredCoarse);
-  const float toneMid =
-      photon001_encode_log_luma_cpp(
-          std::max(sceneWhiteNorm * 0.18f, PHOTON001_EPS_CPP));
-
-  const float wShadows =
-      photon001_tent_weight_cpp(srcGrayLog, toneMid - 2.4f, 2.0f);
-  const float wHighlights =
-      photon001_tent_weight_cpp(srcGrayLog, toneMid + 1.0f, 1.9f);
-  const float wWhites =
-      photon001_tent_weight_cpp(srcGrayLog, toneMid + 3.1f, 2.2f);
-  const float wBlacks =
-      photon001_tent_weight_cpp(srcGrayLog, toneMid - 4.6f, 1.9f);
-
-  const float mask = photon001_local_laplacian_mask_cpp(
-      srcGrayLog, blurFineLog, blurCoarseLog);
-  const float deltaMask =
-      std::clamp(blurFineLog - blurCoarseLog, -1.0f, 1.0f);
-
-  const float partSwitch = step_local(srcGrayLog, toneMid);
-  const float compressedLow =
-      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.22f * sceneStats.compression);
-  const float compressedHigh =
-      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.42f * sceneStats.compression);
-  const float baseCompressed =
-      mix_local(compressedHigh, compressedLow, partSwitch);
-
-  float localContrastSignal = srcGrayLog + mask - baseCompressed;
-  localContrastSignal *= clarityAmt;
-  localContrastSignal *=
-      std::clamp(1.0f + 0.35f * (-highlightsAmt + shadowsAmt), 1.0f, 2.0f);
-  localContrastSignal *= sceneStats.detailScale;
-
-  const float lumWeightHigh =
-      std::clamp(wHighlights + 0.6f * wWhites, 0.0f, 1.0f);
-  const float lumWeightLow = std::clamp(wShadows + 0.6f * wBlacks, 0.0f, 1.0f);
-  const float endpointHigh = std::clamp(
-      std::abs(highlightsAmt) + 0.35f * std::abs(whitesAmt), 0.0f, 1.0f);
-  const float endpointLow = std::clamp(
-      std::abs(shadowsAmt) + 0.35f * std::abs(blacksAmt), 0.0f, 1.0f);
-  const float clarityPinHigh =
-      mix_local(endpoint_pin_mask_component_cpp(lumWeightHigh), 1.0f,
-                endpointHigh * endpointHigh);
-  const float clarityPinLow =
-      mix_local(endpoint_pin_mask_component_cpp(lumWeightLow), 1.0f,
-                endpointLow * endpointLow);
-  const float clarityPin = mix_local(clarityPinLow, clarityPinHigh, partSwitch);
-
-  float hsPinY =
-      mix_local(0.5f + 0.5f * std::max(1.0f - sign_local(shadowsAmt), 0.0f),
-                1.0f, clarityPinHigh);
-  float hsPinX = mix_local(
-      1.0f, 0.5f,
-      (1.0f - clarityPinLow) * std::max(-sign_local(highlightsAmt), 0.0f));
-  hsPinX =
-      mix_local(1.0f, hsPinX, std::clamp(std::abs(highlightsAmt), 0.0f, 1.0f));
-
-  const float maxAbsHS = std::max(
-      std::max(std::abs(highlightsAmt), std::abs(shadowsAmt)),
-      PHOTON001_EPS_CPP);
-  const float baseOffset = 0.85f * (highlightsAmt + shadowsAmt) / maxAbsHS;
-  const float offsetHSHigh = wHighlights * std::abs(highlightsAmt) * baseOffset;
-  const float offsetHSLow = wShadows * std::abs(shadowsAmt) * baseOffset;
-
-  float deltaHSHigh = std::clamp(-highlightsAmt, -1.0f, 1.0f);
-  float deltaHSLow = std::clamp(shadowsAmt, -1.0f, 1.0f);
-  deltaHSHigh *= std::min(deltaMask, 0.0f) * wHighlights;
-  deltaHSLow *= std::max(deltaMask, 0.0f) * wShadows;
-  deltaHSHigh += offsetHSHigh;
-  deltaHSLow += offsetHSLow;
-
-  const float whitesStops = whitesAmt * wWhites * hsPinX;
-  float recoveryStops = deltaHSHigh * hsPinX + deltaHSLow * hsPinY;
-  recoveryStops += blacksAmt * wBlacks * hsPinY;
-  recoveryStops += localContrastSignal * clarityPin;
-
-  const float fadeStrength =
-      0.6f + 0.2f * std::clamp(sceneStats.highlightPin, 0.0f, 1.0f);
-  const float positiveFade =
-      1.0f -
-      fadeStrength * smoothstep_local(toneMid + 1.0f, toneMid + 4.0f, srcGrayLog);
-  if (recoveryStops > 0.0f) recoveryStops *= positiveFade;
-
-  const float deltaSign = sign_local(recoveryStops);
-  const float flareSwitch = 1.0f - std::max(deltaSign, 0.0f);
-  const float zeroSwitch = 1.0f - std::abs(deltaSign);
-  const float flare = flareSwitch * PHOTON001_FLARE_LOG_CPP;
-  const float startpoint = flare - (recoveryStops + recoveryStops);
-  const float t1 = step_local(startpoint, srcGrayLog);
-  const float t2 = step_local(srcGrayLog, startpoint);
-  float t =
-      std::clamp((srcGrayLog - startpoint) / (flare - startpoint + zeroSwitch),
-                 0.0f, 1.0f);
-  t *= t * (1.0f - mix_local(t2, t1, flareSwitch));
-  recoveryStops = mix_local(recoveryStops, 0.0f, t);
-  recoveryStops = std::min(recoveryStops, 4.0f);
-
-  float recoveryTarget =
-      photon001_decode_log_luma_cpp(srcGrayLog + recoveryStops);
-  if (recoveryTarget > sceneWhiteNorm && recoveryStops > 0.0f) {
-    const float over = recoveryTarget - sceneWhiteNorm;
-    const float knee = std::max(sceneWhiteNorm * 0.7f, PHOTON001_EPS_CPP);
-    const float compress = over / (1.0f + over / knee);
-    recoveryTarget = sceneWhiteNorm + compress;
-  }
-  const float targetLuma = recoveryTarget * std::exp2(whitesStops);
-
+  const float passLog =
+      photon001_encode_log_luma_cpp(photon001_working_luma_linear_cpp(pass));
+  if (std::isnan(fineLog)) fineLog = coarseLog = passLog;
+  const float actualLog = photon::tone::encodeLogLuma(get_luma_cpp(
+      std::max(pass.r, 0.0f), std::max(pass.g, 0.0f), std::max(pass.b, 0.0f)));
+  // Brightest channel (lift roll-off).
+  const float maxLog = std::log2(std::max({pass.r, pass.g, pass.b, 1e-6f}));
+  // Band position: the edge-aware tone mask at this pixel (local tone
+  // mapping, ToneMask.h).
+  const float bandLog =
+      photon::tone::maskLogExposed(maskSample, actualLog, exposureEv);
+  const photon::tone::ToneRangeResult r = photon::tone::toneRangeStops(
+      passLog, bandLog, actualLog, maxLog, fineLog, coarseLog,
+      highlightsAmt, shadowsAmt, whitesAmt, blacksAmt, clarityAmt,
+      sceneStats.detailScale, bandScale, hlCenter);
+  const float targetLuma = photon::tone::toneRangeTargetLuma(srcGrayLog, r);
   Vec3fCpp out = color;
   apply_luma_target_cpp(out.r, out.g, out.b, srcGrayLinear, targetLuma);
   return out;
@@ -1415,6 +1363,12 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   const Photon001SceneStatsCpp sceneStats =
       photon001_compute_scene_stats_cpp(src, width, height, linearLut.data(),
                                         sceneWhite);
+  // Band safety scale (no tone inversion for any slider combination); it
+  // depends on the sliders only, so compute it once per render.
+  const float hlCenter = photon::tone::highlightsCenter(sceneWhite, exp);
+  const float toneBandScale = photon::tone::bandSafetyScale(
+      high / 100.0f, shad / 100.0f, whites / 100.0f, blacks / 100.0f,
+      hlCenter);
   stage("scene stats");
 
   // === Source preparation, in preview order ===
@@ -1566,6 +1520,40 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
                                            true, coarseBlurH);
   stage("blur precompute");
 
+  // Edge-aware tone mask (local tone mapping for the tone bands), from the
+  // prepared (denoised, lens-corrected, cropped) source, white-balanced, at
+  // 0 EV - exactly what the preview computes (RawEngine::updateToneMask).
+  photon::tone::ToneMask toneMask;
+  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f) {
+    const float wbMul[3] = {r_wb, g_wb, b_wb};
+    toneMask = photon::tone::computeToneMask(src, width, height, 3, wbMul);
+  }
+  stage("tone mask");
+
+  // Local detail for Clarity / +Shadows: the working log luminance after WB +
+  // exposure (the GPU log pass), blurred in log with the GPU taps, so the
+  // export matches the preview (blurring linear RGB first biased it dark).
+  std::vector<float> fineLogImg, coarseLogImg;
+  if (clarity != 0.0f || shad > 0.0f) {
+    std::vector<float> logImg(size_t(width) * size_t(height));
+    std::vector<int> logRows(height);
+    std::iota(logRows.begin(), logRows.end(), 0);
+    QtConcurrent::blockingMap(logRows, [&](int y) {
+      for (int x = 0; x < width; ++x) {
+        const size_t i = size_t(y) * width + x;
+        const Vec3fCpp pass = photon001_wb_exposure_cpp(
+            Vec3fCpp{linearLut[src[i * 3]], linearLut[src[i * 3 + 1]],
+                     linearLut[src[i * 3 + 2]]},
+            r_wb, g_wb, b_wb, exp_mult, exp);
+        logImg[i] =
+            photon001_encode_log_luma_cpp(photon001_working_luma_linear_cpp(pass));
+      }
+    });
+    photon001_blur_log_cpp(logImg, width, height, false, fineLogImg);
+    photon001_blur_log_cpp(logImg, width, height, true, coarseLogImg);
+  }
+  stage("detail blur");
+
   QImage output(width, height, QImage::Format_RGB888);
 
   // Film grain lives in image-relative coordinates (long edge = 2000 units),
@@ -1643,38 +1631,18 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       color = fx_dehaze_cpp(color, fxDehaze / 100.0f);
       color = fx_centre_cpp(color, fxCentre, u, v);
 
-      // 1. WB & Exposure
-      color.r *= r_wb * exp_mult;
-      color.g *= g_wb * exp_mult;
-      color.b *= b_wb * exp_mult;
-
-      if (exp > 0.0f) {
-        float kneeStart =
-            sceneWhite * 0.65f *
-            (1.0f - 0.30f * std::clamp(exp / 2.5f, 0.0f, 1.0f));
-        const float luma =
-            get_luma_cpp(std::max(0.0f, color.r), std::max(0.0f, color.g),
-                         std::max(0.0f, color.b));
-        if (luma > kneeStart) {
-          const float range = std::max(1.0f - kneeStart, 1e-4f);
-          const float over = luma - kneeStart;
-          const float target =
-              kneeStart + range * (1.0f - std::exp(-over / range));
-          apply_luma_target_cpp(color.r, color.g, color.b, luma, target);
-        }
-      }
-
-      Vec3fCpp blurredFineTone{blurredFine.r * r_wb * exp_mult,
-                               blurredFine.g * g_wb * exp_mult,
-                               blurredFine.b * b_wb * exp_mult};
-      Vec3fCpp blurredCoarseTone{blurredCoarse.r * r_wb * exp_mult,
-                                 blurredCoarse.g * g_wb * exp_mult,
-                                 blurredCoarse.b * b_wb * exp_mult};
-      const float sceneWhiteNorm = std::max(sceneWhite * exp_mult, 1e-4f);
+      // 1. WB & Exposure (gain + highlight roll-off, shared ToneMath)
+      color = photon001_wb_exposure_cpp(color, r_wb, g_wb, b_wb, exp_mult, exp);
+      // The tone math reads the pixel before the local-contrast effects,
+      // like the GPU log pass.
+      const Vec3fCpp tonePass = photon001_wb_exposure_cpp(
+          Vec3fCpp{r, g, b}, r_wb, g_wb, b_wb, exp_mult, exp);
+      const bool haveDetail = !fineLogImg.empty();
       color = apply_photon001_tone_ranges_cpp(
-          color, blurredFineTone, blurredCoarseTone, high / 100.0f,
+          color, tonePass, haveDetail ? fineLogImg[size_t(i)] : NAN,
+          haveDetail ? coarseLogImg[size_t(i)] : NAN, high / 100.0f,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
-          sceneWhiteNorm, sceneStats);
+          sceneStats, toneBandScale, toneMask.sample(u, v), exp, hlCenter);
 
       // Calibration (scene-linear, before the tone curve)
       photon::calibration::apply(calib, color.r, color.g, color.b);
@@ -1685,11 +1653,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       b = std::max(0.0f, color.b);
       if (std::abs(con - 1.0f) > 0.001f) {
         const float lumaC = get_luma_cpp(r, g, b);
-        const float x = std::clamp(lumaC, 0.0f, 1.0f);
-        const float sCurve = x * x * (3.0f - 2.0f * x);
-        const float strength =
-            std::clamp((con - 1.0f) * 1.2f, -0.6f, 0.6f);
-        const float target = std::max(mix_local(x, sCurve, strength), 0.0f);
+        const float target = photon::tone::contrastLuma(lumaC, con);
         apply_luma_target_cpp(r, g, b, lumaC, target);
       }
 

@@ -27,6 +27,22 @@ const mat3 RGB_TO_PROPHOTO = mat3(
 
 const vec3 WORKING_LUMA_WEIGHTS = vec3(0.30, 0.59, 0.11);
 
+// Exposure (mirrors photon::tone::exposureGain / exposureLuma, ToneMath.h).
+float exposure_gain(float ev) {
+    return exp2(ev > 0.0 ? ev * 0.85 : ev);
+}
+
+float exposure_luma(float l, float ev) {
+    float g = exposure_gain(ev);
+    if (ev <= 0.0 || l <= 0.0) return l * g;
+    float headroom = 1.0 - l;
+    if (headroom <= 0.0) return l;
+    float q = l * (g - 1.0) / headroom;
+    float p = 1.0 + clamp((ev - 1.0) * 0.5, 0.0, 1.0);
+    float phi = q / pow(1.0 + pow(q, p), 1.0 / p);
+    return l + headroom * phi;
+}
+
 vec3 srgb_to_linear(vec3 c) {
     return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
 }
@@ -73,8 +89,20 @@ void main() {
 
     vec3 color = srgb_to_linear(texture(source, qt_TexCoord0).rgb);
     color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0) * ubuf.wbGain;
-    color *= pow(2.0, ubuf.exposure);
+    float gain = exposure_gain(ubuf.exposure);
+    color *= gain;
+    if (ubuf.exposure > 0.0) {
+        float luma = dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+        float target = exposure_luma(luma / gain, ubuf.exposure);
+        if (target < luma) color *= target / max(luma, 1e-4);
+    }
 
+    // x: working (unrendered) log luminance (local detail, flare floor);
+    // y: Rec.709 log luminance (tone band positions);
+    // z: log2 of the brightest channel (lift roll-off).
     float logL = photon001_encode_log_luma(photon001_working_luma_linear(color));
-    fragColor = vec4(vec3(logL), 1.0);
+    float logActual = photon001_encode_log_luma(
+        dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722)));
+    float logMax = log2(max(max(color.r, max(color.g, color.b)), 1e-6));
+    fragColor = vec4(logL, logActual, logMax, 1.0);
 }

@@ -31,6 +31,10 @@ configure_file(
 option(PHOTON_ENABLE_ASAN "Build with AddressSanitizer" OFF)
 option(PHOTON_ENABLE_AI_DENOISE "Build AI denoise (ncnn + RawNIND model)" ON)
 
+# ShaderTools is build-time only (qt6_add_shaders). Photon must NOT link
+# Qt6::ShaderTools: its exported glslang symbols would satisfy ncnn's static
+# glslang at link time, mixing two glslang versions (crash in TShader::parse
+# when the AI denoiser compiles its Vulkan shaders).
 find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 ShaderTools Gui Concurrent GuiPrivate)
 find_package(Vulkan REQUIRED)
 find_package(JPEG REQUIRED)
@@ -85,6 +89,10 @@ qt_add_executable(Photon
     src/engine/CameraLookMath.h
     src/engine/DevelopProfile.h
     src/engine/SceneWhite.h
+    src/engine/ToneMath.h
+    src/engine/ToneMask.cpp
+    src/engine/ToneMask.h
+    src/components/ToneMaskProvider.h
     src/engine/VulkanComputeContext.cpp
     src/engine/VulkanComputeContext.h
     src/engine/patch_search.comp
@@ -168,6 +176,8 @@ qt_add_qml_module(Photon
         src/engine/Denoiser.h
         src/engine/AiDenoiser.cpp
         src/engine/AiDenoiser.h
+        src/engine/ToneMask.cpp
+        src/engine/ToneMask.h
         src/engine/GpuSearcher.cpp
         src/engine/GpuSearcher.h
         src/engine/GpuChromaFilter.cpp
@@ -303,7 +313,7 @@ endif()
 
 if(WIN32)
     target_link_libraries(Photon
-      PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
+      PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate
         PRIVATE ${LibRaw_LIBRARIES}
         PRIVATE ${OpenCV_LIBRARIES}
         PRIVATE ${TIFF_LIBRARIES}
@@ -314,7 +324,7 @@ if(WIN32)
     )
 else()
     target_link_libraries(Photon
-        PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::ShaderTools Qt6::Concurrent Qt6::GuiPrivate
+        PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::Concurrent Qt6::GuiPrivate
         PRIVATE ${LIBRAW_LIBRARIES}
         PRIVATE ${OPENCV_LIBRARIES}
         PRIVATE ${TIFF_LIBRARIES}

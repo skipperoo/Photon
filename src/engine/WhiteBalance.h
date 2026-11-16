@@ -10,7 +10,7 @@
 namespace photon {
 namespace whitebalance {
 
-// RAW temperature slider range (Lightroom-like).
+// RAW temperature slider range (Reference-like).
 constexpr float kMinKelvin = 2000.0f;
 constexpr float kMaxKelvin = 50000.0f;
 
@@ -62,7 +62,7 @@ inline void planckianLinearRgb(float kelvin, float rgb[3]) {
 
 // White-balance multipliers (green = 1) that neutralize a scene lit at
 // `targetKelvin`, relative to the camera's as-shot `referenceKelvin`.
-// Higher target temperatures render warmer, like the Lightroom slider.
+// Higher target temperatures render warmer, like the Reference slider.
 inline void relativeGains(float targetKelvin, float referenceKelvin,
                           float gains[3]) {
   float target[3];

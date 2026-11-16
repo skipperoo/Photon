@@ -48,7 +48,7 @@ ColumnLayout {
             from: root.from
             to: root.to
             stepSize: root.stepSize
-            decimals: (root.title === "Exposure" || root.title === "Contrast") ? 2 : 0
+            decimals: root.title === "Exposure" ? 2 : 0
             opacity: 0.8
             onValueEdited: (v) => {
                 root.moved(v)

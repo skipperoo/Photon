@@ -1,4 +1,6 @@
 #include <cmath>
+#include <libraw/libraw.h>
+#include <map>
 #include <QCoreApplication>
 #include <QDir>
 #include <QJsonArray>
@@ -12,6 +14,8 @@
 #include <vector>
 
 #include "AiDenoiser.h"
+#include "ToneMask.h"
+#include "ToneMath.h"
 #include "EditStack.h"
 #include "AppStateManager.h"
 #include "BitmapTestUtils.h"
@@ -70,6 +74,10 @@ class TestRawEngine : public QObject {
   void testAiDenoiseModeAndFallback();
   void testAiDenoiseEngineIntegration();
   void testWhiteBalanceKelvinRange50k();
+  void testLightSlidersSmoothMonotoneAndRanged();
+  void testToneBandsLocalNoHaloKeepDetail();
+  void testToneMaskEncoding();
+  void testToneSlidersMatchReference();
   void testEditStackCurrentState();
   void testExportUsesHistorySelectedState();
 };
@@ -335,15 +343,15 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
             brightRef - 0.005f);
   }
 
-  // Window targeting: blacks must stay in the deepest tones and not behave
-  // like shadows.
+  // Window targeting: +Blacks (an output-black lift) acts most, in stops, on
+  // the deepest tones.
   {
     const QImage blacksUp = imageWith("blacks", 100.0);
     const float deepRef = bandMean(ref, 0, 2);
     const float deepBlacks = bandMean(blacksUp, 0, 2);
     QVERIFY(std::abs(deepBlacks - deepRef) > 0.0002f);
-    QVERIFY(std::abs(bandMean(blacksUp, 4, 12) - bandMean(ref, 4, 12)) <
-            0.001f);
+    QVERIFY(std::log2(deepBlacks / deepRef) >
+            2.0f * std::log2(bandMean(blacksUp, 4, 12) / bandMean(ref, 4, 12)));
   }
 
   // Shadows must reach deep shadows but leave mid/bright tones alone.
@@ -409,14 +417,42 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
     return float(sum / double(a.width() * a.height() * 3));
   };
 
-  const QImage clarityUp = imageWith("clarity", 100.0);
-  const QImage clarityDown = imageWith("clarity", -100.0);
-  QVERIFY(maxLumaDiff(clarityUp, ref) > 0.005f);
-  QVERIFY(maxLumaDiff(clarityDown, ref) > 0.005f);
+  // Clarity is local contrast: it needs texture (a smooth ramp has none and
+  // must stay put), and +/-100 act with comparable strength.
+  {
+    QJsonObject clarityOn = base;
+    clarityOn["clarity"] = 100.0;
+    const QImage smooth =
+        photon::ImageDeveloper::develop(src.data(), w, h, clarityOn);
+    // (Detail is measured on blurred log luminance, like the GPU preview: a
+    // ramp linear in light is slightly curved in log near black.)
+    const float diff = meanAbsLumaDiff(smooth, ref);
+    QVERIFY2(diff < 0.006f, qPrintable(QString("smooth ramp moved by %1").arg(diff)));
+  }
+  std::vector<ushort> texSrc(src.size());
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      const float linear = (0.002f + 0.998f * float(x) / float(w - 1)) *
+                           ((((x / 2) + (y / 2)) % 2) ? 1.15f : 0.87f);
+      const ushort v = linearToSrgb16(std::min(linear, 1.0f));
+      const int i = (y * w + x) * 3;
+      texSrc[i] = texSrc[i + 1] = texSrc[i + 2] = v;
+    }
+  }
+  auto texWith = [&](double clarityValue) {
+    QJsonObject settings = base;
+    settings["clarity"] = clarityValue;
+    return photon::ImageDeveloper::develop(texSrc.data(), w, h, settings);
+  };
+  const QImage texRef = texWith(0.0);
+  const QImage clarityUp = texWith(100.0);
+  const QImage clarityDown = texWith(-100.0);
+  QVERIFY(maxLumaDiff(clarityUp, texRef) > 0.005f);
+  QVERIFY(maxLumaDiff(clarityDown, texRef) > 0.005f);
   QVERIFY(maxLumaDiff(clarityUp, clarityDown) > 0.005f);
 
-  const float upDiff = meanAbsLumaDiff(clarityUp, ref);
-  const float downDiff = meanAbsLumaDiff(clarityDown, ref);
+  const float upDiff = meanAbsLumaDiff(clarityUp, texRef);
+  const float downDiff = meanAbsLumaDiff(clarityDown, texRef);
   QVERIFY(upDiff > 0.001f);
   QVERIFY(downDiff > 0.001f);
   QVERIFY(upDiff < 2.0f * downDiff);
@@ -1294,8 +1330,10 @@ void TestRawEngine::testOklabCreativeOps() {
   std::vector<ushort> grad(cw * ch * 3);
   for (int y = 0; y < ch; ++y) {
     for (int x = 0; x < cw; ++x) {
-      float v = 0.5f;
-      if (x < 8) v = 0.08f;
+      // Contrast pivots at mid-grey (0.18 linear): darker tones darken,
+      // brighter tones brighten, mid-grey stays put.
+      float v = 0.18f;
+      if (x < 8) v = 0.02f;
       else if (x >= 24) v = 0.85f;
       const ushort sv = srgb16(v);
       const int i = (y * cw + x) * 3;
@@ -1324,7 +1362,7 @@ void TestRawEngine::testOklabCreativeOps() {
       photon::ImageDeveloper::develop(grad.data(), cw, ch, cHigh);
   QVERIFY(bandLuma(cOut, 0, 8) < bandLuma(cRef, 0, 8) - 0.005f);
   QVERIFY(bandLuma(cOut, 24, 32) > bandLuma(cRef, 24, 32) + 0.005f);
-  QVERIFY(std::abs(bandLuma(cOut, 10, 22) - bandLuma(cRef, 10, 22)) < 0.06f);
+  QVERIFY(std::abs(bandLuma(cOut, 10, 22) - bandLuma(cRef, 10, 22)) < 0.01f);
 }
 
 void TestRawEngine::testToneCurveLumaMatchesReferenceMapping() {
@@ -1968,7 +2006,7 @@ void TestRawEngine::testExportSceneWhiteMatchesPreview() {
   base["contrast"] = 1.0;
   base["profile"] = "normal";
   base["denoiseEnabled"] = false;
-  base["exposure"] = 1.5;  // engages the scene-white highlight knee
+  base["exposure"] = 1.5;
   base["highlights"] = -40.0;
 
   QJsonObject injected = base;
@@ -1982,7 +2020,9 @@ void TestRawEngine::testExportSceneWhiteMatchesPreview() {
   const QImage legacyImg =
       photon::ImageDeveloper::develop(src.data(), w, h, legacy);
   QCOMPARE(autoImg, injectedImg);
-  QVERIFY(autoImg != legacyImg);
+  // The tone bands are display-referred with a fixed Highlights centre
+  // (Reference fit): the scene white no longer changes the render.
+  QCOMPARE(autoImg, legacyImg);
 }
 
 // --- AI denoise (model-agnostic parts; the tests build without ncnn) -------
@@ -2473,6 +2513,613 @@ void TestRawEngine::testWhiteBalanceKelvinRange50k() {
   wb::relativeGains(50000.0f, wb::kNeutralKelvin, top);
   QCOMPARE(over[0], top[0]);
   QCOMPARE(over[2], top[2]);
+}
+
+// --- Light sliders: continuity, monotonicity and tonal ranges --------------
+//
+// A synthetic test photo: a step wedge of grey patches (log-spaced from deep
+// black to just over white), one flat row and one textured row (the tone
+// ranges also react to local contrast). Each slider is swept across its whole
+// range through the CPU develop path (which the GPU shaders mirror) and every
+// patch is checked for jumps, for monotone response and for tone inversion.
+// With PHOTON_TONE_REPORT=1 the per-patch response is printed.
+namespace {
+struct ToneWedge {
+  static constexpr int kPatches = 24;
+  static constexpr int kPatch = 32;
+  int width = kPatches * kPatch;
+  int height = 2 * kPatch;
+  std::vector<ushort> src;
+  std::vector<double> linear;  // patch luminance (linear)
+
+  ToneWedge() {
+    src.resize(size_t(width) * height * 3);
+    linear.resize(kPatches);
+    auto encode = [](double l) {
+      l = std::clamp(l, 0.0, 1.0);
+      const double e = l <= 0.0031308 ? l * 12.92 : 1.055 * std::pow(l, 1 / 2.4) - 0.055;
+      return ushort(std::clamp(e * 65535.0 + 0.5, 0.0, 65535.0));
+    };
+    for (int p = 0; p < kPatches; ++p) {
+      // 2^-11 .. 2^0 (and the last patch clipped white)
+      linear[p] = std::pow(2.0, -11.0 + 11.0 * p / double(kPatches - 2));
+      for (int y = 0; y < height; ++y) {
+        for (int x = p * kPatch; x < (p + 1) * kPatch; ++x) {
+          double l = linear[p];
+          if (y >= kPatch) {
+            // textured row: +-25 % checker of 4 px
+            l *= (((x / 4) + (y / 4)) % 2) ? 1.25 : 0.8;
+          }
+          const ushort v = encode(l);
+          const size_t i = (size_t(y) * width + x) * 3;
+          src[i] = src[i + 1] = src[i + 2] = v;
+        }
+      }
+    }
+  }
+
+  // Mean linear luminance of each patch centre (flat row = row 0).
+  std::vector<double> measure(const QImage& img, int row) const {
+    std::vector<double> out(kPatches);
+    for (int p = 0; p < kPatches; ++p) {
+      double sum = 0.0;
+      int n = 0;
+      for (int y = row * kPatch + 8; y < row * kPatch + kPatch - 8; ++y) {
+        const uchar* s = img.constScanLine(y);
+        for (int x = p * kPatch + 8; x < (p + 1) * kPatch - 8; ++x) {
+          auto lin = [](double v) {
+            v /= 255.0;
+            return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+          };
+          sum += 0.2126 * lin(s[x * 3]) + 0.7152 * lin(s[x * 3 + 1]) +
+                 0.0722 * lin(s[x * 3 + 2]);
+          ++n;
+        }
+      }
+      out[p] = sum / n;
+    }
+    return out;
+  }
+};
+
+// Display-referred (sRGB-encoded) value, the scale artefacts are judged in.
+double toDisplay(double l) {
+  l = std::clamp(l, 0.0, 1.0);
+  return l <= 0.0031308 ? l * 12.92 : 1.055 * std::pow(l, 1 / 2.4) - 0.055;
+}
+}  // namespace
+
+void TestRawEngine::testLightSlidersSmoothMonotoneAndRanged() {
+  const ToneWedge wedge;
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+  const bool report = qEnvironmentVariableIsSet("PHOTON_TONE_REPORT");
+
+  struct Slider {
+    const char* key;
+    double from, to, step;
+    bool brightens;  // monotone non-decreasing in the slider
+  };
+  const Slider sliders[] = {
+      {"exposure", -3.0, 3.0, 0.1, true}, {"highlights", -100, 100, 4, true},
+      {"shadows", -100, 100, 4, true},    {"whites", -100, 100, 4, true},
+      {"blacks", -100, 100, 4, true},     {"clarity", -100, 100, 10, false},
+      {"contrast", -100, 100, 4, false},
+  };
+  // Couplings that used to break monotonicity / continuity, and the combos
+  // most likely to invert tones (opposite moves of neighbouring bands).
+  struct Context {
+    const char* name;
+    const char* key;
+    double value;
+    QStringList sweep;
+  };
+  const Context contexts[] = {
+      {"", "", 0.0, {}},
+      {"blacks=-60", "blacks", -60.0, {"shadows"}},
+      {"highlights=+60", "highlights", 60.0, {"shadows"}},
+      {"shadows=+60", "shadows", 60.0, {"highlights"}},
+      {"shadows=-100", "shadows", -100.0, {"blacks", "highlights"}},
+      {"highlights=-100", "highlights", -100.0, {"whites", "shadows"}},
+      {"exposure=+2", "exposure", 2.0, {"highlights", "whites"}},
+  };
+
+  QStringList failures;
+  for (const Context& ctx : contexts) {
+    for (const Slider& sl : sliders) {
+      if (ctx.key[0] && !ctx.sweep.contains(sl.key)) continue;
+      std::vector<std::vector<double>> rowsFlat, rowsTex;
+      std::vector<double> values;
+      for (double v = sl.from; v <= sl.to + 1e-9; v += sl.step) {
+        QJsonObject s = base;
+        if (ctx.key[0]) s[ctx.key] = ctx.value;
+        if (QString(sl.key) == "contrast")
+          s["contrast"] = 1.0 + v / 200.0;  // UI mapping
+        else
+          s[sl.key] = v;
+        const QImage out =
+            photon::ImageDeveloper::develop(wedge.src.data(), wedge.width,
+                                            wedge.height, s);
+        rowsFlat.push_back(wedge.measure(out, 0));
+        rowsTex.push_back(wedge.measure(out, 1));
+        values.push_back(v);
+      }
+      for (int row = 0; row < 2; ++row) {
+        const auto& r = row == 0 ? rowsFlat : rowsTex;
+        for (int p = 0; p < ToneWedge::kPatches; ++p) {
+          // Jumps: display-referred change between neighbouring slider
+          // values well above the typical step (and above dither noise).
+          std::vector<double> steps;
+          for (size_t i = 1; i < r.size(); ++i)
+            steps.push_back(std::abs(toDisplay(r[i][p]) - toDisplay(r[i - 1][p])));
+          // A jump is a step much larger than both neighbours (an
+          // accelerating curve, like +Whites, has growing but similar steps).
+          for (size_t i = 0; i < steps.size(); ++i) {
+            const double prev = i > 0 ? steps[i - 1] : steps[i + 1];
+            const double next = i + 1 < steps.size() ? steps[i + 1] : steps[i - 1];
+            if (steps[i] > std::max(3.0 * std::max(prev, next), 2.5 / 255.0)) {
+              failures << QStringLiteral("%1%2 %3 patch %4: jump %5 at %6")
+                              .arg(ctx.name).arg(ctx.name[0] ? " " : "")
+                              .arg(sl.key).arg(p)
+                              .arg(steps[i] * 255.0, 0, 'f', 1)
+                              .arg(values[i + 1]);
+              break;
+            }
+          }
+          // Monotone in the slider (brightening sliders).
+          if (sl.brightens) {
+            for (size_t i = 1; i < r.size(); ++i) {
+              if (toDisplay(r[i][p]) < toDisplay(r[i - 1][p]) - 1.0 / 255.0) {
+                failures << QStringLiteral("%1%2 %3 patch %4 row %5: decreases at %6")
+                                .arg(ctx.name).arg(ctx.name[0] ? " " : "")
+                                .arg(sl.key).arg(p).arg(row).arg(values[i]);
+                break;
+              }
+            }
+          }
+        }
+        // No tone inversion along the (flat) wedge at any setting.
+        if (row == 0) {
+          for (size_t i = 0; i < r.size(); ++i) {
+            for (int p = 1; p < ToneWedge::kPatches; ++p) {
+              // Equal inputs (clipped white) may differ with local tone
+              // mapping (different surroundings): only strictly brighter
+              // inputs must stay brighter.
+              if (std::min(wedge.linear[p], 1.0) <= std::min(wedge.linear[p - 1], 1.0))
+                continue;
+              if (toDisplay(r[i][p]) < toDisplay(r[i][p - 1]) - 1.0 / 255.0) {
+                failures << QStringLiteral("%1%2 %3=%4: tone inversion at patch %5")
+                                .arg(ctx.name).arg(ctx.name[0] ? " " : "")
+                                .arg(sl.key).arg(values[i]).arg(p);
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (!ctx.name[0]) {
+        // Tonal zones (display-referred, Reference-like), flat row, stops at
+        // the slider extremes. Patch p has log2(L) = -11 + 0.5 p (display
+        // white = patch 22).
+        const auto& r = rowsFlat;
+        const size_t mid = r.size() / 2;
+        auto at = [&](bool high, int p) {
+          return std::log2(std::max(high ? r.back()[p] : r.front()[p], 1e-6) /
+                           std::max(r[mid][p], 1e-6));
+        };
+        struct Zone {
+          const char* key;
+          bool high;  // slider at +100 (else -100)
+          int patch;
+          double lo, hi;  // allowed stops
+          const char* what;
+        };
+        const Zone zones[] = {
+            // (fitted to Reference: broad Shadows/Highlights, Whites over
+            // everything above ~20 %, Blacks a levels black point)
+            {"shadows", true, 10, 0.9, 3.0, "Shadows lifts ~13 % strongly"},
+            {"shadows", true, 22, -0.01, 0.05, "Shadows leaves white alone"},
+            {"highlights", false, 19, -2.0, -0.6, "-Highlights darkens ~63 %"},
+            {"highlights", false, 22, -2.0, -0.3, "-Highlights darkens near-white with its region"},
+            {"highlights", true, 19, 0.5, 2.0, "+Highlights lifts ~63 %"},
+            {"highlights", true, 22, -0.01, 0.05, "+Highlights does not clip white"},
+            {"whites", false, 22, -1.0, -0.15, "-Whites lowers white"},
+            {"whites", true, 17, 1.0, 4.0, "+Whites lifts ~46 % strongly"},
+            {"blacks", false, 6, -12.0, -3.0, "-Blacks crushes ~4 % to black"},
+            {"blacks", true, 6, 0.5, 3.0, "+Blacks lifts ~4 %"},
+            {"blacks", true, 22, -0.01, 0.05, "+Blacks leaves white alone"},
+        };
+        for (const Zone& z : zones) {
+          if (QString(z.key) != sl.key) continue;
+          const double v = at(z.high, z.patch);
+          if (v < z.lo || v > z.hi) {
+            failures << QStringLiteral("zone: %1 (patch %2: %3 stops, want %4..%5)")
+                            .arg(z.what).arg(z.patch).arg(v, 0, 'f', 2)
+                            .arg(z.lo).arg(z.hi);
+          }
+        }
+      }
+      if (report && !ctx.name[0]) {
+        // Response in stops at the extremes, flat row.
+        const auto& r = rowsFlat;
+        const size_t mid = r.size() / 2;
+        QString lo, hi;
+        for (int p = 0; p < ToneWedge::kPatches; ++p) {
+          lo += QStringLiteral("%1 ").arg(std::log2(std::max(r.front()[p], 1e-6) / std::max(r[mid][p], 1e-6)), 5, 'f', 2);
+          hi += QStringLiteral("%1 ").arg(std::log2(std::max(r.back()[p], 1e-6) / std::max(r[mid][p], 1e-6)), 5, 'f', 2);
+        }
+        qInfo().noquote() << sl.key << "min:" << lo;
+        qInfo().noquote() << sl.key << "max:" << hi;
+      }
+    }
+  }
+  if (report) {
+    QString lum;
+    for (double l : wedge.linear) lum += QStringLiteral("%1 ").arg(std::log2(l), 5, 'f', 1);
+    qInfo().noquote() << "patch log2(L):" << lum;
+  }
+  for (const QString& f : failures) qWarning().noquote() << f;
+  QVERIFY2(failures.isEmpty(),
+           qPrintable(QStringLiteral("%1 problems, first: %2")
+                          .arg(failures.size())
+                          .arg(failures.isEmpty() ? QString() : failures.first())));
+}
+
+namespace {
+// Synthetic scene for the local tone mapping of the tone bands: a hard
+// 5.3-stop edge between a textured dark half (Shadows peak) and a textured
+// bright half (Highlights peak), above a textured midtone band (on the
+// falling side of Shadows, like skin, with facial-feature-sized structure).
+struct ToneEdgeScene {
+  static constexpr int width = 1536;
+  static constexpr int height = 768;
+  static constexpr int edgeX = 768;
+  static constexpr int bandY = 512;
+  // dark half at the Shadows peak (~13 %), bright half in the upper
+  // Highlights (~80 %), band on the falling side of Shadows (~24 %).
+  static constexpr double darkL = 0.015, brightL = 0.6, midL = 0.065;
+  std::vector<ushort> src;
+
+  ToneEdgeScene() {
+    src.resize(size_t(width) * height * 3);
+    auto encode = [](double l) {
+      l = std::clamp(l, 0.0, 1.0);
+      const double e = l <= 0.0031308 ? l * 12.92 : 1.055 * std::pow(l, 1 / 2.4) - 0.055;
+      return ushort(std::clamp(e * 65535.0 + 0.5, 0.0, 65535.0));
+    };
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        const double base = y >= bandY ? midL : (x < edgeX ? darkL : brightL);
+        // fine texture: per-pixel hash, +-0.25 stop
+        uint32_t hsh = uint32_t(x) * 73856093u ^ uint32_t(y) * 19349663u;
+        hsh = (hsh ^ (hsh >> 13)) * 1274126177u;
+        const double n = double(hsh & 0xFFFF) / 65535.0 * 2.0 - 1.0;
+        // coarser structure: 8 px checker, +-0.15 stop; the midtone band
+        // has strong mid-scale structure instead (24 px, +-0.5 stop, like
+        // facial features), which raises the guided filter's a there.
+        const int cell = y >= bandY ? 24 : 8;
+        const double amp = y >= bandY ? 0.5 : 0.15;
+        const double c = (((x / cell) + (y / cell)) % 2) ? amp : -amp;
+        const ushort v = encode(base * std::exp2(0.25 * n + c));
+        const size_t i = (size_t(y) * width + x) * 3;
+        src[i] = src[i + 1] = src[i + 2] = v;
+      }
+    }
+  }
+
+  static std::vector<double> logLuma(const QImage& img) {
+    std::vector<double> out(size_t(img.width()) * img.height());
+    auto lin = [](double v) {
+      v /= 255.0;
+      return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+    };
+    for (int y = 0; y < img.height(); ++y) {
+      const uchar* s = img.constScanLine(y);
+      for (int x = 0; x < img.width(); ++x) {
+        out[size_t(y) * img.width() + x] = std::log2(
+            0.2126 * lin(s[x * 3]) + 0.7152 * lin(s[x * 3 + 1]) +
+            0.0722 * lin(s[x * 3 + 2]) + 1e-5);
+      }
+    }
+    return out;
+  }
+
+  // Mean log luminance shift (stops) over a rectangle.
+  static double shift(const std::vector<double>& out, const std::vector<double>& ref,
+                      int x0, int x1, int y0, int y1) {
+    double sum = 0.0;
+    for (int y = y0; y < y1; ++y)
+      for (int x = x0; x < x1; ++x)
+        sum += out[size_t(y) * width + x] - ref[size_t(y) * width + x];
+    return sum / double((x1 - x0) * (y1 - y0));
+  }
+
+  // Detail (log luminance minus its 5x5 box mean) RMS over a rectangle.
+  static double detail(const std::vector<double>& l, int x0, int x1, int y0, int y1) {
+    double sum = 0.0;
+    int n = 0;
+    for (int y = y0; y < y1; ++y) {
+      for (int x = x0; x < x1; ++x) {
+        double m = 0.0;
+        for (int dy = -2; dy <= 2; ++dy)
+          for (int dx = -2; dx <= 2; ++dx) m += l[size_t(y + dy) * width + x + dx];
+        const double d = l[size_t(y) * width + x] - m / 25.0;
+        sum += d * d;
+        ++n;
+      }
+    }
+    return std::sqrt(sum / n);
+  }
+};
+}  // namespace
+
+void TestRawEngine::testToneBandsLocalNoHaloKeepDetail() {
+  const ToneEdgeScene scene;
+  QJsonObject base;
+  base["contrast"] = 1.0;
+  base["profile"] = "normal";
+  base["denoiseEnabled"] = false;
+  base["sceneWhite"] = 1.0;
+  const auto ref = ToneEdgeScene::logLuma(photon::ImageDeveloper::develop(
+      scene.src.data(), ToneEdgeScene::width, ToneEdgeScene::height, base));
+  const bool report = qEnvironmentVariableIsSet("PHOTON_TONE_REPORT");
+  constexpr int ex = ToneEdgeScene::edgeX;
+  constexpr int rowsTop = 64, rowsBottom = 448;  // top half, away from the band
+
+  struct Case {
+    const char* key;
+    double value;
+    bool darkSide;     // the side the slider targets
+    bool checkDetail;  // Highlights +100 lifts the bright half into the
+                       // white roll-off and Whites is the white point (it
+                       // compresses the top end): both by design
+  };
+  const Case cases[] = {{"shadows", 100.0, true, true},
+                        {"shadows", -100.0, true, true},
+                        {"highlights", -100.0, false, true},
+                        {"highlights", 100.0, false, false},
+                        {"blacks", -100.0, true, false},  // black point: crushes
+                        {"whites", -100.0, false, false}};
+  for (const Case& c : cases) {
+    QJsonObject s = base;
+    s[c.key] = c.value;
+    const auto out = ToneEdgeScene::logLuma(photon::ImageDeveloper::develop(
+        scene.src.data(), ToneEdgeScene::width, ToneEdgeScene::height, s));
+    // far from the edge vs the 16 px next to it (4..20 px away)
+    const double far = c.darkSide
+                           ? ToneEdgeScene::shift(out, ref, 100, 500, rowsTop, rowsBottom)
+                           : ToneEdgeScene::shift(out, ref, 1036, 1436, rowsTop, rowsBottom);
+    const double near = c.darkSide
+                            ? ToneEdgeScene::shift(out, ref, ex - 20, ex - 4, rowsTop, rowsBottom)
+                            : ToneEdgeScene::shift(out, ref, ex + 4, ex + 20, rowsTop, rowsBottom);
+    const double detailRatio =
+        c.darkSide ? ToneEdgeScene::detail(out, 100, 500, rowsTop, rowsBottom) /
+                         ToneEdgeScene::detail(ref, 100, 500, rowsTop, rowsBottom)
+                   : ToneEdgeScene::detail(out, 1036, 1436, rowsTop, rowsBottom) /
+                         ToneEdgeScene::detail(ref, 1036, 1436, rowsTop, rowsBottom);
+    if (report) {
+      qInfo().noquote() << QString("%1=%2: far %3 st, near edge %4 st, detail x%5")
+                               .arg(c.key).arg(c.value).arg(far, 0, 'f', 3)
+                               .arg(near, 0, 'f', 3).arg(detailRatio, 0, 'f', 3);
+    }
+    // The slider acts on its side...
+    if (QString(c.key) == "shadows" || QString(c.key) == "highlights")
+      QVERIFY2(std::abs(far) > 0.3, qPrintable(QString("%1=%2 far shift %3").arg(c.key).arg(c.value).arg(far)));
+    // ...uniformly up to the edge (no halo)...
+    QVERIFY2(std::abs(near - far) < 0.12,
+             qPrintable(QString("%1=%2: halo, far %3 vs near %4").arg(c.key).arg(c.value).arg(far).arg(near)));
+    // ...keeping the texture (no wash-out / posterization).
+    // (-Highlights reveals bright texture a little - the "recovery" look -
+    // hence the upper bound.)
+    QVERIFY2(!c.checkDetail || (detailRatio > 0.9 && detailRatio < 2.3),
+             qPrintable(QString("%1=%2: detail x%3").arg(c.key).arg(c.value).arg(detailRatio)));
+  }
+
+  // Midtone texture on the falling side of Shadows (skin): keeps its detail.
+  QJsonObject lift = base;
+  lift["shadows"] = 100.0;
+  const auto out = ToneEdgeScene::logLuma(photon::ImageDeveloper::develop(
+      scene.src.data(), ToneEdgeScene::width, ToneEdgeScene::height, lift));
+  constexpr int by0 = ToneEdgeScene::bandY + 64, by1 = ToneEdgeScene::height - 64;
+  const double midShift = ToneEdgeScene::shift(out, ref, 100, 1436, by0, by1);
+  const double midDetail = ToneEdgeScene::detail(out, 100, 1436, by0, by1) /
+                           ToneEdgeScene::detail(ref, 100, 1436, by0, by1);
+  if (report) {
+    qInfo().noquote() << QString("shadows=100 midtone band: shift %1 st, detail x%2")
+                             .arg(midShift, 0, 'f', 3).arg(midDetail, 0, 'f', 3);
+  }
+  QVERIFY2(midDetail > 0.9, qPrintable(QString("midtone detail x%1").arg(midDetail)));
+}
+
+void TestRawEngine::testToneMaskEncoding() {
+  // CPU sampling and the GPU texture encoding agree, and no mask = identity.
+  const ToneEdgeScene scene;
+  const float wb[3] = {1.0f, 1.0f, 1.0f};
+  const photon::tone::ToneMask mask = photon::tone::computeToneMask(
+      scene.src.data(), ToneEdgeScene::width, ToneEdgeScene::height, 3, wb);
+  QVERIFY(mask.isValid());
+  QCOMPARE(mask.width, 512);
+  QCOMPARE(mask.height, 256);
+  const QImage enc = photon::tone::encodeToneMask(mask);
+  QCOMPARE(enc.width(), mask.width * 3);
+  QCOMPARE(enc.height(), mask.height);
+  auto decode = [&](int x, int y, int plane) {
+    const uchar* px = enc.constScanLine(y) + size_t(x + plane * mask.width) * 4;
+    return float(px[0] * 256 + px[1]) / 65535.0f;
+  };
+  for (int y = 0; y < mask.height; y += 37) {
+    for (int x = 0; x < mask.width; x += 41) {
+      const size_t i = size_t(y) * mask.width + x;
+      QVERIFY(std::abs(decode(x, y, 0) - mask.a[i]) < 1e-4f);
+      QVERIFY(std::abs(photon::tone::kLogMin + photon::tone::kLogRange * decode(x, y, 1) -
+                       mask.mu[i]) < 1e-3f);
+      QVERIFY(std::abs(photon::tone::kLogMin + photon::tone::kLogRange * decode(x, y, 2) -
+                       mask.g[i]) < 1e-3f);
+    }
+  }
+  // Flat regions: a ~ 0 (one gain per region); the hard edge: a ~ 1.
+  const auto flat = mask.sample(0.15f, 0.25f);
+  QVERIFY2(flat.a < 0.35f, qPrintable(QString("flat a %1").arg(flat.a)));
+  const auto edge = mask.sample((ToneEdgeScene::edgeX + 0.5f) / ToneEdgeScene::width, 0.25f);
+  QVERIFY2(edge.a > 0.8f, qPrintable(QString("edge a %1").arg(edge.a)));
+  // Identity: no mask, band position = the pixel.
+  const photon::tone::ToneMask none;
+  const auto id = none.sample(0.5f, 0.5f);
+  QVERIFY(id.identity);
+  QCOMPARE(photon::tone::maskLogExposed(id, -3.25f, 1.5f), -3.25f);
+  // Shrinkage: small detail dropped, large passes, slope < 1 (monotone).
+  QVERIFY(std::abs(photon::tone::detailShrink(0.1f)) < 0.005f);
+  QVERIFY(std::abs(photon::tone::detailShrink(3.0f) - 2.5f) < 0.01f);
+  float prev = photon::tone::detailShrink(-4.0f);
+  for (float d = -3.99f; d <= 4.0f; d += 0.01f) {
+    const float cur = photon::tone::detailShrink(d);
+    QVERIFY(cur >= prev && cur - prev <= 0.01f + 1e-5f);
+    prev = cur;
+  }
+}
+
+// Reference helpers (testToneSlidersMatchReference).
+#define PHOTON_SOURCE_DIR_FIT (QFileInfo(QStringLiteral(__FILE__)).absolutePath() + "/../..")
+namespace {
+struct FitPhoto {
+  QString tag;
+  int w = 0, h = 0;
+  std::vector<ushort> px;
+  std::vector<int> bin;      // base display bin per pixel
+  std::vector<float> baseL;  // base linear luma per pixel
+};
+constexpr int kFitBins = 16;
+const double kFitEdges[kFitBins + 1] = {0, 3, 6, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 88, 94, 98, 101};
+
+std::vector<float> fitLuma(const QImage& img) {
+  std::vector<float> out(size_t(img.width()) * img.height());
+  auto lin = [](double v) { v /= 255.0; return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+  for (int y = 0; y < img.height(); ++y) {
+    const uchar* s = img.constScanLine(y);
+    for (int x = 0; x < img.width(); ++x)
+      out[size_t(y) * img.width() + x] = float(0.2126 * lin(s[x * 3]) + 0.7152 * lin(s[x * 3 + 1]) + 0.0722 * lin(s[x * 3 + 2]));
+  }
+  return out;
+}
+
+QJsonObject fitBase() {
+  QJsonObject s;
+  s["contrast"] = 1.0; s["profile"] = "normal"; s["denoiseEnabled"] = false;
+  return s;
+}
+
+FitPhoto loadFitPhoto(const QString& tag, int longEdge) {
+  FitPhoto f; f.tag = tag;
+  LibRaw lr;
+  lr.imgdata.params.output_bps = 16; lr.imgdata.params.use_camera_wb = 1;
+  lr.imgdata.params.no_auto_bright = 0; lr.imgdata.params.auto_bright_thr = 0.01f;
+  lr.imgdata.params.half_size = 1;
+  const QString path = QString("%1/testphoton/_DSC%2.ARW").arg(PHOTON_SOURCE_DIR_FIT, tag);
+  if (lr.open_file(path.toLocal8Bit().constData()) != 0 || lr.unpack() != 0 || lr.dcraw_process() != 0) return f;
+  int ret = 0; libraw_processed_image_t* mem = lr.dcraw_make_mem_image(&ret);
+  const int sw = mem->width, sh = mem->height;
+  const int step = std::max(1, std::max(sw, sh) / longEdge);
+  f.w = sw / step; f.h = sh / step;
+  f.px.resize(size_t(f.w) * f.h * 3);
+  const ushort* src = reinterpret_cast<const ushort*>(mem->data);
+  for (int y = 0; y < f.h; ++y)
+    for (int x = 0; x < f.w; ++x)
+      for (int c = 0; c < 3; ++c) {
+        double acc = 0;  // box average in sRGB-encoded 16-bit (fine for a fit)
+        for (int dy = 0; dy < step; ++dy)
+          for (int dx = 0; dx < step; ++dx) acc += src[(size_t(y * step + dy) * sw + (x * step + dx)) * 3 + c];
+        f.px[(size_t(y) * f.w + x) * 3 + c] = ushort(acc / (step * step));
+      }
+  LibRaw::dcraw_clear_mem(mem);
+  f.baseL = fitLuma(photon::ImageDeveloper::develop(f.px.data(), f.w, f.h, fitBase()));
+  f.bin.resize(f.baseL.size());
+  for (size_t i = 0; i < f.baseL.size(); ++i) {
+    const double l = std::clamp(double(f.baseL[i]), 0.0, 1.0);
+    const double d = (l <= 0.0031308 ? l * 12.92 : 1.055 * std::pow(l, 1 / 2.4) - 0.055) * 100;
+    int b = 0; while (b < kFitBins - 1 && d >= kFitEdges[b + 1]) ++b;
+    f.bin[i] = b;
+  }
+  return f;
+}
+
+// mean stops per bin (and pixel fraction) for one slider value
+void fitResponse(const FitPhoto& f, const QString& slider, int value, double* stops, double* frac) {
+  QJsonObject s = fitBase(); s[slider] = double(value);
+  const auto out = fitLuma(photon::ImageDeveloper::develop(f.px.data(), f.w, f.h, s));
+  double sum[kFitBins] = {}, cnt[kFitBins] = {};
+  for (size_t i = 0; i < out.size(); ++i) {
+    sum[f.bin[i]] += std::log2((out[i] + 1e-5) / (f.baseL[i] + 1e-5));
+    cnt[f.bin[i]] += 1;
+  }
+  for (int b = 0; b < kFitBins; ++b) { stops[b] = cnt[b] ? sum[b] / cnt[b] : 0; frac[b] = cnt[b] / out.size(); }
+}
+
+struct RefRow { double stops, frac; };
+std::map<QString, RefRow> loadReference(const QString& csv) {
+  std::map<QString, RefRow> m;
+  QFile file(csv); file.open(QIODevice::ReadOnly);
+  file.readLine();
+  std::map<QString, double> tot;
+  std::vector<std::tuple<QString, double, double>> rows;
+  while (!file.atEnd()) {
+    const QStringList p = QString(file.readLine()).trimmed().split(',');
+    if (p.size() < 6) continue;
+    rows.emplace_back(p[0] + "," + p[1] + "," + p[2] + "," + p[3], p[4].toDouble(), p[5].toDouble());
+    tot[p[0] + "," + p[1] + "," + p[2]] += p[5].toDouble();
+  }
+  for (auto& [k, st, c] : rows) {
+    const QString key = k.section(',', 0, 2);
+    m[k] = {st, tot[key] ? c / tot[key] : 0};
+  }
+  return m;
+}
+}  // namespace
+
+void TestRawEngine::testToneSlidersMatchReference() {
+  // Reference responses of three photos per slider and value, measured
+  // from its exports (testphoton/reference/reference_tables.csv, local only:
+  // the photos are not in the repository). The tone constants in ToneMath.h
+  // were fitted to them; this guards the fit.
+  const QString refDir = QString("%1/testphoton/reference").arg(PHOTON_SOURCE_DIR_FIT);
+  if (!QFileInfo::exists(refDir + "/reference_tables.csv")) QSKIP("Reference photos not available");
+  const auto refTable = loadReference(refDir + "/reference_tables.csv");
+  std::vector<FitPhoto> photos;
+  for (const QString tag : {"7870", "9064", "9111"}) photos.push_back(loadFitPhoto(tag, 768));
+  for (const auto& f : photos)
+    if (f.w <= 0) QSKIP("Reference photos not available");
+  const int values[] = {-100, -50, -25, 25, 50, 100};
+  // Weighted squared error (stops) at the end of the fit, +25 % slack.
+  const std::pair<const char*, double> sliders[] = {
+      {"highlights", 1.0}, {"shadows", 3.14}, {"whites", 2.76}, {"blacks", 2.48}};
+  const bool report = qEnvironmentVariableIsSet("PHOTON_TONE_REPORT");
+  for (const auto& [slider, fitted] : sliders) {
+    double err = 0;
+    for (const auto& f : photos) {
+      for (int v : values) {
+        double st[kFitBins], fr[kFitBins];
+        fitResponse(f, slider, v, st, fr);
+        QString line;
+        for (int b = 0; b < kFitBins; ++b) {
+          const auto it = refTable.find(QString("%1,%2,%3,%4").arg(f.tag, slider).arg(v).arg(b));
+          if (it == refTable.end() || it->second.frac < 0.01 || fr[b] < 0.005) {
+            line += "         .";
+            continue;
+          }
+          line += QString(" %1/%2").arg(st[b], 4, 'f', 1).arg(it->second.stops, -4, 'f', 1);
+          // stops clamped to [-6, 6]: crushed bins (to black) must not dominate
+          const double d = std::clamp(st[b], -6.0, 6.0) - std::clamp(it->second.stops, -6.0, 6.0);
+          err += std::sqrt(std::min(fr[b], it->second.frac)) * d * d;
+        }
+        if (report) qInfo().noquote() << slider << f.tag << QString("%1").arg(v, 4) << line;
+      }
+    }
+    if (report) qInfo() << slider << "error vs Reference" << err << "(fitted" << fitted << ")";
+    QVERIFY2(err < fitted * 1.25,
+             qPrintable(QString("%1 drifted from Reference: error %2, fitted %3").arg(slider).arg(err).arg(fitted)));
+  }
 }
 
 QTEST_MAIN(TestRawEngine)

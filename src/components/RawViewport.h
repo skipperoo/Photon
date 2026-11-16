@@ -25,6 +25,13 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(float sceneDetailScale READ sceneDetailScale NOTIFY sceneStatsChanged)
   Q_PROPERTY(float sceneHighlightPin READ sceneHighlightPin NOTIFY sceneStatsChanged)
   Q_PROPERTY(float sceneCompression READ sceneCompression NOTIFY sceneStatsChanged)
+  // Tone band safety scale for the GPU delta pass (photon::tone).
+  Q_PROPERTY(float toneBandScale READ toneBandScale NOTIFY toneBandScaleChanged)
+  // Edge-aware tone mask texture for the delta pass (ToneMask.h).
+  Q_PROPERTY(int toneMaskVersion READ toneMaskVersion NOTIFY toneMaskChanged)
+  Q_PROPERTY(QSize toneMaskSize READ toneMaskSize NOTIFY toneMaskChanged)
+  // Part of the image the displayed texture covers (a Classic denoise ROI).
+  Q_PROPERTY(QRectF toneMaskRoi READ toneMaskRoi NOTIFY toneMaskRoiChanged)
   Q_PROPERTY(float blacks READ blacks WRITE setBlacks NOTIFY blacksChanged)
   Q_PROPERTY(float adaptation READ adaptation WRITE setAdaptation NOTIFY adaptationChanged)
   Q_PROPERTY(
@@ -346,6 +353,13 @@ class RawViewport : public QQuickItem {
   float sceneWhite() const { return m_engine.sceneWhite(); }
   float sceneDetailScale() const { return m_engine.sceneDetailScale(); }
   float sceneHighlightPin() const { return m_engine.sceneHighlightPin(); }
+  float toneBandScale() const;
+  int toneMaskVersion() const { return m_engine.toneMaskVersion(); }
+  QSize toneMaskSize() const { return m_engine.toneMaskSize(); }
+  QRectF toneMaskRoi() const {
+    return m_engine.hasDenoisedResult() ? m_engine.denoisedRoi()
+                                        : QRectF(0, 0, 1, 1);
+  }
   float sceneCompression() const { return m_engine.sceneCompression(); }
 
   float blacks() const { return m_engine.blacks(); }
@@ -790,6 +804,9 @@ class RawViewport : public QQuickItem {
   void denoiseEnabledChanged();
   void isDenoisingChanged();
   void liveDenoiseAmountChanged();
+  void toneBandScaleChanged();
+  void toneMaskChanged();
+  void toneMaskRoiChanged();
   void denoiseModeChanged();
   void denoiseColorChanged();
   void aiDenoiseStateChanged();

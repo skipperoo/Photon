@@ -724,12 +724,18 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.7 | HDR merge (OpenCV alignment) | DONE | `d538d7f` |
 | 40.8 | Camera-look fitting from embedded JPEG | DONE | `8531c59` |
 | 40.9 | AI denoise (RawNIND/ncnn) + colour pass, export parity, 50000 K WB | DONE | `8d9156e` |
+| 40.10 | Light sliders: local tone mapping, fitted to Reference (adb-driven exports); 16-bit preview; integer Contrast | DONE | (this commit) |
+| 40.11 | 16-bit TIFF export | TODO | |
+| 40.12 | Adobe RGB export + ICC-aware import | TODO | |
+| 40.13 | Full-headroom RAW decode + highlight recovery | TODO | |
+| 40.14 | Rec.2020 wide-gamut working space | TODO | |
+| 40.15 | Clarity fitted to Reference (large-scale) | TODO | |
 
 ## 40.1 Calibration panel — DONE
 
 > Implemented 2026-10-12, confirmed visually, committed `c116e1c`. Shared math in `src/engine/Calibration.h` (host-computed white-preserving primary matrix + shadows tint); GPU receives 3 matrix-row uniforms + normalized tint in `RawViewport.frag` (inserted after the tone-ranges pass, before Contrast); CPU export in `ImageDeveloper.cpp` and histogram in `RawEngine.cpp` use the shared header; UI section in `DevelopView.qml`; preset group in `SettingsSelectionDialog.qml`. Tests: `tst_RawEngine testCalibrationReferenceBehavior` (defaults identical, primaries keep neutrals, saturated red reacts, tint only in deep shadows). Full suite 3/3 green; AppImage builds and starts clean.
 
-**Goal:** Lightroom-Classic-style Calibration section: Shadows Tint + Red/Green/Blue primary Hue/Saturation (7 sliders, −100…+100, default 0).
+**Goal:** Reference-style Calibration section: Shadows Tint + Red/Green/Blue primary Hue/Saturation (7 sliders, −100…+100, default 0).
 
 **Algorithm (verified from the reference implementation):**
 - Primary matrix over the working linear space (Rec.2020/RGB): each primary `(1,0,0)/(0,1,0)/(0,0,1)` converted to OkLCh, hue rotated by `(hue/100)·0.5 rad`, chroma scaled by `1 + (sat/100)·0.6`, back to linear; then rescale columns by `k = inverse(M)·(1,1,1)` so neutral (1,1,1) maps to itself.
@@ -771,9 +777,9 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 ## 40.3 Before/after modes + split view — DONE
 
 > Implemented 2026-10-12, confirmed visually (including the zoom fix), committed `4e07a63`. Shader (`RawViewport.frag`): new `compareMode`/`splitPos` uniforms; side-by-side maps the base image into two panes in-shader (shared zoom/pan, all multipass tone/colour textures remapped via `canvasUV` so alignment holds); wipe shows the unedited base to the left of a divider. Because the pipeline at defaults is identity, the unedited base texture is exactly the "before" look (no second render chain). `App.qml`: compare state + `Y`/`Shift+Y` shortcuts, `B`/`\` unchanged (now mutually exclusive with compare modes), toolbar eye/compare/split buttons, draggable divider (double-click resets to centre), "Before"/"After" pane labels, toast status. New `compare.svg`/`split.svg` icons in CMake; pre-existing `AbstractButton.IconOnly` warnings fixed. C++ suite 3/3; AppImage builds and starts clean.
-> Fixed 2026-10-12 (zoom): the panes originally fitted the whole image at the shared zoom, which requests pixels outside the canvas window and produced vertical stripe artifacts at zoom > 1. Side-by-side now fits the **currently visible region** into each pane (same semantics as Lightroom); the wipe is unchanged. At fit zoom the framing is identical to the per-pane full-image fit.
+> Fixed 2026-10-12 (zoom): the panes originally fitted the whole image at the shared zoom, which requests pixels outside the canvas window and produced vertical stripe artifacts at zoom > 1. Side-by-side now fits the **currently visible region** into each pane (same semantics as Reference); the wipe is unchanged. At fit zoom the framing is identical to the per-pane full-image fit.
 
-**Goal:** Lightroom-style comparison: `B`/`\` keep working (full-frame toggle), add **split wipe** (`Shift+Y`) and **side-by-side** (`Y`); "Before" must be the **unedited-looking baseline render** (import/incoming edit stack), not the raw embedded preview.
+**Goal:** Reference-style comparison: `B`/`\` keep working (full-frame toggle), add **split wipe** (`Shift+Y`) and **side-by-side** (`Y`); "Before" must be the **unedited-looking baseline render** (import/incoming edit stack), not the raw embedded preview.
 
 **Reference behaviour:** two renders (dedicated `Before` texture + processed `After`), split = clip rect + half-UV sub-rect, pan/zoom synced, WB picker maps through the pane clicked. We add a **draggable divider**.
 
@@ -807,7 +813,7 @@ base(x) = clamp(x + d*4*x*(1-x), 0, 1);
 - [ ] Build into the existing LUT generation (`RawEngine::rebuildToneLut` / `evalMonotonicSpline`), 65536 entries, no new texture.
 - [ ] `ToneCurve.qml`: add the 4 parametric sliders + 3 split sliders; the point UI stays as the master/R/G/B curves.
 - [ ] Port to `ImageDeveloper.cpp` and the histogram path.
-- [ ] **Curve domain (decided 2026-10-12):** move curve application to the **display-encoded domain** (after linear→sRGB) to match Lightroom. Applied **globally, no process-version gate** — existing edits may visibly change (accepted).
+- [ ] **Curve domain (decided 2026-10-12):** move curve application to the **display-encoded domain** (after linear→sRGB) to match Reference. Applied **globally, no process-version gate** — existing edits may visibly change (accepted).
 
 **Visual confirmation:** with a point curve active, parametric +50 Highlights brightens only the top range; splits move the region boundaries visibly; combined curve stays monotone (no reversals); preview = export.
 
@@ -923,7 +929,7 @@ Deferred (candidates, not scheduled; priorities to be discussed):
 - [ ] **Smart previews** — proxies so offline originals remain editable.
 - [ ] **Second-window loupe** — second monitor support.
 - [ ] **Activity stack** — unified background-task list with cancel (imports/exports/merges/denoise).
-- [ ] **Calibrated Auto tone** — recipe tuned against Lightroom results.
+- [ ] **Calibrated Auto tone** — recipe tuned against Reference results.
 - [ ] **Face detection / People view**, **geocoding + map link** — catalog intelligence.
 - [ ] **Perspective correction (keystone)** — currently in Backlog/Future above.
 - [ ] **Contact-sheet PDF export**.

@@ -18,6 +18,8 @@ add_executable(tst_RawEngine
     ../src/engine/Denoiser.h
     ../src/engine/AiDenoiser.cpp
     ../src/engine/AiDenoiser.h
+    ../src/engine/ToneMask.cpp
+    ../src/engine/ToneMask.h
  ../src/engine/GpuSearcher.cpp
  ../src/engine/GpuSearcher.h
  ../src/engine/GpuChromaFilter.cpp
@@ -121,6 +123,8 @@ add_executable(tst_AppStateManager
  ../src/engine/Denoiser.h
  ../src/engine/AiDenoiser.cpp
  ../src/engine/AiDenoiser.h
+ ../src/engine/ToneMask.cpp
+ ../src/engine/ToneMask.h
  ../src/engine/GpuSearcher.cpp
  ../src/engine/GpuSearcher.h
  ../src/engine/GpuChromaFilter.cpp

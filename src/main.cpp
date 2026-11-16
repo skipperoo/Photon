@@ -35,6 +35,7 @@
 #include "engine/HdrMerge.h"
 #include "engine/AiDenoiser.h"
 #include "components/ToneLutProvider.h"
+#include "components/ToneMaskProvider.h"
 #include "Version.h"
 
 using namespace photon;
@@ -259,6 +260,7 @@ int main(int argc, char* argv[]) {
                           new ThumbnailImageProvider(thumbProvider));
   auto* toneLutProvider = new ToneLutProvider();
   engine.addImageProvider("tonelut", toneLutProvider);
+  engine.addImageProvider("tonemask", new ToneMaskProvider());
 
   qmlRegisterSingletonType<AppStateManager>(
       "Main", 1, 0, "AppState", &AppStateManager::createQmlInstance);

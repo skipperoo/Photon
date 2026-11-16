@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "AiDenoiser.h"
+#include "ToneMask.h"
 #include "CameraLook.h"
 #include "DevelopProfile.h"
 #include "LensFun.h"
@@ -246,6 +247,9 @@ class RawEngine : public QObject {
                  setToneCurveSplitHighlights NOTIFY
                      toneCurveSplitHighlightsChanged)
   Q_PROPERTY(int toneLutVersion READ toneLutVersion NOTIFY toneLutVersionChanged)
+  // Edge-aware tone mask texture ("image://tonemask/<version>", ToneMask.h).
+  Q_PROPERTY(int toneMaskVersion READ toneMaskVersion NOTIFY toneMaskChanged)
+  Q_PROPERTY(QSize toneMaskSize READ toneMaskSize NOTIFY toneMaskChanged)
   Q_PROPERTY(bool lensProfileEnabled READ lensProfileEnabled WRITE
                  setLensProfileEnabled NOTIFY lensProfileEnabledChanged)
   Q_PROPERTY(float lensProfileDistortion READ lensProfileDistortion WRITE
@@ -611,6 +615,8 @@ class RawEngine : public QObject {
   float toneCurveSplitHighlights() const { return m_toneCurveSplitHighlights; }
   void setToneCurveSplitHighlights(float val);
   int toneLutVersion() const { return m_toneLutVersion; }
+  int toneMaskVersion() const { return m_toneMaskVersion; }
+  QSize toneMaskSize() const { return m_toneMaskSize; }
 
   bool lensProfileEnabled() const { return m_lensProfileEnabled; }
   void setLensProfileEnabled(bool enabled);
@@ -869,6 +875,7 @@ class RawEngine : public QObject {
   void toneCurveSplitMidChanged();
   void toneCurveSplitHighlightsChanged();
   void toneLutVersionChanged();
+  void toneMaskChanged();
   void toneCurveActiveChanged();
   void histogramChanged();
   void metadataChanged();
@@ -1175,6 +1182,27 @@ class RawEngine : public QObject {
   int m_aiScaledH = 0;
   // Blend wanted by the GUI thread / blend currently in m_processedImage.
   // Atomic: applyAiBlendLocked() may run on the render or load thread.
+  // GPU preview tone mask: computed (debounced, on a worker) for the
+  // displayed source with the current white balance.
+  struct ToneMaskJob {
+    int generation = 0;
+    QImage encoded;
+  };
+  void scheduleToneMaskUpdate();
+  void updateToneMask();
+  void resetToneMask();
+  QTimer m_toneMaskTimer;
+  QFutureWatcher<ToneMaskJob> m_toneMaskWatcher;
+  int m_toneMaskGeneration = 0;
+  int m_toneMaskRetries = 0;
+  int m_toneMaskVersion = 0;
+  QSize m_toneMaskSize{3, 1};
+
+  // Histogram: cached edge-aware tone mask of its source (ToneMask.h).
+  std::shared_ptr<const photon::tone::ToneMask> m_histToneMask;
+  const void* m_histToneMaskSource = nullptr;
+  float m_histToneMaskWb[3] = {0.0f, 0.0f, 0.0f};
+
   std::atomic<float> m_aiTargetAmount{0.0f};
   std::atomic<float> m_aiAppliedAmount{0.0f};
   std::atomic<float> m_aiTargetColor{0.0f};

@@ -1,5 +1,7 @@
 #include "RawViewport.h"
 
+#include "../engine/ToneMath.h"
+
 #include <QImage>
 #include <QRgba64>
 #include <QSGTexture>
@@ -370,6 +372,20 @@ RawViewport::RawViewport(QQuickItem* parent) : QQuickItem(parent) {
     m_textureDirty = true;
     update();
   });
+  connect(&m_engine, &RawEngine::toneMaskChanged, this,
+          &RawViewport::toneMaskChanged);
+  connect(&m_engine, &RawEngine::denoisingFinished, this,
+          &RawViewport::toneMaskRoiChanged);
+
+  // The tone band safety scale depends on the four band sliders and the
+  // Highlights centre (scene white, exposure).
+  for (auto sig : {&RawEngine::highlightsChanged, &RawEngine::shadowsChanged,
+                   &RawEngine::whitesChanged, &RawEngine::blacksChanged,
+                   &RawEngine::sceneStatsChanged, &RawEngine::sceneWhiteChanged,
+                   &RawEngine::exposureChanged}) {
+    connect(&m_engine, sig, this, &RawViewport::toneBandScaleChanged);
+  }
+
   // Every change of denoise state can switch the live NLM stand-in on/off.
   connect(&m_engine, &RawEngine::denoisingFinished, this,
           &RawViewport::liveDenoiseAmountChanged);
@@ -1381,6 +1397,13 @@ QVariantMap RawViewport::currentSettings() const {
   return m_engine.currentSettings();
 }
 
+float RawViewport::toneBandScale() const {
+  return photon::tone::bandSafetyScale(
+      m_engine.highlights() / 100.0f, m_engine.shadows() / 100.0f,
+      m_engine.whites() / 100.0f, m_engine.blacks() / 100.0f,
+      photon::tone::highlightsCenter(m_engine.sceneWhite(), m_engine.exposure()));
+}
+
 float RawViewport::liveDenoiseAmount() const {
   if (!m_engine.denoiseEnabled() || m_engine.hasDenoisedResult() ||
       m_engine.aiDenoiseActive())
@@ -1502,6 +1525,12 @@ QSGNode* RawViewport::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
         node->setOwnsTexture(true);
       }
 
+      // Upload 16-bit sources as half-float textures: an 8-bit texture would
+      // posterize gradients as soon as a tone curve expands contrast.
+      if (imgToRender.format() == QImage::Format_RGBA64 ||
+          imgToRender.format() == QImage::Format_RGBX64) {
+        imgToRender = imgToRender.convertToFormat(QImage::Format_RGBA16FPx4);
+      }
       QSGTexture* newTexture = window()->createTextureFromImage(imgToRender);
 
       // Because ownsTexture is true, this SAFELY and automatically

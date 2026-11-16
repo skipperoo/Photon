@@ -554,6 +554,12 @@ Window {
 
                         RawViewport {
                             id: rawViewport
+                            // Blur passes sample viewport captures: 1 / blurUnitSize (UV) is
+                            // one image pixel at any zoom, so the preview's local-contrast
+                            // radii match the export (ImageDeveloper, image pixels).
+                            property size blurUnitSize: Qt.size(
+                                width * Math.max(sourceWidth, 1) / Math.max(imageRect.width, 1),
+                                height * Math.max(sourceHeight, 1) / Math.max(imageRect.height, 1))
                             anchors.fill: parent
                             anchors.margins: 2
                             anchors.bottomMargin: 38
@@ -587,6 +593,19 @@ Window {
                             }
                         }
 
+                        // Edge-aware tone mask (16-bit a/b packed in R/G bytes,
+                        // left half a, right half b): local tone mapping for the
+                        // Highlights/Shadows/Whites/Blacks bands.
+                        Image {
+                            id: toneMaskImage
+                            source: "image://tonemask/" + rawViewport.toneMaskVersion
+                            visible: false
+                            width: Math.max(3, rawViewport.toneMaskSize.width)
+                            height: Math.max(1, rawViewport.toneMaskSize.height)
+                            cache: false
+                            smooth: false
+                        }
+
                         Image {
                             id: toneLutImage
                             source: "image://tonelut/" + rawViewport.toneLutVersion
@@ -608,6 +627,7 @@ Window {
                                 visible: false
                                 property variant source: ShaderEffectSource {
                                     sourceItem: rawViewport
+                                    format: ShaderEffectSource.RGBA16F
                                     hideSource: true
                                     live: true
                                 }
@@ -630,7 +650,7 @@ Window {
                                     hideSource: true
                                     live: true
                                 }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property size sourceSize: rawViewport.blurUnitSize
                                 property vector2d axis: Qt.vector2d(1.0, 0.0)
                                 fragmentShader: "qrc:/Main/shaders/Photon001GaussianSmall.frag.qsb"
                             }
@@ -645,7 +665,7 @@ Window {
                                     hideSource: true
                                     live: true
                                 }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property size sourceSize: rawViewport.blurUnitSize
                                 property vector2d axis: Qt.vector2d(0.0, 1.0)
                                 fragmentShader: "qrc:/Main/shaders/Photon001GaussianSmall.frag.qsb"
                             }
@@ -660,7 +680,7 @@ Window {
                                     hideSource: true
                                     live: true
                                 }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property size sourceSize: rawViewport.blurUnitSize
                                 property vector2d axis: Qt.vector2d(1.0, 0.0)
                                 fragmentShader: "qrc:/Main/shaders/Photon001GaussianBig.frag.qsb"
                             }
@@ -675,7 +695,7 @@ Window {
                                     hideSource: true
                                     live: true
                                 }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property size sourceSize: rawViewport.blurUnitSize
                                 property vector2d axis: Qt.vector2d(0.0, 1.0)
                                 fragmentShader: "qrc:/Main/shaders/Photon001GaussianBig.frag.qsb"
                             }
@@ -686,10 +706,11 @@ Window {
                                 visible: false
                                 property variant source: ShaderEffectSource {
                                     sourceItem: rawViewport
+                                    format: ShaderEffectSource.RGBA16F
                                     hideSource: true
                                     live: true
                                 }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property size sourceSize: rawViewport.blurUnitSize
                                 property vector2d axis: Qt.vector2d(1.0, 0.0)
                                 property real coarse: 0.0
                                 property real inputIsLinear: 0.0
@@ -706,7 +727,7 @@ Window {
                                     hideSource: true
                                     live: true
                                 }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property size sourceSize: rawViewport.blurUnitSize
                                 property vector2d axis: Qt.vector2d(0.0, 1.0)
                                 property real coarse: 0.0
                                 property real inputIsLinear: 1.0
@@ -719,10 +740,11 @@ Window {
                                 visible: false
                                 property variant source: ShaderEffectSource {
                                     sourceItem: rawViewport
+                                    format: ShaderEffectSource.RGBA16F
                                     hideSource: true
                                     live: true
                                 }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property size sourceSize: rawViewport.blurUnitSize
                                 property vector2d axis: Qt.vector2d(1.0, 0.0)
                                 property real coarse: 1.0
                                 property real inputIsLinear: 0.0
@@ -739,7 +761,7 @@ Window {
                                     hideSource: true
                                     live: true
                                 }
-                                property size sourceSize: Qt.size(rawViewport.sourceWidth, rawViewport.sourceHeight)
+                                property size sourceSize: rawViewport.blurUnitSize
                                 property vector2d axis: Qt.vector2d(0.0, 1.0)
                                 property real coarse: 1.0
                                 property real inputIsLinear: 1.0
@@ -778,6 +800,17 @@ Window {
                                 property real sceneDetailScale: rawViewport.sceneDetailScale
                                 property real sceneHighlightPin: rawViewport.sceneHighlightPin
                                 property real sceneCompression: rawViewport.sceneCompression
+                                property real toneBandScale: rawViewport.toneBandScale
+                                property variant toneMask: ShaderEffectSource {
+                                    sourceItem: toneMaskImage
+                                    textureSize: Qt.size(toneMaskImage.width, toneMaskImage.height)
+                                    live: true
+                                    hideSource: true
+                                }
+                                property vector4d imageRect: Qt.vector4d(rawViewport.imageRect.x, rawViewport.imageRect.y, rawViewport.imageRect.width, rawViewport.imageRect.height)
+                                property size viewportSize: Qt.size(rawViewport.width, rawViewport.height)
+                                property size maskSize: Qt.size(toneMaskImage.width / 3, toneMaskImage.height)
+                                property vector4d maskRoi: Qt.vector4d(rawViewport.toneMaskRoi.x, rawViewport.toneMaskRoi.y, rawViewport.toneMaskRoi.width, rawViewport.toneMaskRoi.height)
                                 fragmentShader: "qrc:/Main/shaders/Photon001Delta.frag.qsb"
                             }
 
@@ -802,6 +835,7 @@ Window {
 
                             property variant source: ShaderEffectSource { 
                                 sourceItem: rawViewport
+                                    format: ShaderEffectSource.RGBA16F
                                 hideSource: true
                                 live: true
                             }

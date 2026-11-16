@@ -2,13 +2,15 @@
 
 All notable changes to Photon. Each release's section is published as its GitHub release notes.
 
-## [v0.5.0] - 2026-11-15
+## [v0.5.0] - Unreleased
 
 ### Highlights
 
 - **AI denoise.** A neural network (RawNIND) removes luminance noise from Bayer RAW files, then a colour pass (chroma BM3D followed by a guided filter) cleans up colour noise. Both run once per photo in the background and are cached, so the **Noise Reduction** and **Color** sliders respond instantly. On a 24 MP photo it takes about 5–8 s on a mid-range GPU and about 25 s on the CPU.
 - **Exports now match the preview.** Exports of photos that had used the History panel were rendered without any of their edits. That's fixed, along with several smaller differences between preview and export.
 - **White balance up to 50,000 K** on a logarithmic temperature slider.
+- **Light sliders matched to Reference.** Highlights, Shadows, Whites and Blacks were fitted to Reference's measured response on three photos. They're smooth from −100 to +100, always move in one direction, and lifts never clip.
+- **Highlights and Shadows adapt locally** (edge-aware local tone mapping). Each slider moves whole regions, so texture keeps its contrast: no flat midtones or posterization, and no halos along edges.
 
 ### Added
 
@@ -21,10 +23,28 @@ All notable changes to Photon. Each release's section is published as its GitHub
 - RAW temperature in Kelvin with a Planckian blue → amber track: 2000–50,000 K, with 5500 K at about a third of the track and 10,000 K at the middle.
 - Click any slider's number to type a value.
 
+### Changed
+
+- **Light sliders** (Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Clarity), measured on synthetic test images:
+  - **Exposure:** no jump when crossing 0. Previously +0.01 EV darkened whites. Highlights now roll off smoothly towards white.
+  - **Contrast:** an S-curve that pivots at mid-grey, in whole steps. Previously +Contrast darkened almost the whole photo.
+  - **Shadows:** strongest in the deep shadows (~3 %), fading out by mid-grey. About −1.9 / +2.2 stops at ±100, so it really recovers dark areas, and lifted regions keep their local contrast.
+  - **Highlights:** broad, from about 25 % brightness up to white, peaking around 57 %. About ±1 stop at ±100. Near-white areas darken with their surroundings (no white blobs).
+  - **Whites:** + brightens progressively more towards the top and accelerates near +100 without blowing out. − pulls the brightest tones down progressively (about −0.55 stops at white).
+  - **Blacks** is a black point: − crushes the darkest tones to black, + lifts the output black.
+  - **Highlights and Shadows adapt locally:** they follow an edge-aware map of the photo's brightness, not each pixel's own value. Texture inside a region keeps its detail (fabric folds included), and the effect stops at edges without halos.
+  - **No clipping from lifts:** Highlights, Shadows, Whites and Clarity lifts roll off towards white per pixel, so bright whites no longer blow out, including at the first step of the slider.
+  - Deep shadows can now be lifted further (the noise-protection cap starts at 0.2 % brightness instead of 2 %).
+  - **Clarity** only changes local detail, so flat areas stay untouched. It no longer clips whites, and it fades out in the deepest shadows.
+  - Moving neighbouring sliders in opposite directions can no longer invert tones.
+  - Existing edits that use these sliders will look somewhat different.
+- The preview now renders from the full 16-bit image, so gradients don't band when sliders are pushed hard.
+
 ### Fixed
 
 - **Export ignored edits:** export, library previews, copy/paste settings and batch rotate/flip read the history marker instead of the current edit state. Exports came out unedited, and batch edits could wipe a photo's history.
 - **Export now matches the preview:**
+  - Clarity and the local-contrast radii are now the same in the preview (at any zoom) and in the export. The preview's radius used to shrink when zooming in, and the export measured local detail differently, so +Clarity darkened deep shadows more in the export.
   - The highlight reference is measured the same way as in the preview. Export always used 1.0 before, which changed Exposure and the Highlights/Shadows/Whites/Blacks/Clarity sliders.
   - Sharpness (with masking, feather and focus detect), Structure, Dehaze, Centrè, Film grain and Vignette are now applied on export.
   - Denoise, lens corrections and crop/rotation run before the edits, as in the preview, so Vignette and Centrè follow the cropped frame.
@@ -34,6 +54,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 - **Crop/rotate** no longer snaps back to the original frame after denoising.
 - **Ratings** survive edits, and the rating filter applies the chosen operator (=, >, ≥, <, ≤) correctly.
 - **Crashes and hangs:**
+  - AI denoise on the GPU could crash Photon the first time it compiled its shaders: two different copies of the shader compiler were mixed in the build. After such a crash Photon quietly used the CPU from then on.
   - Closing Photon while library previews were rendering could crash.
   - The AppImage bundled an outdated Vulkan library that crashed GPU denoise on current NVIDIA drivers. It now uses the system's. If GPU setup ever crashes, the next session falls back to the CPU automatically.
 
@@ -41,6 +62,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 - New dependency: ncnn 20261020, fetched from a pinned source release during configure and built with Vulkan. The model is downloaded and converted with pnnx during configure, all verified by SHA-256, so **the first configure needs network access**.
 - New options: `PHOTON_ENABLE_AI_DENOISE`, `PHOTON_BUNDLE_AI_MODEL` and `PHOTON_AI_MODEL_SOURCE_DIR`. Runtime overrides: `PHOTON_AI_MODEL_DIR` and `PHOTON_AI_DENOISE_DEVICE`.
+- Qt ShaderTools is now a build-time dependency only. Photon no longer links `libQt6ShaderTools` at runtime.
 
 ## [v0.4.0] - 2026-10-13
 

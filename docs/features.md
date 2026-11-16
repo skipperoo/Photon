@@ -73,7 +73,7 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ## Calibration panel (2026-10-12, Phase 40.1)
 
-- Purpose: Lightroom-Classic calibration — per-primary hue/saturation trims and a shadows tint, for fine colour-model adjustments without touching WB.
+- Purpose: Reference-style calibration — per-primary hue/saturation trims and a shadows tint, for fine colour-model adjustments without touching WB.
 - Algorithm: build a white-preserving 3×3 matrix in linear sRGB: each primary `(1,0,0)/(0,1,0)/(0,0,1)` → OkLab → OkLCh, hue rotated by `(hue/100)·0.5 rad`, chroma scaled by `1+(sat/100)·0.6`, back to linear; the matrix columns are then rescaled by `k = M⁻¹·(1,1,1)` so neutral maps to itself (`K=0.5`, `0.6` at ±100). Shadows tint: `Y0 = luma(c)`, `w = 1 − smoothstep(−5, −0.5, log2(Y0/0.18))`, `c.g *= 1 − 0.3·tint·w`, then luminance restored `c *= Y0/Y1`. Identity/neutral skips all work.
 - Pipeline placement: scene-linear, after the Photon001 tone-ranges pass and before Contrast, on all three paths (GPU matrix rows via uniforms, CPU export, live histogram).
 - Key constants: `kCalibHueRadians = 0.5`, `kCalibSatFactor = 0.6`, `kShadowTintFactor = 0.3`, middle grey 0.18; slider range ±100.
@@ -106,7 +106,7 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ## Parametric tone curve + display-domain curve stage (2026-10-12, Phase 40.4)
 
-- Purpose: Lightroom-style parametric tone curve (Highlights/Lights/Darks/Shadows with movable region splits), mutually exclusive with the free-hand point curves; curves now run where they visually belong (display-encoded values).
+- Purpose: Reference-style parametric tone curve (Highlights/Lights/Darks/Shadows with movable region splits), mutually exclusive with the free-hand point curves; curves now run where they visually belong (display-encoded values).
 - Algorithm: parametric LUT built per node: for each region `(a,b,amt)` with `ctr=(a+b)/2`, `half=(b-a)*0.75+0.05`, `win=0.5+0.5*cos(clamp((x-ctr)/half,-1,1)*PI)`, `d += (amt/100)*0.22*win`, then `clamp(x + d*4x(1-x), 0, 1)` and a monotone prefix-max pass. Composition `parametric → master (Luma) → R/G/B` with linear-sampled LUT composition; the luma stage uses the existing min/max reprojection, so the per-channel LUTs stay pure (identity when unused). Parametric and point curves are mutually exclusive via `toneCurveMode` ("manual" default / "parametric"); the inactive set stays stored in the edit stack/sidecar and is not applied.
 - Pipeline placement: stage 8 of the final pass, now **after** the linear→sRGB encode; same order on the CPU export and histogram (histogram also bins display-encoded values now).
 - Key constants: region amplitude 0.22; split defaults 25/50/75 (ranges 10–70/20–80/30–90); endpoint drag limits `next.x − 0.01` / `prev.x + 0.01`.
@@ -117,7 +117,7 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ## History panel + process version (2026-10-12, Phase 40.5)
 
-- Purpose: a persistent per-photo edit timeline (Lightroom-style) with meaningful labels, jump-to-step, a non-destructive Original entry, and per-photo process versioning for future rendering retunes.
+- Purpose: a persistent per-photo edit timeline (Reference-style) with meaningful labels, jump-to-step, a non-destructive Original entry, and per-photo process versioning for future rendering retunes.
 - Algorithm: every commit stores `__step` (label) and `__delta` (signed hint) inside the state object; labels come from a key→entity mapping (HSL band/channel, grading region, calibration, parametric curve, …) and deltas from the numeric change of the first changed key (contrast converted to UI units ×200). Legacy steps without metadata get labels/deltas derived by diffing consecutive states when the history is read. The sidecar keeps the full stack plus a trailing `{"__index": N}` marker; the list is capped at `kHistoryLimit = 100`. Reset appends a single "Reset" step and keeps all entries; Clear History keeps only the current state; a virtual "Original" entry (index −1) always sits last and resets non-destructively.
 - Pipeline placement: state management only; no rendering effect (processVersion is storage-only until a retune ships).
 - Key constants: `kHistoryLimit = 100`, `kCurrentProcessVersion = 1`.
@@ -128,7 +128,7 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 ## Lens corrections (lensfun) (2026-10-12, Phase 40.6)
 
-- Purpose: automatic lens corrections (distortion, lateral CA, vignetting) from a bundled lensfun database, with manual Lightroom-style profile selection.
+- Purpose: automatic lens corrections (distortion, lateral CA, vignetting) from a bundled lensfun database, with manual Reference-style profile selection.
 - Algorithm: `LensFun` parses the DB XML (cameras, lenses, calibration), matches the lens by normalized name similarity (longest common substring ≥ 0.5), interpolates distortion/TCA between bracketing focals and picks nearest focal+aperture for vignetting. Corrections: `poly3`/`poly5`/`ptlens` distortion (`rd/ru`), `linear`/`poly3` TCA channel scales, `pa` vignetting as the inverse response `1/(1+k1r²+k2r⁴+k3r⁶)` (r = 1 at the corner), all in the Hugin normalization (r = 1 at half the short side) with an auto-scale so no correction samples outside the source. Preview runs in the final shader in real time (radial in baked-image space; the original centre maps through the rigid geometry, so radii transfer), export on the developed pixels before geometry.
 - Pipeline placement: preview stage 0.25 (per-channel base sampling + vignetting gain); CPU export before the geometry transforms.
 - Key constants: name-score threshold 0.5; amounts default 50 (0-100); auto-scale computed per photo.
@@ -222,6 +222,65 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Purpose: since the History panel (Phase 40.5), sidecars end with a `{"__index": i}` marker. Export, library previews, copy/paste settings and batch rotate/flip read or overwrote `arr.last()`, which is that marker. As a result exports rendered photos with **no edits**, and batch edits on photos with history could replace the marker with a partial state.
 - Fix: `src/managers/EditStack.h` (`currentState`, `currentSettings`, `replaceCurrentState`) mirrors `RawEngine::loadEdits`; every reader and writer uses it. Batch edits now replace the current state in place and keep the history and the marker (and its legacy rating).
 - Files: `src/managers/EditStack.h`, `ExportManager.cpp`, `PreviewManager.cpp`, `AppStateManager.cpp`, `tests/auto/tst_RawEngine.cpp`.
+
+---
+
+## Light sliders: continuous, monotone ranges (2026-11-15)
+
+- Purpose: Exposure, Contrast, Highlights, Shadows, Whites, Blacks and Clarity were discontinuous, non-monotone or coupled. The positive-EV knee jumped at 0; a `sign(shadows)` pin made Blacks jump; an `(h+s)/max(|h|,|s|)` offset coupled Highlights and Shadows; Contrast pivoted at 0.5 linear and clamped values above 1; Clarity switched hard at mid-grey; and the GPU log/delta passes used `2^EV` instead of the tapered gain. All paths now share `src/engine/ToneMath.h`; the GLSL mirrors it line by line.
+- Exposure: gain `2^(0.85·EV)` (positive) / `2^EV`. Positive EV saturates within the headroom to white: `out = L + (1−L)·φ(q)`, `q = L(g−1)/(1−L)`, `φ = q/(1+q^p)^(1/p)` with `p = 1` up to +1 EV, rising to 2 at +3 EV. It is the identity at 0 EV, monotone in EV and in luminance, and white stays white.
+- Contrast: `out = L·2^(c·0.45·s·e^(−(s/2.5)²/2))`, `s = log2(L/0.18)`, `c = (contrast−1)·2`. Monotone (slope ≥ 0.55) and symmetric about mid-grey.
+- Tone ranges: **superseded 2026-11-16** by display-referred zones, local tone mapping, the white anchor and the lift roll-off (see "Tone sliders fitted to Reference" below). The first version placed the bands relative to `log2(0.18·sceneWhite)` and compressed lifts above scene white with a shoulder that jumped at slider 0.
+- Safety: `bandSafetyScale()` (computed once per render; a GPU uniform) scales the band shifts so their combined slope stays ≤ 0.9, so no slider combination inverts tones.
+- Lift cap near black: `1 + 9·smoothstep(0, 0.002, L)` since the Reference fit (was 0.08, then 0.02).
+- Exposure and Contrast on the step-wedge test (`testLightSlidersSmoothMonotoneAndRanged`): Contrast pivots at 18 % linear, ±0.7 stops; no jumps, monotone, no inversion, including opposite-band combinations and +2 EV.
+- Contrast is an integer slider (`stepSize: 1`, engine value `1 + round(v)/200`).
+- Files: `src/engine/ToneMath.h`, `ImageDeveloper.cpp`, `RawEngine.cpp`, `src/components/RawViewport.{h,cpp,frag}`, `Photon001Log.frag`, `Photon001Delta.frag`, `content/views/App.qml`, `tests/auto/tst_RawEngine.cpp`.
+
+## Tone sliders fitted to Reference + local tone mapping (2026-11-16)
+
+- Purpose: make Highlights, Shadows, Whites and Blacks behave like Reference, the editor Photon is matched against. The earlier hand-tuned versions washed out whites, flattened midtones, posterized, clipped whites at the first step and placed their zones differently in every photo.
+- Method: Reference was driven over adb in an Android emulator. Each slider was exported at −100, −50, −25, +25, +50 and +100 on three photos (`testphoton/_DSC7870`, `_DSC9064`, `_DSC9111`; 16-bit TIFF, 2048 px, sRGB).
+  - The response is the mean shift in stops versus the photo's own base, binned by displayed brightness (`testphoton/reference/reference_tables.csv`, local only).
+  - Each slider's parameters were fitted by Nelder–Mead through our CPU export at 768 px, minimising the pixel-share-weighted squared error over photos × values × bins (stops clamped to ±6).
+  - Whites was refined from the tables (per-pixel model).
+- Zones (`src/engine/ToneMath.h`): `x = log2(L / 0.18)` of the exposed, rendered Rec.709 luminance (display white is x = 2.47).
+
+  | Slider | Shape | Gain at −100 / +100 | Reads |
+  |---|---|---|---|
+  | Shadows | bump at −5.44, −3.16 / +6.0: strongest ~3 % display, fading out by ~55 % | 1.89 / 2.19 stops | mask |
+  | Highlights | bump at 0.83 (~57 %), −5.0 / +4.0: from ~25 % up to white | 0.99 / 1.03 stops | mask |
+  | Whites | +: ramp from −6.96 over 5.82 (full at ~32 %), amount `2.65·v^2.62`; −: `0.553·v·t²`, t from −4.88 to display white | −0.55 at white / up to +2.65 | pixel |
+  | Blacks | levels on the display-encoded luminance e: − `e' = max(e − bp, 0)/(1 − bp)`, `bp = 0.20·|v|^1.14`; + `e' = e + o(1 − e)`, `o = 0.064·v^1.02` | crushes to black / lifts the output black | pixel |
+
+  Reference is asymmetric, hence the separate −/+ gains. Its Highlights is broad with a fixed centre: a centre placed from the scene white fitted no better, so `highlightsCenter()` returns the constant and the scene white no longer affects the render. Its Whites accelerates on + and keeps growing up to white on −. Its Blacks is a black point (−) and an output-black lift (+), which match its tables far better than a band (fit error 9.0 → 2.5).
+- Per pixel:
+  - **Lift roll-off:** every positive shift R (Highlights, Shadows, +Whites, Clarity) becomes `log2(S(2^R·S⁻¹(m)) / m)`, with `S(g) = g/(1 + g⁴)^¼` and `m` the brightest channel (the log pass's `.z`). Identity at R = 0, monotone, never reaches white for m < 1. +Whites joined the roll-off (it used to multiply past white and blow out).
+  - **No white anchor:** Reference darkens near-white tones with their region. At `_DSC9064`'s tail tip it gives −0.81 stop grading to −1.4 in the fur around it. A per-pixel anchor left the clipped tip as a hard-edged white blob.
+  - **Blacks is applied to the result of the other shifts** (a monotone map of a monotone map), so combinations can't invert tones.
+  - Darkening fades near the flare floor (closed form). The lift cap near black is `1 + 9·smoothstep(0, 0.002, L)` (was 0.02), because Reference lifts deep shadows by 2–3 stops. Clarity and the Shadows detail fade out below ~2 % display.
+- **+Shadows keeps local contrast:** in the regions it lifts it adds `0.3 · shadows · w_S · detail` (the Clarity detail, two Laplacian levels of the log luminance).
+- Safety: `bandSafetyScale()` adds the worst slope of the regional bands (mask) and the pixel bands (Whites), keeping the total ≤ 0.9, so there's no tone inversion. −Shadows bakes in the slope limit the fit had reached (2.05 → 1.89), so a single slider never engages the scale, which would couple the other sliders to it.
+- **Export = preview:**
+  - The CPU tone stage reads the pixel after white balance and exposure but before the stage-0.5 effects (`photon001_wb_exposure_cpp`), exactly like the GPU log pass.
+  - Its Clarity/Shadows detail is the working log luminance of that colour, blurred in log with the GPU taps (`photon001_blur_log_cpp`: σ 1 / 3.5 px). Before, linear-RGB blurs biased the detail dark.
+  - The preview's eight blur passes step in image pixels at any zoom (`rawViewport.blurUnitSize = viewportSize · sourceSize / imageRect.size`). Before, their radius shrank when zooming in.
+  - The live histogram still estimates Clarity detail from linear blurs.
+- Tone mask (`src/engine/ToneMask.{h,cpp}`): fast guided filter (He & Sun) on log2 luminance.
+  1. Grid: the white-balanced, unexposed Rec.709 luminance of the develop source (denoised, lens-corrected, cropped), log-averaged into a grid with a 512-cell long edge.
+  2. Self-guided filter on the grid: box radius `r = 0.02 · long edge` (10 cells). The coefficient is `a = v²/(v² + ε²)` with `ε = 0.7 stops²` instead of the plain `v/(v + ε)`. That's a sharper edge/texture split: ±0.7-stop variations (fabric folds, shading) stay in the region (a < 0.3), while edges of 2+ stops are followed (a > 0.6). Then `b = mean·(1 − a)`, both box-averaged.
+  3. Per cell it stores `a`, the local mean `μ = b̄/(1 − ā)` and the grid value `g`.
+  4. Per pixel (bilinear): `mask = a·(E(g) + shrink(I − E(g))) + (1 − a)·E(μ)`, where `I` is the exposed pixel's log luminance and `E` the exposure map. `shrink(d) = d − T·tanh(d/T)`, `T = 0.5 stop`, drops sub-cell texture but passes hard edges, and `shrink′ < 1`.
+  5. GPU texture: `(3·w) × h` RGBA8888, planes `a | μ | g` as 16-bit values in R/G (`μ, g = −16 + 20·t`), filtered bilinearly by hand in `Photon001Delta.frag`. A 1 × 1 texture is the identity.
+- Pipeline placement: GPU — `RawEngine::updateToneMask` (worker thread, 80 ms debounce, rerun on source pixels / WB / geometry bake) → `ToneMaskProvider` (`image://tonemask/<version>`) → `toneMaskImage` → delta pass (binding 4, with `imageRect`/`viewportSize`/`maskRoi`). CPU export — computed once after the blur precompute (only when a tone slider ≠ 0). Histogram — cached per processed image and WB. The final pass applies the delta without a shoulder (`apply_photon001_delta_stops`).
+- 16-bit preview: `RawViewport` uploads the 16-bit source as `RGBA16F`, and the four `ShaderEffectSource` captures of the viewport use `RGBA16F`, so the preview no longer bands at slider extremes.
+- Validation:
+  - `testToneSlidersMatchReference` renders the three photos and fails if a slider's error against the Reference tables exceeds its fitted value by more than 25 % (Highlights 1.0, Shadows 3.14, Whites 2.76, Blacks 2.48). It skips when `testphoton` is absent (CI).
+  - `testLightSlidersSmoothMonotoneAndRanged`: zones of the fitted model on the step wedge, plus no jumps (a step 3× both its neighbours), monotonicity and no inversion, including opposite-slider combinations and +2 EV.
+  - `testToneBandsLocalNoHaloKeepDetail`: no halo at a hard 5.3-stop edge. −Blacks crushes and Whites compresses by design, so their detail isn't checked.
+  - `testToneMaskEncoding`: GPU encoding vs CPU planes, identity, shrinkage monotonicity.
+- Key constants: zones above; `kShadowsDetail 0.3`, `kLiftShoulder 4`, `kMaxLiftStops 4`, `kClarityBlackStart −7`, `kClarityBlackSpan 3`; mask `kGridLongEdge 512`, `kGridRadius 0.02`, `kGridEps 0.7`, `kDetailThreshold 0.5`, `kLogMin −16`, `kLogRange 20`.
+- Files: `src/engine/ToneMath.h`, `src/engine/ToneMask.{h,cpp}`, `src/components/ToneMaskProvider.h`, `src/components/RawViewport.{h,cpp,frag}`, `src/components/Photon001Log.frag`, `src/components/Photon001Delta.frag`, `src/engine/RawEngine.{h,cpp}`, `src/engine/ImageDeveloper.cpp`, `src/main.cpp`, `content/views/App.qml`, `content/views/DevelopView.qml`, `content/components/ControlGroup.qml`, `tests/auto/tst_RawEngine.cpp`.
 
 ---
 

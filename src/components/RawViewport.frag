@@ -464,8 +464,9 @@ vec3 apply_luma_target(vec3 color, float lumaIn, float targetLuma) {
 
     // --- Noise Floor Protection ---
     // Cap the lift ratio in deep blacks to prevent noise/posterization.
-    // 1.0x cap at pure black, scaling up to 10.0x at 0.08 luma.
-    float maxRatio = 1.0 + 9.0 * smoothstep(0.0, 0.08, lumaIn);
+    // 1.0x cap at pure black, scaling up to 10.0x at 0.002 luma (Reference lifts deep shadows).
+    // (mirrors photon::tone::liftCap)
+    float maxRatio = 1.0 + 9.0 * smoothstep(0.0, 0.002, lumaIn);
     float safeRatio = clamp(lumaRatio, 0.0, maxRatio);
 
     // --- Pure Multiplicative Adjustment ---
@@ -514,21 +515,14 @@ float photon001_decode_log_luma(float logLuma) {
     return max(exp2(logLuma) - PHOTON001_FLARE_LINEAR, PHOTON001_EPS);
 }
 
-vec3 apply_photon001_delta_stops(vec3 color, float deltaStops, float whitesStops, float sceneWhiteNorm) {
+// photon::tone::toneRangeTargetLuma: lifts already roll off towards white in
+// the delta pass, so no extra shoulder here.
+vec3 apply_photon001_delta_stops(vec3 color, float deltaStops, float whitesStops) {
     float srcGrayLinear = photon001_working_luma_linear(color);
     float srcGrayLog = photon001_encode_log_luma(srcGrayLinear);
 
     float recoveryStops = deltaStops - whitesStops;
-    float targetLog = srcGrayLog + recoveryStops;
-    float targetLuma = photon001_decode_log_luma(targetLog);
-
-    if (targetLuma > sceneWhiteNorm && recoveryStops > 0.0) {
-        float over = targetLuma - sceneWhiteNorm;
-        float knee = max(sceneWhiteNorm * 0.7, PHOTON001_EPS);
-        float compress = over / (1.0 + over / knee);
-        targetLuma = sceneWhiteNorm + compress;
-    }
-
+    float targetLuma = photon001_decode_log_luma(srcGrayLog + recoveryStops);
     targetLuma *= exp2(whitesStops);
     return apply_luma_target(color, srcGrayLinear, targetLuma);
 }
@@ -894,43 +888,47 @@ void main()
     // 1. White Balance
     color = apply_white_balance(color, ubuf.temperature / 100.0, ubuf.tint / 100.0) * ubuf.wbGain;
 
-    // 2. Exposure (positive side tapers the gain and rolls highlights off earlier)
+    // 2. Exposure (mirrors photon::tone::exposureGain / exposureLuma): the
+    //    positive side boosts within the headroom to white, so highlights roll
+    //    off smoothly and the slider is continuous and monotone through 0.
     float exposureAmount = ubuf.exposure;
-    float exposure =
-        pow(2.0, exposureAmount * (exposureAmount > 0.0 ? 0.85 : 1.0));
+    float exposure = exp2(exposureAmount > 0.0 ? exposureAmount * 0.85 : exposureAmount);
 
     color *= exposure;
     if (exposureAmount > 0.0) {
-        float kneeStart = ubuf.sceneWhite * 0.65 *
-            (1.0 - 0.30 * clamp(exposureAmount / 2.5, 0.0, 1.0));
         float luma = get_luma(max(color, 0.0));
-        if (luma > kneeStart) {
-            // Continuous exponential soft-clip (slope 1 at the knee) that
-            // asymptotes at display white, preserving highlight detail and
-            // control range at high EV.
-            float range = max(1.0 - kneeStart, 1e-4);
-            float over = luma - kneeStart;
-            float target = kneeStart + range * (1.0 - exp(-over / range));
-            color = apply_luma_target(color, luma, target);
+        float lPre = luma / exposure;
+        float target = luma;
+        float headroom = 1.0 - lPre;
+        if (lPre > 0.0 && headroom > 0.0) {
+            float q = lPre * (exposure - 1.0) / headroom;
+            float p = 1.0 + clamp((exposureAmount - 1.0) * 0.5, 0.0, 1.0);
+            float phi = q / pow(1.0 + pow(q, p), 1.0 / p);
+            target = lPre + headroom * phi;
+        } else if (lPre > 0.0) {
+            target = lPre;  // at/over white: no boost
         }
+        if (target < luma) color = apply_luma_target(color, luma, target);
     }
-    float sceneWhiteNorm = max(ubuf.sceneWhite * exposure, 1e-4);
     vec4 deltaValue = texture(photon001Delta, canvasUV);
-    color = apply_photon001_delta_stops(color, deltaValue.x, deltaValue.y, sceneWhiteNorm);
+    color = apply_photon001_delta_stops(color, deltaValue.x, deltaValue.y);
     //color = davinci_tonemap(color, ubuf.adaptation);
     
     // Calibration (scene-linear, before the tone curve)
     color = apply_calibration(color);
 
-    // 3. Contrast (perceptual S-curve on luma; 1.0 = identity)
+    // 3. Contrast (mirrors photon::tone::contrastLuma): S-curve in stops
+    //    around mid-grey, monotone for every slider value.
     color = max(vec3(0.0), color);
     if (abs(ubuf.contrast - 1.0) > 0.001) {
         float lumaC = get_luma(color);
-        float x = clamp(lumaC, 0.0, 1.0);
-        float sCurve = x * x * (3.0 - 2.0 * x);
-        float strength = clamp((ubuf.contrast - 1.0) * 1.2, -0.6, 0.6);
-        float target = max(mix(x, sCurve, strength), 0.0);
-        color = apply_luma_target(color, lumaC, target);
+        if (lumaC > 1e-6) {
+            float c = clamp((ubuf.contrast - 1.0) * 2.0, -1.0, 1.0);
+            float s = log2(lumaC / 0.18);
+            float u = s / 2.5;
+            float target = lumaC * exp2(c * 0.45 * s * exp(-0.5 * u * u));
+            color = apply_luma_target(color, lumaC, target);
+        }
     }
 
     // --- HSL PANEL ---

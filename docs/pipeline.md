@@ -1,7 +1,7 @@
 # Photon Develop Pipeline
 
 Living reference for how the develop pipeline works, where each feature sits, and what changed.
-Last updated: 2026-11-15.
+Last updated: 2026-11-16.
 
 ## 1. Overview
 
@@ -17,10 +17,11 @@ Rule (see `AGENTS.md`): any pipeline change must be applied to all three, with t
 
 ### GPU preview chain (`App.qml`)
 
-1. `photon001LogPass` — WB + exposure → log-luma (`Photon001Log.frag`)
+0. `toneMaskImage` — edge-aware tone mask (`image://tonemask`, computed by `RawEngine::updateToneMask` on a worker from the displayed source; see `features.md` "Local tone mapping"). The viewport source is uploaded as RGBA16F and every `ShaderEffectSource` capture of it is RGBA16F.
+1. `photon001LogPass` — WB + exposure → working log-luma (.x), Rec.709 log-luma (.y), log2 of the brightest channel (.z) (`Photon001Log.frag`)
 2. `photon001GaussianSmall/Big` H/V — separable blurs of log-luma
 3. `photon001ColorFine/Coarse` H/V — separable linear-RGB blurs (`Photon001ColorGaussian.frag`)
-4. `photon001DeltaPass` — per-range tone deltas → RG16F texture (`Photon001Delta.frag`)
+4. `photon001DeltaPass` — per-range tone deltas → RG16F texture (`Photon001Delta.frag`); the band position comes from the tone mask (binding 4)
 5. `shaderFx` — final tone/color/output (`RawViewport.frag`)
 
 ### Final pass stage order (`RawViewport.frag`)
@@ -30,10 +31,10 @@ Rule (see `AGENTS.md`): any pipeline change must be applied to all three, with t
 | 0 | GPU NLM denoise | Classic-mode stand-in only while no BM3D result is shown (`liveDenoiseAmount`); off when denoise is disabled or AI denoise is active |
 | 0.5 | Local-contrast masks + Sharpness / Structure / Dehaze / Centrè | |
 | 1 | White balance | temp/tint multipliers; RAW adds the Kelvin gains (`wbGain`) |
-| 2 | Exposure | + positive-EV highlight knee vs `sceneWhite` |
-| 2.5 | Photon001 tone ranges | Highlights/Shadows/Whites/Blacks/Clarity from the delta texture |
+| 2 | Exposure | `ToneMath` exposure: tapered gain + headroom roll-off to white (continuous at 0 EV) |
+| 2.5 | Photon001 tone ranges | Highlights/Shadows/Whites/Blacks/Clarity from the delta texture (display-referred zones, lift roll-off and white anchor already applied in the delta pass; no shoulder) |
 | 2.75 | Calibration | white-preserving primary matrix + shadows tint (host-computed rows) |
-| 3 | Contrast | smoothstep S-curve on luma |
+| 3 | Contrast | S-curve in stops around mid-grey (`ToneMath::contrastLuma`) |
 | 4 | HSL 8-band | OKLab/OKLCh |
 | 5 | Color grading | 3 zones, OKLab |
 | 6 | Saturation / Vibrance | OKLab chroma |
@@ -60,8 +61,10 @@ Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or 
 1. sRGB16 → linear (LUT)
 2. Two-scale Gaussian precompute; Scharr edge mask (sharpen mask) on linear luma
 2b. Sharpness (edge mask × focus gate) / Structure / Dehaze / Centrè (shader stage 0.5)
+2c. Tone mask (`photon::tone::computeToneMask`, WB applied, 0 EV) when a tone slider ≠ 0
+2d. Detail for Clarity / +Shadows: working log luminance after WB + exposure (the GPU log pass), blurred in log with the GPU taps (`photon001_blur_log_cpp`); the tone math reads the pixel after WB + exposure but before the stage-0.5 effects, like the GPU
 3. WB + Exposure (same formulas)
-4. Photon001 tone ranges (`apply_photon001_tone_ranges_cpp`) with host-computed scene stats
+4. Photon001 tone ranges (`apply_photon001_tone_ranges_cpp`) with host-computed scene stats; band position = `maskLogExposed` of the tone mask
 4b. Calibration (`photon::calibration::apply`)
 5. Contrast
 6. HSL 8-band
@@ -74,11 +77,11 @@ Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or 
 12b. Film grain (image-relative coordinates, long edge = 2000 units) / Vignette (cropped frame)
 13. Dither + 8-bit output
 
-**Known gaps:** the preview's texel-sized radii (local-contrast blurs, sharpen mask, focus gate) follow the displayed texture, which is half size at fit zoom, so at fit the preview's Clarity/Sharpness radius is ~2× the export's (export matches the 100 % view). Export clamps the lens vignetting gain at white (16-bit storage).
+**Known gaps:** the preview's blur passes (log blurs for Clarity, colour blurs for Sharpness/Structure) step in image pixels at any zoom (`rawViewport.blurUnitSize`, since 2026-11-16), like the export; the final pass's sharpen mask and focus gate still use texel-sized offsets. The live histogram measures Clarity detail on linear-RGB blurs (an estimate). Export clamps the lens vignetting gain at white (16-bit storage).
 
 ### Histogram
 
-`RawEngine::requestHistogramUpdate` duplicates the tone pipeline on the processed image (AI-denoised when active; the blend invalidates its blur cache); it currently stops at color grading and omits saturation/vibrance/tonemap/curve. Blur results are cached per processed image (`ensureHistogramBlurCache`). Any stage added/retuned must be mirrored here.
+`RawEngine::requestHistogramUpdate` duplicates the tone pipeline on the processed image (AI-denoised when active; the blend invalidates its blur cache); it currently stops at color grading and omits saturation/vibrance/tonemap/curve. Blur results are cached per processed image (`ensureHistogramBlurCache`), and so is the tone mask (per processed image and WB multipliers). Any stage added/retuned must be mirrored here.
 
 ## 2. Feature hook points
 
@@ -126,4 +129,9 @@ Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or 
 | 2026-11-15 | Denoise panel reduced to Noise Reduction + Color; AI → colour pass (chroma BM3D 1/4 + guided filter 1/2) cached per photo; engine (AI/Classic) and AI device (Auto/CPU/GPU) in Settings | simpler controls, AI-quality chroma | commit `8d9156e` |
 | 2026-11-15 | Edit-stack reads fixed (export/previews/batch edits used the `__index` marker instead of the current state) | exports render the edits | commit `8d9156e` |
 | 2026-11-15 | AI denoise (RawNIND UtNet2 via ncnn, Vulkan/CPU): Bayer → camera RGB once per photo, pushed through LibRaw's colour/curve, cached, Amount = blend; Classic BM3D kept as engine choice/fallback | ML denoise | commit `8d9156e` |
-| 2026-11-15 | RAW temperature range extended to 50000 K with a logarithmic slider (`ControlGroup` toSlider/fromSlider mapping) | Lightroom-like range | commit `8d9156e` |
+| 2026-11-15 | RAW temperature range extended to 50000 K with a logarithmic slider (`ControlGroup` toSlider/fromSlider mapping) | Reference-like range | commit `8d9156e` |
+| 2026-11-15 | Light sliders: continuous/monotone exposure, contrast and tone ranges in a shared `ToneMath.h` (GPU mirrors it; log pass outputs Rec.709 log luma in .y, delta pass gets `toneBandScale`) | Reference-like sliders | branch `develop` |
+| 2026-11-16 | Local tone mapping for Highlights/Shadows/Whites/Blacks: edge-aware guided-filter tone mask (`ToneMask.{h,cpp}`, 3-plane GPU texture sampled by the delta pass) + detail shrinkage; Highlights/Whites bands retuned; 16-bit (RGBA16F) preview source and captures; integer Contrast | no wash-out/posterization, no halos | branch `develop` |
+| 2026-11-16 | Tone bands display-referred (fixed zones, no scene white), Blacks per pixel, Shadows/Highlights/Whites on the mask; per-pixel lift roll-off on the brightest channel (replaces the scene-white shoulder) and −Highlights white anchor; mask `a = v²/(v²+ε²)`; Clarity faded in deep shadows; log pass `.z` = log2 max channel | no clipped whites, whites stay white, LR-like zones | branch `develop` |
+| 2026-11-16 | Highlights centre follows the photo (scene white after Exposure); −Highlights white anchor on luminance; Whites = pixel white point; Shadows zone deepened (peak ~12 %, from ~3 %) + detail compensation; mask ε 0.7; export detail blurred in log from the log-pass colour (matches the GPU); preview blur steps in image pixels at any zoom | HDR-aware highlights, whites stay white, export = preview | branch `develop` |
+| 2026-11-16 | Tone sliders fitted to Reference (adb-driven exports of three photos, Nelder–Mead through the CPU export): asymmetric gains, broad fixed-centre Highlights, deep strong Shadows, per-pixel Whites (+ in the lift roll-off, − quadratic to white), Blacks as levels on the display-encoded luminance; no white anchor; lift cap from 0.2 %; delta pass `.y` unused | Reference-matched sliders | branch `develop` |

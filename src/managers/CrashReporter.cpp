@@ -290,7 +290,10 @@ QString CrashReporter::takePendingCrashReport() {
   if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return QString();
   const QString reportPath = QString::fromUtf8(file.readAll()).trimmed();
   file.close();
-  QFile::rename(marker, marker + ".reported");
+  // QFile::rename does not overwrite: drop the previous ".reported" first,
+  // or the marker would stay and every later session would re-report it.
+  QFile::remove(marker + ".reported");
+  if (!QFile::rename(marker, marker + ".reported")) QFile::remove(marker);
   return reportPath;
 }
 

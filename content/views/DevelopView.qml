@@ -248,8 +248,9 @@ Control {
                             title: "Contrast"; 
                             value: root.viewport ? (root.viewport.contrast - 1.0) * 200.0 : 0.0; 
                             from: -100; to: 100; 
+                            stepSize: 1
                             defaultValue: 0.0;
-                            onMoved: (v) => { if(root.viewport) root.viewport.contrast = 1.0 + (v / 200.0) }; 
+                            onMoved: (v) => { if(root.viewport) root.viewport.contrast = 1.0 + (Math.round(v) / 200.0) }; 
                             onReleased: if(root.viewport) root.viewport.commitEdit() 
                         }
                         

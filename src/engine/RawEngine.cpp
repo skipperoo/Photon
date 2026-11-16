@@ -25,6 +25,7 @@
 #endif
 
 #include "../components/ToneLutProvider.h"
+#include "../components/ToneMaskProvider.h"
 #include "../managers/AppStateManager.h"
 #include "../managers/LogManager.h"
 #include "../managers/PreviewManager.h"
@@ -32,6 +33,8 @@
 #include "Calibration.h"
 #include "Denoiser.h"
 #include "SceneWhite.h"
+#include "ToneMask.h"
+#include "ToneMath.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
 #include "LensFun.h"
@@ -145,7 +148,7 @@ static void apply_luma_target_hist(float& r, float& g, float& b, float lumaIn,
   targetLuma = std::max(targetLuma, 0.0f);
   float safeLuma = std::max(lumaIn, 1e-4f);
   float lumaRatio = targetLuma / safeLuma;
-  float maxRatio = 1.0f + 9.0f * smoothstep(0.0f, 0.08f, lumaIn);
+  float maxRatio = photon::tone::liftCap(lumaIn);
   float safeRatio = std::clamp(lumaRatio, 0.0f, maxRatio);
   r *= safeRatio;
   g *= safeRatio;
@@ -157,14 +160,6 @@ struct Vec3fHist {
   float g;
   float b;
 };
-
-static float step_hist(float edge, float x) { return x < edge ? 0.0f : 1.0f; }
-
-static float sign_hist(float x) {
-  if (x > 0.0f) return 1.0f;
-  if (x < 0.0f) return -1.0f;
-  return 0.0f;
-}
 
 static Vec3fHist clamp_vec3_hist(const Vec3fHist& c, float lo, float hi) {
   return {std::clamp(c.r, lo, hi), std::clamp(c.g, lo, hi),
@@ -428,40 +423,8 @@ static float photon001_encode_log_luma_hist(float linearLuma) {
                             PHOTON001_EPS_HIST));
 }
 
-static float photon001_decode_log_luma_hist(float logLuma) {
-  return std::max(std::exp2(logLuma) - PHOTON001_FLARE_LINEAR_HIST,
-                  PHOTON001_EPS_HIST);
-}
-
-static float endpoint_pin_mask_component_hist(float x) {
-  x = std::clamp(x, 0.0f, 1.0f);
-  const float inv = 1.0f - x;
-  const float inv2 = inv * inv;
-  const float inv4 = inv2 * inv2;
-  const float inv8 = inv4 * inv4;
-  const float inv16 = inv8 * inv8;
-  const float base = 1.0f - inv8;
-  const float strong = 1.0f - inv16;
-  return lerpF(base, strong, smoothstep(0.35f, 1.0f, x));
-}
-
 static float photon001_log_luma_hist(const Vec3fHist& c) {
   return photon001_encode_log_luma_hist(photon001_working_luma_linear_hist(c));
-}
-
-static float photon001_tent_weight_hist(float value, float center,
-                                        float halfWidth) {
-  return std::max(
-      1.0f - std::abs(value - center) / std::max(halfWidth, PHOTON001_EPS_HIST),
-      0.0f);
-}
-
-static float photon001_local_laplacian_mask_hist(float srcLog,
-                                                  float blurFineLog,
-                                                  float blurCoarseLog) {
-  const float lapFine = srcLog - blurFineLog;
-  const float lapMid = blurFineLog - blurCoarseLog;
-  return std::clamp(lapFine + 0.6f * lapMid, -2.5f, 2.5f);
 }
 
 struct OklabHist {
@@ -523,116 +486,27 @@ static void oklab_to_linear_srgb_gamut_hist(const OklabHist& lab, float& r,
 static Vec3fHist apply_photon001_tone_ranges_hist(
     const Vec3fHist& color, const Vec3fHist& blurredFine,
     const Vec3fHist& blurredCoarse, float highlightsAmt, float shadowsAmt,
-    float whitesAmt, float blacksAmt, float clarityAmt, float sceneWhiteNorm,
-    float sceneDetailScale, float sceneHighlightPin, float sceneCompression) {
+    float whitesAmt, float blacksAmt, float clarityAmt, float sceneDetailScale,
+    float bandScale, const photon::tone::ToneMaskSample& maskSample,
+    float exposureEv, float hlCenter) {
+  // Same math as the CPU export (ToneMath.h). (The detail here comes from
+  // linear-RGB blurs - an estimate; the export and preview blur in log.)
   const float srcGrayLinear = photon001_working_luma_linear_hist(color);
   const float srcGrayLog = photon001_encode_log_luma_hist(srcGrayLinear);
   const float blurFineLog = photon001_log_luma_hist(blurredFine);
   const float blurCoarseLog = photon001_log_luma_hist(blurredCoarse);
-  const float toneMid =
-      photon001_encode_log_luma_hist(
-          std::max(sceneWhiteNorm * 0.18f, PHOTON001_EPS_HIST));
-
-  const float wShadows =
-      photon001_tent_weight_hist(srcGrayLog, toneMid - 2.4f, 2.0f);
-  const float wHighlights =
-      photon001_tent_weight_hist(srcGrayLog, toneMid + 1.0f, 1.9f);
-  const float wWhites =
-      photon001_tent_weight_hist(srcGrayLog, toneMid + 3.1f, 2.2f);
-  const float wBlacks =
-      photon001_tent_weight_hist(srcGrayLog, toneMid - 4.6f, 1.9f);
-
-  const float mask = photon001_local_laplacian_mask_hist(
-      srcGrayLog, blurFineLog, blurCoarseLog);
-  const float deltaMask =
-      std::clamp(blurFineLog - blurCoarseLog, -1.0f, 1.0f);
-
-  const float partSwitch = step_hist(srcGrayLog, toneMid);
-  const float compressedLow =
-      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.22f * sceneCompression);
-  const float compressedHigh =
-      toneMid + (srcGrayLog - toneMid) * (1.0f - 0.42f * sceneCompression);
-  const float baseCompressed = lerpF(compressedHigh, compressedLow, partSwitch);
-
-  float localContrastSignal = srcGrayLog + mask - baseCompressed;
-  localContrastSignal *= clarityAmt;
-  localContrastSignal *=
-      std::clamp(1.0f + 0.35f * (-highlightsAmt + shadowsAmt), 1.0f, 2.0f);
-  localContrastSignal *= sceneDetailScale;
-
-  const float lumWeightHigh =
-      std::clamp(wHighlights + 0.6f * wWhites, 0.0f, 1.0f);
-  const float lumWeightLow = std::clamp(wShadows + 0.6f * wBlacks, 0.0f, 1.0f);
-  const float endpointHigh = std::clamp(
-      std::abs(highlightsAmt) + 0.35f * std::abs(whitesAmt), 0.0f, 1.0f);
-  const float endpointLow = std::clamp(
-      std::abs(shadowsAmt) + 0.35f * std::abs(blacksAmt), 0.0f, 1.0f);
-  const float clarityPinHigh =
-      lerpF(endpoint_pin_mask_component_hist(lumWeightHigh), 1.0f,
-           endpointHigh * endpointHigh);
-  const float clarityPinLow =
-      lerpF(endpoint_pin_mask_component_hist(lumWeightLow), 1.0f,
-           endpointLow * endpointLow);
-  const float clarityPin = lerpF(clarityPinLow, clarityPinHigh, partSwitch);
-
-  float hsPinY =
-      lerpF(0.5f + 0.5f * std::max(1.0f - sign_hist(shadowsAmt), 0.0f), 1.0f,
-           clarityPinHigh);
-  float hsPinX =
-      lerpF(1.0f, 0.5f,
-           (1.0f - clarityPinLow) * std::max(-sign_hist(highlightsAmt), 0.0f));
-  hsPinX = lerpF(1.0f, hsPinX, std::clamp(std::abs(highlightsAmt), 0.0f, 1.0f));
-
-  const float maxAbsHS = std::max(
-      std::max(std::abs(highlightsAmt), std::abs(shadowsAmt)),
-      PHOTON001_EPS_HIST);
-  const float baseOffset = 0.85f * (highlightsAmt + shadowsAmt) / maxAbsHS;
-  const float offsetHSHigh = wHighlights * std::abs(highlightsAmt) * baseOffset;
-  const float offsetHSLow = wShadows * std::abs(shadowsAmt) * baseOffset;
-
-  float deltaHSHigh = std::clamp(-highlightsAmt, -1.0f, 1.0f);
-  float deltaHSLow = std::clamp(shadowsAmt, -1.0f, 1.0f);
-  deltaHSHigh *= std::min(deltaMask, 0.0f) * wHighlights;
-  deltaHSLow *= std::max(deltaMask, 0.0f) * wShadows;
-  deltaHSHigh += offsetHSHigh;
-  deltaHSLow += offsetHSLow;
-
-  const float whitesStops = whitesAmt * wWhites * hsPinX;
-  float recoveryStops = deltaHSHigh * hsPinX + deltaHSLow * hsPinY;
-  recoveryStops += blacksAmt * wBlacks * hsPinY;
-  recoveryStops += localContrastSignal * clarityPin;
-
-  const float fadeStrength =
-      0.6f + 0.2f * std::clamp(sceneHighlightPin, 0.0f, 1.0f);
-  const float positiveFade =
-      1.0f -
-      fadeStrength * smoothstep(toneMid + 1.0f, toneMid + 4.0f, srcGrayLog);
-  if (recoveryStops > 0.0f) recoveryStops *= positiveFade;
-
-  const float deltaSign = sign_hist(recoveryStops);
-  const float flareSwitch = 1.0f - std::max(deltaSign, 0.0f);
-  const float zeroSwitch = 1.0f - std::abs(deltaSign);
-  const float flare = flareSwitch * PHOTON001_FLARE_LOG_HIST;
-  const float startpoint = flare - (recoveryStops + recoveryStops);
-  const float t1 = step_hist(startpoint, srcGrayLog);
-  const float t2 = step_hist(srcGrayLog, startpoint);
-  float t =
-      std::clamp((srcGrayLog - startpoint) / (flare - startpoint + zeroSwitch),
-                 0.0f, 1.0f);
-  t *= t * (1.0f - lerpF(t2, t1, flareSwitch));
-  recoveryStops = lerpF(recoveryStops, 0.0f, t);
-  recoveryStops = std::min(recoveryStops, 4.0f);
-
-  float recoveryTarget =
-      photon001_decode_log_luma_hist(srcGrayLog + recoveryStops);
-  if (recoveryTarget > sceneWhiteNorm && recoveryStops > 0.0f) {
-    const float over = recoveryTarget - sceneWhiteNorm;
-    const float knee = std::max(sceneWhiteNorm * 0.7f, PHOTON001_EPS_HIST);
-    const float compress = over / (1.0f + over / knee);
-    recoveryTarget = sceneWhiteNorm + compress;
-  }
-  const float targetLuma = recoveryTarget * std::exp2(whitesStops);
-
+  const float actualLog = photon::tone::encodeLogLuma(
+      0.2126f * std::max(color.r, 0.0f) + 0.7152f * std::max(color.g, 0.0f) +
+      0.0722f * std::max(color.b, 0.0f));
+  const float maxLog =
+      std::log2(std::max({color.r, color.g, color.b, 1e-6f}));
+  const float bandLog =
+      photon::tone::maskLogExposed(maskSample, actualLog, exposureEv);
+  const photon::tone::ToneRangeResult r = photon::tone::toneRangeStops(
+      srcGrayLog, bandLog, actualLog, maxLog, blurFineLog,
+      blurCoarseLog, highlightsAmt, shadowsAmt, whitesAmt, blacksAmt,
+      clarityAmt, sceneDetailScale, bandScale, hlCenter);
+  const float targetLuma = photon::tone::toneRangeTargetLuma(srcGrayLog, r);
   Vec3fHist out = color;
   apply_luma_target_hist(out.r, out.g, out.b, srcGrayLinear, targetLuma);
   return out;
@@ -673,6 +547,37 @@ RawEngine::RawEngine(QObject* parent)
       photon::PreviewManager::instance()->refreshPreview(m_source);
     }
   });
+
+  // Edge-aware tone mask for the GPU preview (local tone mapping).
+  m_toneMaskTimer.setSingleShot(true);
+  m_toneMaskTimer.setInterval(80);
+  connect(&m_toneMaskTimer, &QTimer::timeout, this, &RawEngine::updateToneMask);
+  connect(&m_toneMaskWatcher, &QFutureWatcher<ToneMaskJob>::finished, this,
+          [this]() {
+            const ToneMaskJob job = m_toneMaskWatcher.result();
+            if (job.generation != m_toneMaskGeneration) {
+              scheduleToneMaskUpdate();  // stale: the source changed meanwhile
+              return;
+            }
+            if (job.encoded.isNull()) {
+              // The displayed source is created lazily on the first paint:
+              // retry a few times.
+              if (m_isLoaded && m_toneMaskRetries++ < 10)
+                QTimer::singleShot(250, this, [this]() { updateToneMask(); });
+              return;
+            }
+            m_toneMaskRetries = 0;
+            if (auto* provider = ToneMaskProvider::instance())
+              provider->updateMask(job.encoded);
+            m_toneMaskSize = job.encoded.size();
+            ++m_toneMaskVersion;
+            emit toneMaskChanged();
+          });
+  for (auto sig : {&RawEngine::imageLoaded, &RawEngine::sourcePixelsChanged,
+                   &RawEngine::temperatureKelvinChanged, &RawEngine::tintChanged,
+                   &RawEngine::temperatureChanged, &RawEngine::geometryBakedChanged}) {
+    connect(this, sig, this, &RawEngine::scheduleToneMaskUpdate);
+  }
 
   // Denoise engine is a global Settings choice.
   connect(::AppStateManager::instance(), &::AppStateManager::denoiseEngineChanged,
@@ -850,6 +755,9 @@ RawEngine::~RawEngine() {
 
   m_aiWatcher.disconnect();
   m_aiBlendTimer.stop();
+  m_toneMaskWatcher.disconnect();
+  m_toneMaskTimer.stop();
+  m_toneMaskWatcher.waitForFinished();
 
   m_abortDenoise = true;
   m_abortAi = true;
@@ -940,6 +848,7 @@ void RawEngine::setSource(const QString& source) {
   }
   m_aiTargetAmount = 0.0f;
   m_aiTargetColor = 0.0f;
+  resetToneMask();
   m_aiSupport = -1;
   m_aiSupportSource.clear();
   m_aiStatus.clear();
@@ -1669,6 +1578,7 @@ void RawEngine::applyAiBlendLocked() {
   m_histFineBlurCache.reset();
   m_histCoarseBlurCache.reset();
   m_histBlurSource = nullptr;
+  m_histToneMaskSource = nullptr;
   m_histBlurStep = 0;
 
   if (m_aiPlain.size() != pixels * 3) {
@@ -1699,6 +1609,59 @@ void RawEngine::applyAiBlendLocked() {
   }
   m_aiAppliedAmount = amount;
   m_aiAppliedColor = color;
+}
+
+void RawEngine::scheduleToneMaskUpdate() {
+  ++m_toneMaskGeneration;
+  m_toneMaskTimer.start();
+}
+
+void RawEngine::resetToneMask() {
+  ++m_toneMaskGeneration;
+  m_toneMaskTimer.stop();
+  if (auto* provider = ToneMaskProvider::instance())
+    provider->updateMask(QImage());
+  m_toneMaskSize = QSize(3, 1);
+  ++m_toneMaskVersion;
+  emit toneMaskChanged();
+}
+
+void RawEngine::updateToneMask() {
+  if (!m_isLoaded) return;
+  if (m_toneMaskWatcher.isRunning()) {
+    m_toneMaskTimer.start();  // try again when the running job is done
+    return;
+  }
+  // White-balance multipliers of the preview (RAW: Kelvin gains only).
+  const float temp = (m_isBitmap ? m_temperature : 0.0f) / 100.0f;
+  const float tint = m_tint / 100.0f;
+  const float wb[3] = {
+      (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f) * m_whiteBalanceGains.x(),
+      (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f) * m_whiteBalanceGains.y(),
+      (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f) * m_whiteBalanceGains.z()};
+  const int generation = m_toneMaskGeneration;
+  m_toneMaskWatcher.setFuture(QtConcurrent::run([this, generation, wb0 = wb[0],
+                                                 wb1 = wb[1], wb2 = wb[2]]() {
+    ToneMaskJob job;
+    job.generation = generation;
+    const float wbMul[3] = {wb0, wb1, wb2};
+    QMutexLocker locker(&m_processorMutex);
+    // The source the viewport displays (see getProcessedImage()).
+    if (m_geometryBaked && !m_geometryBuffer.empty() && m_geometryWidth > 0 &&
+        m_geometryHeight > 0) {
+      job.encoded = photon::tone::encodeToneMask(photon::tone::computeToneMask(
+          reinterpret_cast<const ushort*>(m_geometryBuffer.data()),
+          m_geometryWidth, m_geometryHeight, 4, wbMul));
+    } else {
+      int w = 0, h = 0;
+      const ushort* rgb = activeRgbSource(w, h);
+      if (rgb && w > 0 && h > 0) {
+        job.encoded = photon::tone::encodeToneMask(
+            photon::tone::computeToneMask(rgb, w, h, 3, wbMul));
+      }
+    }
+    return job;
+  }));
 }
 
 void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
@@ -2770,8 +2733,27 @@ void RawEngine::requestHistogramUpdate() {
   m_histogramNeedsUpdate = false;
 
   const float statsDetail = m_sceneDetailScale;
-  const float statsPin = m_sceneHighlightPin;
-  const float statsComp = m_sceneCompression;
+  const float hlCenter = photon::tone::highlightsCenter(sceneWhite, exp);
+  const float toneBandScale = photon::tone::bandSafetyScale(
+      high / 100.0f, shad / 100.0f, whites / 100.0f, blacks / 100.0f,
+      hlCenter);
+  // Edge-aware tone mask of the histogram source (same as the export).
+  std::shared_ptr<const photon::tone::ToneMask> histToneMask;
+  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f) {
+    const float wbMul[3] = {
+        (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f) * wbGainR,
+        (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f) * wbGainG,
+        (1.0f - temp * 0.2f) * (1.0f + tint * 0.25f) * wbGainB};
+    if (!m_histToneMask || m_histToneMaskSource != static_cast<const void*>(src) ||
+        m_histToneMaskWb[0] != wbMul[0] || m_histToneMaskWb[1] != wbMul[1] ||
+        m_histToneMaskWb[2] != wbMul[2]) {
+      m_histToneMask = std::make_shared<photon::tone::ToneMask>(
+          photon::tone::computeToneMask(src, imageWidth, imageHeight, 3, wbMul));
+      m_histToneMaskSource = static_cast<const void*>(src);
+      std::copy(wbMul, wbMul + 3, m_histToneMaskWb);
+    }
+    histToneMask = m_histToneMask;
+  }
   const int profileIndex = develop::profileToIndex(m_profile);
   std::vector<float> bw_mix = {m_bwMixRed,    m_bwMixOrange, m_bwMixYellow,
                                m_bwMixGreen,  m_bwMixAqua,   m_bwMixBlue,
@@ -2785,7 +2767,8 @@ void RawEngine::requestHistogramUpdate() {
                                          hsl_h, hsl_s, hsl_l, cgSH,
                                          cgSS, cgSL, cgMH, cgMS, cgML, cgHH,
                                          cgHS, cgHL, cgBal, cgBlen, statsDetail,
-                                         statsPin, statsComp, profileIndex,
+                                         toneBandScale, hlCenter,
+                                         histToneMask, profileIndex,
                                          bw_mix, calibParams, toneCurveActive,
                                          toneLutL, toneLutR, toneLutG,
                                          toneLutB]() {
@@ -2829,18 +2812,12 @@ void RawEngine::requestHistogramUpdate() {
       Vec3fHist color{r, g, b};
 
       if (exp > 0.0f) {
-        float kneeStart =
-            sceneWhite * 0.65f *
-            (1.0f - 0.30f * std::clamp(exp / 2.5f, 0.0f, 1.0f));
         const float l_tone =
             0.2126f * std::max(0.0f, color.r) +
             0.7152f * std::max(0.0f, color.g) +
             0.0722f * std::max(0.0f, color.b);
-        if (l_tone > kneeStart) {
-          const float range = std::max(1.0f - kneeStart, 1e-4f);
-          const float over = l_tone - kneeStart;
-          const float target =
-              kneeStart + range * (1.0f - std::exp(-over / range));
+        const float target = photon::tone::exposureLuma(l_tone / exp_mult, exp);
+        if (target < l_tone) {
           apply_luma_target_hist(color.r, color.g, color.b, l_tone, target);
         }
       }
@@ -2851,11 +2828,16 @@ void RawEngine::requestHistogramUpdate() {
       Vec3fHist blurredCoarseTone{blurredCoarse.r * r_wb * exp_mult,
                                   blurredCoarse.g * g_wb * exp_mult,
                                   blurredCoarse.b * b_wb * exp_mult};
-      const float sceneWhiteNorm = std::max(sceneWhite * exp_mult, 1e-4f);
+      photon::tone::ToneMaskSample maskSample;
+      if (histToneMask) {
+        maskSample = histToneMask->sample(
+            (float(i % imageWidth) + 0.5f) / float(imageWidth),
+            (float(i / imageWidth) + 0.5f) / float(imageHeight));
+      }
       color = apply_photon001_tone_ranges_hist(
           color, blurredFineTone, blurredCoarseTone, high / 100.0f,
           shad / 100.0f, whites / 100.0f, blacks / 100.0f, clarity / 100.0f,
-          sceneWhiteNorm, statsDetail, statsPin, statsComp);
+          statsDetail, toneBandScale, maskSample, exp, hlCenter);
       r = color.r;
       g = color.g;
       b = color.b;
@@ -2870,11 +2852,7 @@ void RawEngine::requestHistogramUpdate() {
       if (std::abs(con - 1.0f) > 0.001f) {
         const float lumaC =
             0.2126f * r + 0.7152f * g + 0.0722f * b;
-        const float x = std::clamp(lumaC, 0.0f, 1.0f);
-        const float sCurve = x * x * (3.0f - 2.0f * x);
-        const float strength =
-            std::clamp((con - 1.0f) * 1.2f, -0.6f, 0.6f);
-        const float target = std::max(lerpF(x, sCurve, strength), 0.0f);
+        const float target = photon::tone::contrastLuma(lumaC, con);
         apply_luma_target_hist(r, g, b, lumaC, target);
       }
 
@@ -3094,6 +3072,7 @@ void RawEngine::clearProcessedImage() {
   m_histFineBlurCache.reset();
   m_histCoarseBlurCache.reset();
   m_histBlurSource = nullptr;
+  m_histToneMaskSource = nullptr;
   m_histBlurStep = 0;
   if (m_processedImage) {
     LibRaw::dcraw_clear_mem(m_processedImage);

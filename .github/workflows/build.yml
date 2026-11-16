@@ -15,7 +15,8 @@ jobs:
   build:
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # A cold vcpkg cache (Windows) rebuilds OpenCV & co. from source.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -82,7 +83,9 @@ jobs:
 
       - name: Build
         run: |
-          cmake --build build_dir --config Release -j
+          # Bounded parallelism: an unbounded -j runs the runner out of
+          # memory on ncnn's ~1000 sources.
+          cmake --build build_dir --config Release --parallel 4
 
       - name: Package (Windows)
         if: runner.os == 'Windows'

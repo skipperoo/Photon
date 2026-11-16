@@ -22,6 +22,7 @@ class RawViewport : public QQuickItem {
   Q_PROPERTY(float shadows READ shadows WRITE setShadows NOTIFY shadowsChanged)
   Q_PROPERTY(float whites READ whites WRITE setWhites NOTIFY whitesChanged)
   Q_PROPERTY(float sceneWhite READ sceneWhite NOTIFY sceneWhiteChanged)
+  Q_PROPERTY(float baseExposure READ baseExposure NOTIFY sceneWhiteChanged)
   Q_PROPERTY(float sceneDetailScale READ sceneDetailScale NOTIFY sceneStatsChanged)
   Q_PROPERTY(float sceneHighlightPin READ sceneHighlightPin NOTIFY sceneStatsChanged)
   Q_PROPERTY(float sceneCompression READ sceneCompression NOTIFY sceneStatsChanged)
@@ -351,6 +352,7 @@ class RawViewport : public QQuickItem {
   void setWhites(float val);
 
   float sceneWhite() const { return m_engine.sceneWhite(); }
+  float baseExposure() const { return m_engine.baseExposure(); }
   float sceneDetailScale() const { return m_engine.sceneDetailScale(); }
   float sceneHighlightPin() const { return m_engine.sceneHighlightPin(); }
   float toneBandScale() const;

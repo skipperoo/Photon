@@ -94,7 +94,13 @@ void main() {
     if (ubuf.exposure > 0.0) {
         float luma = dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
         float target = exposure_luma(luma / gain, ubuf.exposure);
-        if (target < luma) color *= target / max(luma, 1e-4);
+        if (target < luma) {
+            color *= target / max(luma, 1e-4);
+            // photon::tone::exposureDesaturation (film-like shoulder)
+            float s = clamp((1.0 - target / max(luma, 1e-6) - 0.05) / 0.45, 0.0, 1.0);
+            s = s * s * (3.0 - 2.0 * s);
+            color = mix(color, vec3(target), s);
+        }
     }
 
     // x: working (unrendered) log luminance (local detail, flare floor);

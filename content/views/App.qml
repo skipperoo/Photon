@@ -631,7 +631,7 @@ Window {
                                     hideSource: true
                                     live: true
                                 }
-                                property real exposure: rawViewport.exposure
+                                property real exposure: rawViewport.exposure + rawViewport.baseExposure
                                 property real temperature: rawViewport.isBitmapSource ? rawViewport.temperature : 0.0
                                 property real tint: rawViewport.tint
                                 property vector3d wbGain: rawViewport.whiteBalanceGains
@@ -796,7 +796,7 @@ Window {
                                 property real blacks: rawViewport.blacks
                                 property real clarity: rawViewport.clarity
                                 property real sceneWhite: rawViewport.sceneWhite
-                                property real exposure: rawViewport.exposure
+                                property real exposure: rawViewport.exposure + rawViewport.baseExposure
                                 property real sceneDetailScale: rawViewport.sceneDetailScale
                                 property real sceneHighlightPin: rawViewport.sceneHighlightPin
                                 property real sceneCompression: rawViewport.sceneCompression
@@ -890,7 +890,7 @@ Window {
                             property real lensVigK0: rawViewport.lensShader.vigK0 || 0
                             property real lensVigK1: rawViewport.lensShader.vigK1 || 0
                             property real lensVigK2: rawViewport.lensShader.vigK2 || 0
-                            property real exposure: rawViewport.exposure
+                            property real exposure: rawViewport.exposure + rawViewport.baseExposure
                             property real contrast: rawViewport.contrast
                             property real highlights: rawViewport.highlights
                             property real shadows: rawViewport.shadows

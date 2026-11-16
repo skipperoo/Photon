@@ -592,7 +592,13 @@ static Vec3fCpp photon001_wb_exposure_cpp(Vec3fCpp c, float rWb, float gWb,
     const float luma = get_luma_cpp(std::max(0.0f, c.r), std::max(0.0f, c.g),
                                     std::max(0.0f, c.b));
     const float target = photon::tone::exposureLuma(luma / expMult, ev);
-    if (target < luma) apply_luma_target_cpp(c.r, c.g, c.b, luma, target);
+    if (target < luma) {
+      apply_luma_target_cpp(c.r, c.g, c.b, luma, target);
+      const float s = photon::tone::exposureDesaturation(luma, target);
+      c.r += (target - c.r) * s;
+      c.g += (target - c.g) * s;
+      c.b += (target - c.b) * s;
+    }
   }
   return c;
 }
@@ -1121,7 +1127,8 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   stage("params");
 
   // 1. Extract parameters from JSON
-  float exp = obj["exposure"].toDouble();
+  // The exposure slider plus the RAW base exposure (photon::raw::baseExposure).
+  float exp = float(obj["exposure"].toDouble() + obj["baseExposure"].toDouble());
   float con = obj["contrast"].toDouble(1.0);
   float high = obj["highlights"].toDouble();
   float shad = obj["shadows"].toDouble();

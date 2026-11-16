@@ -34,6 +34,7 @@
 #include "Denoiser.h"
 #include "SceneWhite.h"
 #include "ToneMask.h"
+#include "RawDecode.h"
 #include "ToneMath.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
@@ -779,11 +780,7 @@ void RawEngine::releaseGpuResources() {
 }
 
 void RawEngine::updateProcessingParams() {
-  m_processor->imgdata.params.use_camera_wb = 1;
-  m_processor->imgdata.params.output_bps = 16;
-  // NOTE: The user should be able to change/adjust this
-  m_processor->imgdata.params.no_auto_bright = 0;
-  m_processor->imgdata.params.auto_bright_thr = 0.01;
+  photon::raw::configureDevelopDecode(*m_processor);
   m_processor->imgdata.params.half_size = m_halfSize ? 1 : 0;
 }
 
@@ -2665,7 +2662,7 @@ void RawEngine::requestHistogramUpdate() {
 
   if (!src || totalPixels <= 0) return;
   // Capture current edit parameters for the computation
-  float exp = m_exposure;
+  float exp = m_exposure + m_baseExposure;
   float con = m_contrast;
   float high = m_highlights;
   float shad = m_shadows;
@@ -2819,6 +2816,10 @@ void RawEngine::requestHistogramUpdate() {
         const float target = photon::tone::exposureLuma(l_tone / exp_mult, exp);
         if (target < l_tone) {
           apply_luma_target_hist(color.r, color.g, color.b, l_tone, target);
+          const float s = photon::tone::exposureDesaturation(l_tone, target);
+          color.r += (target - color.r) * s;
+          color.g += (target - color.g) * s;
+          color.b += (target - color.b) * s;
         }
       }
 
@@ -3174,6 +3175,7 @@ void RawEngine::loadRawFileAsync(const QString& path) {
         if (isBitmap) {
           bool ok = loadBitmapFileSync(path, loadId);
           if (!ok || loadId != m_currentLoadId) return LoadResult{false, loadId};
+          m_baseExposure = 0.0f;  // rendered files: no RAW base exposure
           setSceneWhite(computeSceneWhite(m_customPixels.data(), m_customWidth,
                                           m_customHeight, 3));
           computeSceneStats(m_customPixels.data(), m_customWidth,
@@ -3188,6 +3190,8 @@ void RawEngine::loadRawFileAsync(const QString& path) {
         libraw_processed_image_t* img = m_processor->dcraw_make_mem_image();
         if (img) {
           const ushort* rgb = reinterpret_cast<const ushort*>(img->data);
+          m_baseExposure = photon::raw::baseExposure(rgb, img->width,
+                                                     img->height, img->colors);
           setSceneWhite(
               computeSceneWhite(rgb, img->width, img->height, img->colors));
           computeSceneStats(rgb, img->width, img->height, img->colors);

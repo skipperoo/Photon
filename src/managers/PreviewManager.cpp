@@ -1,3 +1,4 @@
+#include "../engine/RawDecode.h"
 #include "PreviewManager.h"
 #include "EditStack.h"
 
@@ -232,10 +233,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
         QString("[ PreviewManager ] - Opening RAW file: %1").arg(rawPath),
         PHOTON_DEBUG);
     LibRaw processor;
-    processor.imgdata.params.output_bps = 16;
-    processor.imgdata.params.use_camera_wb = 1;
-    processor.imgdata.params.no_auto_bright = 0;
-    processor.imgdata.params.auto_bright_thr = 0.01;
+    photon::raw::configureDevelopDecode(processor);
     processor.imgdata.params.half_size = 1;  // 1080p is enough, half_size is fast
 
     if (processor.open_file(rawPath.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
@@ -251,6 +249,9 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
             // AI denoise: use the cached product only (never run the model
             // for a library preview).
             if (mem->colors == 3 && mem->bits == 16) {
+              lastState["baseExposure"] = photon::raw::baseExposure(
+                  reinterpret_cast<const ushort*>(mem->data), mem->width,
+                  mem->height, 3);
               lastState["denoiseMode"] =
                   ::AppStateManager::instance()->denoiseEngine();
               photon::ai::applyToDevelopSource(

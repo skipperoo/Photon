@@ -285,3 +285,13 @@ Short entries for features that predate this document; details live in `TASKS.md
 ---
 
 *Phase 40 features are appended here as they complete.*
+
+## Full-range RAW decode + highlight recovery (2026-11-16)
+
+- Purpose: LibRaw's auto-bright brightened every RAW until 1 % of its pixels clipped, destroying that highlight detail before editing (e.g. `_DSC9064`'s white tail tip, which Reference renders at 86 % with detail). All develop-source decodes now keep the sensor's full range.
+- Shared decode (`src/engine/RawDecode.h`, used by RawEngine, ExportManager, PreviewManager, the AI denoise products, CameraLook and the Reference fixture): `photon::raw::configureDevelopDecode()` sets 16-bit output, camera WB, `no_auto_bright = 1` and `highlight = 2` (blend clipped channels).
+- Base exposure: `photon::raw::baseExposure()` measures what auto-bright used to add. The brightest 1 % of each channel should reach white: `ev = log2(1 / L99) / 0.85` in exposure-slider units. It is measured on the plain source in every path (before AI denoise), and the pipeline adds it to the slider (`exposure + baseExposure`) through the exposure roll-off, so highlights get a soft shoulder instead of a hard clip. Rendered files (JPEG/TIFF) get 0.
+- Shoulder desaturation (`photon::tone::exposureDesaturation`): the more the roll-off compresses a pixel (target vs its plainly gained luminance), the closer its colour moves to neutral: `s = smoothstep((1 − target/luma − 0.05) / 0.45)`, `c' = mix(c, target, s)`. Without it, bright tinted areas kept their tint (the tail tip turned cyan) or clipped their dominant channel. Mirrored in the CPU export, the histogram, `Photon001Log.frag` and `RawViewport.frag`.
+- Effect on the test photos (base render): no pixel has all channels clipped any more (`_DSC9064`: 0.36 % → 0). The tail tip is near neutral (#e5ebe8, Reference #cfd7db) and recoverable with −Exposure/−Highlights. Overall brightness is within ~5–10 %.
+- Files: `src/engine/RawDecode.h`, `ToneMath.h`, `ImageDeveloper.cpp`, `RawEngine.{h,cpp}`, `AiDenoiser.cpp`, `CameraLook.cpp`, `src/managers/ExportManager.cpp`, `PreviewManager.cpp`, `src/components/RawViewport.h`, `RawViewport.frag`, `Photon001Log.frag`, `content/views/App.qml`, `tests/auto/tst_RawEngine.cpp`.
+

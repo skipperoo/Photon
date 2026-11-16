@@ -1,3 +1,5 @@
+#include "ToneMath.h"
+#include "RawDecode.h"
 #include "CameraLook.h"
 
 #include <QDir>
@@ -134,10 +136,7 @@ CameraLook fitCameraLook(const QString& sourcePath) {
   // parameters as the engine (camera white balance, auto-bright threshold),
   // at half resolution for speed. Both sides end up in scene-linear sRGB.
   LibRaw processor;
-  processor.imgdata.params.output_bps = 16;
-  processor.imgdata.params.use_camera_wb = 1;
-  processor.imgdata.params.no_auto_bright = 0;
-  processor.imgdata.params.auto_bright_thr = 0.01f;
+  photon::raw::configureDevelopDecode(processor);
   processor.imgdata.params.half_size = 1;
   if (processor.open_file(sourcePath.toLocal8Bit().data()) != LIBRAW_SUCCESS)
     return look;
@@ -185,6 +184,10 @@ CameraLook fitCameraLook(const QString& sourcePath) {
   if (referenceProxy.isNull()) return look;
 
   const ushort* data = reinterpret_cast<const ushort*>(raw->data);
+  // The render adds the RAW base exposure (with its roll-off) before the
+  // tone curve stage the look is applied at: do the same to the proxy.
+  const float baseEv =
+      photon::raw::baseExposure(data, sensorWidth, sensorHeight, 3);
   std::vector<std::pair<float, float>> pairs;
   pairs.reserve(std::size_t(proxyWidth) * std::size_t(proxyHeight));
   for (int py = 0; py < proxyHeight; ++py) {
@@ -224,7 +227,8 @@ CameraLook fitCameraLook(const QString& sourcePath) {
         continue;
       const float target = luma709(jpegR, jpegG, jpegB);
       if (target < 0.015f || target > 0.85f) continue;
-      const float scene = luma709(sceneR, sceneG, sceneB);
+      const float scene =
+          photon::tone::exposureLuma(luma709(sceneR, sceneG, sceneB), baseEv);
       pairs.emplace_back(scene, target);
     }
   }

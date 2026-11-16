@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "AiDenoiser.h"
+#include "RawDecode.h"
 #include "ToneMask.h"
 #include "ToneMath.h"
 #include "EditStack.h"
@@ -2990,6 +2991,7 @@ void TestRawEngine::testToneMaskEncoding() {
 namespace {
 struct FitPhoto {
   QString tag;
+  float baseEv = 0.0f;  // photon::raw::baseExposure of the decode
   int w = 0, h = 0;
   std::vector<ushort> px;
   std::vector<int> bin;      // base display bin per pixel
@@ -3009,22 +3011,23 @@ std::vector<float> fitLuma(const QImage& img) {
   return out;
 }
 
-QJsonObject fitBase() {
+QJsonObject fitBase(const FitPhoto& f) {
   QJsonObject s;
   s["contrast"] = 1.0; s["profile"] = "normal"; s["denoiseEnabled"] = false;
+  s["baseExposure"] = f.baseEv;
   return s;
 }
 
 FitPhoto loadFitPhoto(const QString& tag, int longEdge) {
   FitPhoto f; f.tag = tag;
   LibRaw lr;
-  lr.imgdata.params.output_bps = 16; lr.imgdata.params.use_camera_wb = 1;
-  lr.imgdata.params.no_auto_bright = 0; lr.imgdata.params.auto_bright_thr = 0.01f;
+  photon::raw::configureDevelopDecode(lr);
   lr.imgdata.params.half_size = 1;
   const QString path = QString("%1/testphoton/_DSC%2.ARW").arg(PHOTON_SOURCE_DIR_FIT, tag);
   if (lr.open_file(path.toLocal8Bit().constData()) != 0 || lr.unpack() != 0 || lr.dcraw_process() != 0) return f;
   int ret = 0; libraw_processed_image_t* mem = lr.dcraw_make_mem_image(&ret);
   const int sw = mem->width, sh = mem->height;
+  f.baseEv = photon::raw::baseExposure(reinterpret_cast<const ushort*>(mem->data), sw, sh, 3);
   const int step = std::max(1, std::max(sw, sh) / longEdge);
   f.w = sw / step; f.h = sh / step;
   f.px.resize(size_t(f.w) * f.h * 3);
@@ -3038,7 +3041,7 @@ FitPhoto loadFitPhoto(const QString& tag, int longEdge) {
         f.px[(size_t(y) * f.w + x) * 3 + c] = ushort(acc / (step * step));
       }
   LibRaw::dcraw_clear_mem(mem);
-  f.baseL = fitLuma(photon::ImageDeveloper::develop(f.px.data(), f.w, f.h, fitBase()));
+  f.baseL = fitLuma(photon::ImageDeveloper::develop(f.px.data(), f.w, f.h, fitBase(f)));
   f.bin.resize(f.baseL.size());
   for (size_t i = 0; i < f.baseL.size(); ++i) {
     const double l = std::clamp(double(f.baseL[i]), 0.0, 1.0);
@@ -3051,7 +3054,7 @@ FitPhoto loadFitPhoto(const QString& tag, int longEdge) {
 
 // mean stops per bin (and pixel fraction) for one slider value
 void fitResponse(const FitPhoto& f, const QString& slider, int value, double* stops, double* frac) {
-  QJsonObject s = fitBase(); s[slider] = double(value);
+  QJsonObject s = fitBase(f); s[slider] = double(value);
   const auto out = fitLuma(photon::ImageDeveloper::develop(f.px.data(), f.w, f.h, s));
   double sum[kFitBins] = {}, cnt[kFitBins] = {};
   for (size_t i = 0; i < out.size(); ++i) {

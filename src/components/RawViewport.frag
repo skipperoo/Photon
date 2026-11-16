@@ -908,7 +908,13 @@ void main()
         } else if (lPre > 0.0) {
             target = lPre;  // at/over white: no boost
         }
-        if (target < luma) color = apply_luma_target(color, luma, target);
+        if (target < luma) {
+            color = apply_luma_target(color, luma, target);
+            // photon::tone::exposureDesaturation (film-like shoulder)
+            float s = clamp((1.0 - target / max(luma, 1e-6) - 0.05) / 0.45, 0.0, 1.0);
+            s = s * s * (3.0 - 2.0 * s);
+            color = mix(color, vec3(target), s);
+        }
     }
     vec4 deltaValue = texture(photon001Delta, canvasUV);
     color = apply_photon001_delta_stops(color, deltaValue.x, deltaValue.y);

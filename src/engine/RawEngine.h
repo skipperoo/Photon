@@ -38,6 +38,9 @@ class RawEngine : public QObject {
   Q_PROPERTY(float shadows READ shadows WRITE setShadows NOTIFY shadowsChanged)
   Q_PROPERTY(float whites READ whites WRITE setWhites NOTIFY whitesChanged)
   Q_PROPERTY(float sceneWhite READ sceneWhite WRITE setSceneWhite NOTIFY sceneWhiteChanged)
+  // Exposure the pipeline adds to the RAW (photon::raw::baseExposure), measured
+  // at load with the scene white.
+  Q_PROPERTY(float baseExposure READ baseExposure NOTIFY sceneWhiteChanged)
   Q_PROPERTY(float sceneDetailScale READ sceneDetailScale NOTIFY sceneStatsChanged)
   Q_PROPERTY(float sceneHighlightPin READ sceneHighlightPin NOTIFY sceneStatsChanged)
   Q_PROPERTY(float sceneCompression READ sceneCompression NOTIFY sceneStatsChanged)
@@ -367,6 +370,7 @@ class RawEngine : public QObject {
   void setWhites(float val);
 
   float sceneWhite() const { return m_sceneWhite; }
+  float baseExposure() const { return m_baseExposure; }
   float sceneDetailScale() const { return m_sceneDetailScale; }
   float sceneHighlightPin() const { return m_sceneHighlightPin; }
   float sceneCompression() const { return m_sceneCompression; }
@@ -957,6 +961,7 @@ class RawEngine : public QObject {
   float m_shadows = 0.0f;
   float m_whites = 0.0f;
   float m_sceneWhite = 0.0f;
+  float m_baseExposure = 0.0f;
   float m_sceneDetailScale = 1.0f;
   float m_sceneHighlightPin = 0.0f;
   float m_sceneCompression = 1.0f;

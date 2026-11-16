@@ -1,3 +1,4 @@
+#include "../engine/RawDecode.h"
 #include "ExportManager.h"
 #include "EditStack.h"
 
@@ -122,10 +123,7 @@ void ExportManager::processExport(const QStringList& paths,
       }
     } else {
       LibRaw processor;
-      processor.imgdata.params.output_bps = 16;
-      processor.imgdata.params.use_camera_wb = 1;
-      processor.imgdata.params.no_auto_bright = 0;
-      processor.imgdata.params.auto_bright_thr = 0.01;
+      photon::raw::configureDevelopDecode(processor);
 
       if (processor.open_file(path.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
         // Transient EXIF fields for lens-profile matching during develop.
@@ -159,6 +157,9 @@ void ExportManager::processExport(const QStringList& paths,
               //     the develop source (falls back to Classic when the photo
               //     is not supported).
               if (mem->colors == 3 && mem->bits == 16) {
+                lastState["baseExposure"] = photon::raw::baseExposure(
+                    reinterpret_cast<const ushort*>(mem->data), mem->width,
+                    mem->height, 3);
                 lastState["denoiseMode"] =
                     ::AppStateManager::instance()->denoiseEngine();
                 photon::ai::applyToDevelopSource(

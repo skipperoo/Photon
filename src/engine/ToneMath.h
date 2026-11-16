@@ -51,6 +51,16 @@ inline float exposureLuma(float l, float ev) {
   return l + headroom * phi;
 }
 
+// Highlight desaturation of the exposure roll-off (a film-like shoulder): the
+// more the roll-off compresses a pixel (target vs its plainly gained
+// luminance), the closer its colour moves to neutral, so bright colours
+// converge to white instead of keeping their tint or clipping their dominant
+// channel. Returns the mix towards grey (0 = keep colour).
+inline float exposureDesaturation(float gainedLuma, float target) {
+  if (gainedLuma <= 0.0f) return 0.0f;
+  return smoothstep01((1.0f - target / gainedLuma - 0.05f) / 0.45f);
+}
+
 // --- Contrast ----------------------------------------------------------------
 // S-curve in stops around mid-grey (0.18): `contrast` is the engine value
 // (1 + slider / 200), c = slider / 100 in [-1, 1].

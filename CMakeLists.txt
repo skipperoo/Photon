@@ -90,6 +90,7 @@ qt_add_executable(Photon
     src/engine/DevelopProfile.h
     src/engine/SceneWhite.h
     src/engine/ToneMath.h
+    src/engine/RawDecode.h
     src/engine/ToneMask.cpp
     src/engine/ToneMask.h
     src/components/ToneMaskProvider.h

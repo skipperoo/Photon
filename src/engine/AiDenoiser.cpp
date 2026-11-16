@@ -1,3 +1,4 @@
+#include "RawDecode.h"
 #include "AiDenoiser.h"
 
 #include <libraw/libraw.h>
@@ -910,11 +911,8 @@ bool isBayerLayout(LibRaw& lr) {
 }
 
 void configure(LibRaw& lr) {
-  // Same develop parameters as RawEngine / ExportManager (full size).
-  lr.imgdata.params.use_camera_wb = 1;
-  lr.imgdata.params.output_bps = 16;
-  lr.imgdata.params.no_auto_bright = 0;
-  lr.imgdata.params.auto_bright_thr = 0.01f;
+  // Same develop decode as RawEngine / ExportManager (full size).
+  photon::raw::configureDevelopDecode(lr);
   lr.imgdata.params.half_size = 0;
 }
 

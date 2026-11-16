@@ -865,6 +865,7 @@ Window {
                             }
                             property real toneCurveActive: rawViewport.toneCurveActive ? 1.0 : 0.0
                             property real showOriginal: window.showOriginal ? 1.0 : 0.0
+                            property real baseExposure: rawViewport.baseExposure
                             property real compareMode: window.compareMode
                             property real splitPos: window.splitPos
                             property real lensActive: rawViewport.lensShader.active ? 1.0 : 0.0

@@ -11,7 +11,8 @@
 namespace photon {
 
 struct BitmapImage {
-  // Interleaved RGB, 3 channels, 16-bit, sRGB gamma encoded, upright.
+  // Interleaved RGB, 3 channels, 16-bit, sRGB transfer curve, upright; sRGB
+  // primaries, or the Rec.2020 working space for decode(path, true).
   std::vector<uint16_t> pixels;
   int width = 0;
   int height = 0;
@@ -28,8 +29,10 @@ class ImageDecoder {
   static bool isRaw(const QString& path);
   static bool isBitmap(const QString& path);
 
-  // Full resolution decode. Returns an empty image on failure.
-  static BitmapImage decode(const QString& path);
+  // Full resolution decode. Returns an empty image on failure. With
+  // `workingSpace` the pixels are converted to the develop working space
+  // (Rec.2020 primaries, ColorSpace.h) instead of sRGB: develop sources.
+  static BitmapImage decode(const QString& path, bool workingSpace = false);
 
   // Faster decode for thumbnails/previews. JPEG uses libjpeg downscaling,
   // TIFF decodes full resolution and downscales with Qt.

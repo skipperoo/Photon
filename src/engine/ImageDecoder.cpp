@@ -566,14 +566,33 @@ void applyOrientationForTag(BitmapImage& image, int rawOrientation) {
   image.height = destinationHeight;
 }
 
-void applyIccProfile(BitmapImage& image, const QByteArray& icc) {
-  if (icc.isEmpty() || image.pixels.empty() || image.width <= 0 ||
-      image.height <= 0) {
-    return;
-  }
+// Rec.2020 primaries with the sRGB transfer curve: the working space of the
+// develop pipeline (ColorSpace.h).
+cmsHPROFILE createWorkingProfile() {
+  const cmsCIExyY d65 = {0.3127, 0.3290, 1.0};
+  const cmsCIExyYTRIPLE primaries = {
+      {0.708, 0.292, 1.0}, {0.170, 0.797, 1.0}, {0.131, 0.046, 1.0}};
+  const cmsFloat64Number srgbCurve[5] = {2.4, 1.0 / 1.055, 0.055 / 1.055,
+                                         1.0 / 12.92, 0.04045};
+  cmsToneCurve* curve = cmsBuildParametricToneCurve(nullptr, 4, srgbCurve);
+  cmsToneCurve* curves[3] = {curve, curve, curve};
+  cmsHPROFILE profile = cmsCreateRGBProfile(&d65, &primaries, curves);
+  cmsFreeToneCurve(curve);
+  return profile;
+}
+
+// Converts the pixels from their embedded profile (sRGB when there is none)
+// to sRGB, or to the working space when `toWorkingSpace` (develop sources:
+// wide-gamut files then keep their gamut).
+void applyIccProfile(BitmapImage& image, const QByteArray& icc,
+                     bool toWorkingSpace = false) {
+  if (image.pixels.empty() || image.width <= 0 || image.height <= 0) return;
+  if (icc.isEmpty() && !toWorkingSpace) return;
 
   cmsHPROFILE inputProfile =
-      cmsOpenProfileFromMem(icc.constData(), cmsUInt32Number(icc.size()));
+      icc.isEmpty() ? cmsCreate_sRGBProfile()
+                    : cmsOpenProfileFromMem(icc.constData(),
+                                            cmsUInt32Number(icc.size()));
   if (!inputProfile) {
     logDebug("Ignoring unreadable ICC profile");
     return;
@@ -584,15 +603,16 @@ void applyIccProfile(BitmapImage& image, const QByteArray& icc) {
     return;
   }
 
-  cmsHPROFILE srgbProfile = cmsCreate_sRGBProfile();
+  cmsHPROFILE srgbProfile =
+      toWorkingSpace ? createWorkingProfile() : cmsCreate_sRGBProfile();
   if (!srgbProfile) {
     cmsCloseProfile(inputProfile);
     return;
   }
 
-  cmsHTRANSFORM transform =
-      cmsCreateTransform(inputProfile, TYPE_RGB_16, srgbProfile, TYPE_RGB_16,
-                         INTENT_PERCEPTUAL, 0);
+  cmsHTRANSFORM transform = cmsCreateTransform(
+      inputProfile, TYPE_RGB_16, srgbProfile, TYPE_RGB_16,
+      toWorkingSpace ? INTENT_RELATIVE_COLORIMETRIC : INTENT_PERCEPTUAL, 0);
   if (transform) {
     cmsDoTransform(transform, image.pixels.data(), image.pixels.data(),
                    cmsUInt32Number(size_t(image.width) * size_t(image.height)));
@@ -766,7 +786,8 @@ BitmapImage decodeJpegPixels(const QString& path, int maxEdge) {
   return image;
 }
 
-BitmapImage decodeJpeg(const QString& path, int maxEdge) {
+BitmapImage decodeJpeg(const QString& path, int maxEdge,
+                       bool workingSpace = false) {
   CrashReporter::setBreadcrumb(QString("jpeg pixels %1").arg(path));
   BitmapImage image = decodeJpegPixels(path, maxEdge);
   if (image.pixels.empty()) return image;
@@ -776,7 +797,7 @@ BitmapImage decodeJpeg(const QString& path, int maxEdge) {
   CrashReporter::setBreadcrumb(QString("jpeg metadata %1").arg(path));
   const ParsedMetadata parsed = parseJpegMetadata(path);
   image.orientation = mapOrientation(parsed.orientation);
-  applyIccProfile(image, parsed.icc);
+  applyIccProfile(image, parsed.icc, workingSpace);
   applyOrientationForTag(image, parsed.orientation);
 
   QVariantMap metadata =
@@ -812,7 +833,7 @@ BitmapImage decodeTiffRgbaFallback(TIFF* tif, uint32_t width, uint32_t height) {
   return image;
 }
 
-BitmapImage decodeTiff(const QString& path) {
+BitmapImage decodeTiff(const QString& path, bool workingSpace = false) {
   CrashReporter::setBreadcrumb(QString("tiff pixels %1").arg(path));
   BitmapImage image;
   const QByteArray nativePath = QFile::encodeName(path);
@@ -868,7 +889,7 @@ BitmapImage decodeTiff(const QString& path) {
 
     const ParsedMetadata parsed = parseTiffMetadata(path);
     fallback.orientation = mapOrientation(parsed.orientation);
-    applyIccProfile(fallback, parsed.icc);
+    applyIccProfile(fallback, parsed.icc, workingSpace);
 
     QVariantMap metadata =
         parsed.map.isEmpty() ? defaultMetadataMap() : parsed.map;
@@ -963,7 +984,7 @@ BitmapImage decodeTiff(const QString& path) {
   CrashReporter::setBreadcrumb(QString("tiff metadata %1").arg(path));
   const ParsedMetadata parsed = parseTiffMetadata(path);
   image.orientation = mapOrientation(parsed.orientation);
-  applyIccProfile(image, parsed.icc);
+  applyIccProfile(image, parsed.icc, workingSpace);
   applyOrientationForTag(image, parsed.orientation);
 
   QVariantMap metadata =
@@ -1000,14 +1021,14 @@ bool ImageDecoder::isBitmap(const QString& path) {
   return bitmapExtensions().contains(QFileInfo(path).suffix().toLower());
 }
 
-BitmapImage ImageDecoder::decode(const QString& path) {
+BitmapImage ImageDecoder::decode(const QString& path, bool workingSpace) {
   CrashReporter::setBreadcrumb(QString("decode %1").arg(path));
   const QString extension = QFileInfo(path).suffix().toLower();
   if (extension == "jpg" || extension == "jpeg") {
-    return decodeJpeg(path, 0);
+    return decodeJpeg(path, 0, workingSpace);
   }
   if (extension == "tif" || extension == "tiff") {
-    return decodeTiff(path);
+    return decodeTiff(path, workingSpace);
   }
   logError(QString("Unsupported image file: %1").arg(path));
   return BitmapImage();

@@ -218,7 +218,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
     LogManager::instance()->log(
         QString("[ PreviewManager ] - Decoding bitmap file: %1").arg(rawPath),
         PHOTON_DEBUG);
-    BitmapImage decoded = ImageDecoder::decode(rawPath);
+    BitmapImage decoded = ImageDecoder::decode(rawPath, true);
     if (!decoded.pixels.empty()) {
       LogManager::instance()->log(
           QString("[ PreviewManager ] - Developing image: %1 (%2x%3)")

@@ -295,3 +295,22 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Effect on the test photos (base render): no pixel has all channels clipped any more (`_DSC9064`: 0.36 % → 0). The tail tip is near neutral (#e5ebe8, Reference #cfd7db) and recoverable with −Exposure/−Highlights. Overall brightness is within ~5–10 %.
 - Files: `src/engine/RawDecode.h`, `ToneMath.h`, `ImageDeveloper.cpp`, `RawEngine.{h,cpp}`, `AiDenoiser.cpp`, `CameraLook.cpp`, `src/managers/ExportManager.cpp`, `PreviewManager.cpp`, `src/components/RawViewport.h`, `RawViewport.frag`, `Photon001Log.frag`, `content/views/App.qml`, `tests/auto/tst_RawEngine.cpp`.
 
+## Rec.2020 working space (2026-11-16)
+
+- Purpose: colours outside sRGB (saturated flowers, neon, deep skies) were clipped at decode, because LibRaw rendered into sRGB primaries. Now they survive until the output, and an Adobe RGB export keeps the part of them Adobe RGB can hold.
+- Storage: RAWs decode into linear Rec.2020 primaries with the sRGB transfer curve (`configureDevelopDecode`: `output_color = 8`, `gamm = {1/2.4, 12.92}`; the old BT.709 curve never matched the pipeline's sRGB decode LUTs). JPEG/TIFF develop sources are converted into the same space by lcms2 (`ImageDecoder::decode(path, true)`, relative colorimetric from the embedded profile, or from sRGB when untagged). Thumbnails still decode to sRGB.
+- Maths (`src/engine/ColorSpace.h`, mirrored in `RawViewport.frag` / `Photon001Log.frag`):
+  - Luminance uses the Rec.2020 Y weights (0.2627, 0.6780, 0.0593).
+  - OKLab is Ottosson's M1 composed with Rec.2020 → sRGB, so hues match sRGB-defined OKLab.
+  - The working luminance's ProPhoto matrix is composed from Rec.2020.
+  - Calibration, HSL, colour grading and saturation follow automatically; the tone mask and scene white use the Rec.2020 luminance.
+  - AgX keeps its sRGB-primary maths: its input is converted and gamut-mapped first, and its output is sRGB.
+- Output: at the start of the display-encoded stages (CPU stage 9, GPU before `linear_to_srgb`, the histogram before binning), the working space converts to the output primaries: display sRGB, or sRGB / Adobe RGB on export.
+  - The gamut mapping is luminance-preserving: a colour with a negative channel moves towards grey of the same luminance until it reaches 0, so hue is kept and nothing clips to another colour.
+  - The display-encoded stages (tone curve, B&W, grain, vignette) then work in the output encoding.
+  - This replaces the earlier sRGB → Adobe RGB conversion at the very end of the export.
+- "Before" (show original) renders the source with only the RAW base exposure and the output conversion; the camera's embedded preview is still shown as-is.
+- Shortcut: the denoisers keep Rec.709 weights for their internal luma/chroma split (documented in code).
+- Validation: `testColorSpaceRec2020` (matrix round trips, luminance agreement, OKLab neutral white, gamut mapping keeps luminance and hue; Adobe RGB keeps more of a Rec.2020 green than sRGB). Colour tests build their patches from intended sRGB colours via `srgb16ToWorking16`. The Reference fit holds (Highlights 0.95, Shadows 2.92, Whites 2.38, Blacks 2.51).
+- Files: `src/engine/ColorSpace.h`, `RawDecode.h`, `ImageDecoder.{h,cpp}`, `ImageDeveloper.cpp`, `RawEngine.cpp`, `Calibration.h`, `SceneWhite.h`, `ToneMask.cpp`, `CameraLook.cpp`, `src/components/RawViewport.frag`, `Photon001Log.frag`, `content/views/App.qml`, `src/managers/ExportManager.cpp`, `PreviewManager.cpp`, `tests/auto/tst_RawEngine.cpp`.
+

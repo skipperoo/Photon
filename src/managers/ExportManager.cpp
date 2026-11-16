@@ -115,7 +115,7 @@ void ExportManager::processExport(const QStringList& paths,
       LogManager::instance()->log(
           QString("[ ExportManager ] - Decoding bitmap file: %1").arg(path),
           PHOTON_DEBUG);
-      BitmapImage decoded = ImageDecoder::decode(path);
+      BitmapImage decoded = ImageDecoder::decode(path, true);
       if (!decoded.pixels.empty()) {
         result = ImageDeveloper::develop(decoded.pixels.data(), decoded.width,
                                          decoded.height, lastState, m_rhi,

@@ -25,6 +25,11 @@ inline void configureDevelopDecode(LibRaw& lr) {
   p.use_camera_wb = 1;
   p.no_auto_bright = 1;
   p.highlight = 2;  // blend clipped channels
+  // Working space: Rec.2020 primaries (ColorSpace.h) with the sRGB transfer
+  // curve, which every source decode LUT of the pipeline assumes.
+  p.output_color = 8;  // Rec.2020
+  p.gamm[0] = 1.0 / 2.4;
+  p.gamm[1] = 12.92;
 }
 
 // Exposure (slider EV; positive gain is 2^(0.85 EV)) equivalent to LibRaw's

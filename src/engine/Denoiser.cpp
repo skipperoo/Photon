@@ -427,6 +427,9 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     luma_buffer = guide[0];
   } else {
     luma_buffer.resize(count);
+    // shortcut: Rec.709 weights on the Rec.2020 source only shift the
+    // luma/chroma split slightly; switch to photon::colorspace if denoise
+    // ever treats luma and chroma differently enough to matter.
     const float wr = 0.2126f;
     const float wg = 0.7152f;
     const float wb = 0.0722f;

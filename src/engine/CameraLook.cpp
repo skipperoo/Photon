@@ -1,3 +1,4 @@
+#include "ColorSpace.h"
 #include "ToneMath.h"
 #include "RawDecode.h"
 #include "CameraLook.h"
@@ -228,7 +229,8 @@ CameraLook fitCameraLook(const QString& sourcePath) {
       const float target = luma709(jpegR, jpegG, jpegB);
       if (target < 0.015f || target > 0.85f) continue;
       const float scene =
-          photon::tone::exposureLuma(luma709(sceneR, sceneG, sceneB), baseEv);
+          photon::tone::exposureLuma(
+              photon::colorspace::luma(sceneR, sceneG, sceneB), baseEv);  // working space
       pairs.emplace_back(scene, target);
     }
   }

@@ -306,6 +306,9 @@ void blendDenoised(const ushort* plain, const ushort* ai, const ushort* aiColor,
     blendRgb16(plain, ai, dst, pixelCount, a);
     return;
   }
+  // shortcut: Rec.709 weights on the Rec.2020 source only shift the Y/C
+  // blend split slightly; switch to photon::colorspace::kLuma* if the
+  // Noise Reduction / Color blend ever shows a colour shift.
   constexpr float kR = 0.2126f, kG = 0.7152f, kB = 0.0722f;
   constexpr size_t kChunk = 1 << 16;
   std::vector<size_t> chunks((pixelCount + kChunk - 1) / kChunk);

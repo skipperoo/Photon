@@ -80,6 +80,7 @@ layout(std140, binding = 0) uniform buf {
 
     // Before/After bypass
     float showOriginal;
+    float baseExposure;  // RAW base exposure (photon::raw::baseExposure)
 
     // Calibration (host-computed matrix rows + normalized shadows tint)
     vec3 calibRowR;
@@ -117,18 +118,37 @@ layout(std140, binding = 0) uniform buf {
     float lensVigK2;
 } ubuf;
 
-const vec3 LUMA_COEFF = vec3(0.2126, 0.7152, 0.0722);
+// Working space: linear Rec.2020 (photon::colorspace, ColorSpace.h).
+const vec3 LUMA_COEFF = vec3(0.2627002, 0.6779981, 0.0593017);
+// Linear Rec.2020 -> linear sRGB, column-major.
+const mat3 REC2020_TO_SRGB = mat3(1.6604910, -0.1245505, -0.0181508,
+                                  -0.5876411, 1.1328999, -0.1005789,
+                                  -0.0728499, -0.0083494, 1.1187297);
 
 float get_luma(vec3 c) {
     return dot(c, LUMA_COEFF);
 }
 
+// photon::colorspace::toOutput (display sRGB): luminance-preserving gamut
+// mapping of colours outside sRGB towards grey.
+vec3 rec2020_to_srgb_gamut(vec3 c) {
+    float y = dot(c, LUMA_COEFF);
+    vec3 s = REC2020_TO_SRGB * c;
+    float mn = min(s.r, min(s.g, s.b));
+    if (mn < 0.0) {
+        if (y <= 0.0) return vec3(0.0);
+        s = vec3(y) + (s - vec3(y)) * (y / (y - mn));
+    }
+    return s;
+}
+
 // --- OKLab / OKLCh perceptual color space ---
-vec3 linear_srgb_to_oklab(vec3 c) {
+// (OKLab of the working space: Ottosson's M1 composed with Rec.2020 -> sRGB)
+vec3 linear_rgb_to_oklab(vec3 c) {
     vec3 lms = vec3(
-        dot(c, vec3(0.4122214708, 0.5363325363, 0.0514459929)),
-        dot(c, vec3(0.2119034982, 0.6806995451, 0.1073969566)),
-        dot(c, vec3(0.0883024619, 0.2817188376, 0.6299787005)));
+        dot(c, vec3(0.6167558, 0.3601984, 0.0230458)),
+        dot(c, vec3(0.2651331, 0.6358394, 0.0990276)),
+        dot(c, vec3(0.1001026, 0.2039065, 0.6959908)));
     vec3 lms3 = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
     return vec3(
         dot(lms3, vec3(0.2104542553, 0.7936177850, -0.0040720468)),
@@ -136,23 +156,23 @@ vec3 linear_srgb_to_oklab(vec3 c) {
         dot(lms3, vec3(0.0259040371, 0.7827717662, -0.8086757660)));
 }
 
-vec3 oklab_to_linear_srgb(vec3 lab) {
+vec3 oklab_to_linear_rgb(vec3 lab) {
     vec3 lms = vec3(
         lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z,
         lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z,
         lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z);
     vec3 lms3 = lms * lms * lms;
     return vec3(
-        dot(lms3, vec3(4.0767416621, -3.3077115913, 0.2309699292)),
-        dot(lms3, vec3(-1.2684380046, 2.6097574011, -0.3413193965)),
-        dot(lms3, vec3(-0.0041960863, -0.7034186147, 1.7076147010)));
+        dot(lms3, vec3(2.1399067, -1.2463895, 0.1064828)),
+        dot(lms3, vec3(-0.8847359, 2.1632310, -0.2784951)),
+        dot(lms3, vec3(-0.0485738, -0.4545031, 1.5030769)));
 }
 
 // Convert OKLab to linear sRGB, reducing chroma along the hue ray when the
 // lightness/hue combination falls outside the sRGB gamut. Prevents clipping
 // banding and halos in shadow/highlight tones.
-vec3 oklab_to_linear_srgb_gamut(vec3 lab) {
-    vec3 rgb = oklab_to_linear_srgb(lab);
+vec3 oklab_to_linear_rgb_gamut(vec3 lab) {
+    vec3 rgb = oklab_to_linear_rgb(lab);
     float mn = min(rgb.r, min(rgb.g, rgb.b));
     float mx = max(rgb.r, max(rgb.g, rgb.b));
     if (mn >= 0.0 && mx <= 1.0) return rgb;
@@ -161,12 +181,12 @@ vec3 oklab_to_linear_srgb_gamut(vec3 lab) {
     float hi = 1.0;
     for (int i = 0; i < 6; ++i) {
         float mid = 0.5 * (lo + hi);
-        vec3 c = oklab_to_linear_srgb(vec3(lab.x, lab.y * mid, lab.z * mid));
+        vec3 c = oklab_to_linear_rgb(vec3(lab.x, lab.y * mid, lab.z * mid));
         float cMn = min(c.r, min(c.g, c.b));
         float cMx = max(c.r, max(c.g, c.b));
         if (cMn >= 0.0 && cMx <= 1.0) lo = mid; else hi = mid;
     }
-    return oklab_to_linear_srgb(vec3(lab.x, lab.y * lo, lab.z * lo));
+    return oklab_to_linear_rgb(vec3(lab.x, lab.y * lo, lab.z * lo));
 }
 
 vec3 srgb_to_linear(vec3 c) {
@@ -478,9 +498,10 @@ const float PHOTON001_FLARE_LINEAR = 0.000244140625; // 2^-12
 const float PHOTON001_EPS = 0.00000190734;
 
 const mat3 RGB_TO_PROPHOTO = mat3(
-    0.52932379, 0.09842654, 0.01684577,
-    0.33005506, 0.87350873, 0.11769549,
-    0.14064019, 0.02811156, 0.86547399
+    // linear Rec.2020 -> ProPhoto (ImageDeveloper.cpp), column-major
+    0.83527615, 0.05413021, -0.00239579,
+    0.04872147, 0.92893104, 0.03638952,
+    0.11602142, 0.01698558, 0.96602152
 );
 
 const vec3 WORKING_LUMA_WEIGHTS = vec3(0.30, 0.59, 0.11);
@@ -592,13 +613,13 @@ vec3 color_grade(vec3 color, float luma) {
         return color;
     }
 
-    vec3 lab = linear_srgb_to_oklab(max(color, 0.0));
+    vec3 lab = linear_rgb_to_oklab(max(color, 0.0));
     vec3 lab_s = apply_region_tint_oklab(lab, ubuf.cgShadowsHue, ubuf.cgShadowsSaturation, ubuf.cgShadowsLuminance);
     vec3 lab_m = apply_region_tint_oklab(lab, ubuf.cgMidtonesHue, ubuf.cgMidtonesSaturation, ubuf.cgMidtonesLuminance);
     vec3 lab_h = apply_region_tint_oklab(lab, ubuf.cgHighlightsHue, ubuf.cgHighlightsSaturation, ubuf.cgHighlightsLuminance);
 
     vec3 mixed = lab_s * shadow_mask + lab_m * midtone_mask + lab_h * highlight_mask;
-    return max(oklab_to_linear_srgb_gamut(mixed), 0.0);
+    return max(oklab_to_linear_rgb_gamut(mixed), 0.0);
 }
 
 // --- AgX Tone Mapping (Ported from reference) ---
@@ -843,8 +864,31 @@ void main()
         tex.b = texture(source, canvasUVB).b;
     }
 
-    if (ubuf.isPreview > 0.5 || showBase) {
+    if (ubuf.isPreview > 0.5) {  // embedded camera preview: already sRGB
         fragColor = texture(source, baseCanvasUV) * ubuf.qt_Opacity;
+        return;
+    }
+    if (showBase) {
+        // Original: the source with only the RAW base exposure, in display sRGB.
+        vec4 baseTex = texture(source, baseCanvasUV);
+        vec3 c = srgb_to_linear(baseTex.rgb);
+        float ev = ubuf.baseExposure;
+        if (ev > 0.0) {
+            float g = exp2(ev * 0.85);
+            float l = get_luma(max(c, 0.0));
+            float t = l * g;
+            if (l > 0.0 && l < 1.0) {
+                float q = l * (g - 1.0) / (1.0 - l);
+                float p = 1.0 + clamp((ev - 1.0) * 0.5, 0.0, 1.0);
+                t = l + (1.0 - l) * (q / pow(1.0 + pow(q, p), 1.0 / p));
+            } else if (l >= 1.0) {
+                t = l;
+            }
+            c *= t / max(l, 1e-6);
+            float s = clamp((1.0 - t / max(l * g, 1e-6) - 0.05) / 0.45, 0.0, 1.0);
+            c = mix(c, vec3(t), s * s * (3.0 - 2.0 * s));
+        }
+        fragColor = vec4(linear_to_srgb(rec2020_to_srgb_gamut(max(c, 0.0))), baseTex.a) * ubuf.qt_Opacity;
         return;
     }
 
@@ -972,7 +1016,7 @@ void main()
     lum_adj *= mix(0.4, 1.0, chromaProtect);
 
     if (!isBW && (abs(hue_shift) > 1e-5 || abs(sat_mult) > 1e-5 || abs(lum_adj) > 1e-5)) {
-        vec3 lab = linear_srgb_to_oklab(max(color, 0.0));
+        vec3 lab = linear_rgb_to_oklab(max(color, 0.0));
         float hueOk = atan(lab.z, lab.y) + hue_shift * 6.28318530718;
         float srcL = lab.x;
         float chroma = length(lab.yz);
@@ -986,7 +1030,7 @@ void main()
         float lumRatio = (srcL > 1e-4) ? clamp(targetL / srcL, 0.0, 4.0) : 1.0;
         chroma *= lumRatio;
         lab = vec3(targetL, chroma * cos(hueOk), chroma * sin(hueOk));
-        color = max(oklab_to_linear_srgb_gamut(lab), 0.0);
+        color = max(oklab_to_linear_rgb_gamut(lab), 0.0);
     }
 
     // --- COLOR GRADING --- (Applied before global saturation/vibrance)
@@ -996,7 +1040,7 @@ void main()
 
     // 6. Saturation & Vibrance (Global) — perceptual chroma scaling in OKLab
     if (!isBW && (abs(ubuf.saturation) > 0.001 || abs(ubuf.vibrance) > 0.001)) {
-        vec3 lab = linear_srgb_to_oklab(max(color, 0.0));
+        vec3 lab = linear_rgb_to_oklab(max(color, 0.0));
         float hueOk = atan(lab.z, lab.y);
         float chroma = length(lab.yz);
         chroma *= max(1.0 + (ubuf.saturation / 100.0), 0.0);
@@ -1004,12 +1048,14 @@ void main()
         chroma *= max(1.0 + (ubuf.vibrance / 100.0) * (1.0 - satNorm), 0.0);
         lab.y = chroma * cos(hueOk);
         lab.z = chroma * sin(hueOk);
-        color = max(oklab_to_linear_srgb_gamut(lab), 0.0);
+        color = max(oklab_to_linear_rgb_gamut(lab), 0.0);
     }
 
     // 7. Tonemapping
-    if (ubuf.profileIndex > 0.5 && ubuf.profileIndex < 1.5) {
-        color = agx_tonemap(color);
+    bool agx = ubuf.profileIndex > 0.5 && ubuf.profileIndex < 1.5;
+    if (agx) {
+        // AgX works on sRGB primaries; its output is sRGB.
+        color = agx_tonemap(rec2020_to_srgb_gamut(color));
     }
 
     // 8.5. Black & White conversion with per-band luminance mix
@@ -1027,6 +1073,8 @@ void main()
         color = vec3(max(bwGray, 0.0));
     }
 
+    // Working space -> display sRGB (gamut-mapped), then display-encoded.
+    if (!agx) color = rec2020_to_srgb_gamut(color);
     color = max(color, 0.0);
     vec3 final_rgb = linear_to_srgb(color);
 

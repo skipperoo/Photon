@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "AiDenoiser.h"
+#include "ColorSpace.h"
 #include "RawDecode.h"
 #include "ToneMask.h"
 #include "ToneMath.h"
@@ -33,6 +34,21 @@
 #include "SceneWhite.h"
 #include "PreviewManager.h"
 #include "RawEngine.h"
+
+// Source buffers are in the working space (Rec.2020 primaries, sRGB curve):
+// converts an intended sRGB-encoded 16-bit colour into it.
+static void srgb16ToWorking16(ushort& r, ushort& g, ushort& b) {
+  auto dec = [](ushort v) {
+    const float e = v / 65535.0f;
+    return e <= 0.04045f ? e / 12.92f : std::pow((e + 0.055f) / 1.055f, 2.4f);
+  };
+  float lr = dec(r), lg = dec(g), lb = dec(b);
+  photon::colorspace::srgbToRec2020(lr, lg, lb);
+  auto enc = [](float l) {
+    return ushort(std::lround(std::clamp(photon::colorspace::encodeSrgb(l), 0.0f, 1.0f) * 65535.0f));
+  };
+  r = enc(lr); g = enc(lg); b = enc(lb);
+}
 
 class TestRawEngine : public QObject {
   Q_OBJECT
@@ -83,6 +99,7 @@ class TestRawEngine : public QObject {
   void testToneSlidersMatchReference();
   void testExport16BitTiff();
   void testExportAdobeRgb();
+  void testColorSpaceRec2020();
   void testEditStackCurrentState();
   void testExportUsesHistorySelectedState();
 };
@@ -1229,18 +1246,18 @@ void TestRawEngine::testOklabCreativeOps() {
   constexpr int w = 8;
   constexpr int h = 8;
   std::vector<ushort> patch(w * h * 3);
-  const ushort pr = 100 * 257;
-  const ushort pg = 180 * 257;
-  const ushort pb = 80 * 257;
+  ushort pr = 100 * 257;
+  ushort pg = 180 * 257;
+  ushort pb = 80 * 257;
+  const float baseHue =  // of the intended sRGB colour
+      oklabHueDeg(srgbToLinear(pr / 65535.0f), srgbToLinear(pg / 65535.0f),
+                  srgbToLinear(pb / 65535.0f));
+  srgb16ToWorking16(pr, pg, pb);
   for (int i = 0; i < w * h; ++i) {
     patch[i * 3 + 0] = pr;
     patch[i * 3 + 1] = pg;
     patch[i * 3 + 2] = pb;
   }
-  const float baseHue =
-      oklabHueDeg(srgbToLinear(pr / 65535.0f), srgbToLinear(pg / 65535.0f),
-                  srgbToLinear(pb / 65535.0f));
-
   auto centerHue = [&](const QImage& img) {
     const uchar* scan = img.constScanLine(h / 2);
     return oklabHueDeg(srgbToLinear(scan[(w / 2) * 3 + 0] / 255.0f),
@@ -1263,18 +1280,20 @@ void TestRawEngine::testOklabCreativeOps() {
   // Saturated yellow at extreme lightness must keep its hue: the OKLab
   // conversion gamut-maps chroma instead of clipping channels.
   std::vector<ushort> yellow(w * h * 3);
-  const ushort yr = 230 * 257;
-  const ushort yg = 200 * 257;
-  const ushort yb = 40 * 257;
+  ushort yr = 230 * 257;
+  ushort yg = 200 * 257;
+  ushort yb = 40 * 257;
+  const float yellowHue =  // of the intended sRGB colour
+      oklabHueDeg(srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
+                  srgbToLinear(yb / 65535.0f));
+  const float yIn[3] = {srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
+                        srgbToLinear(yb / 65535.0f)};  // intended sRGB colour
+  srgb16ToWorking16(yr, yg, yb);
   for (int i = 0; i < w * h; ++i) {
     yellow[i * 3 + 0] = yr;
     yellow[i * 3 + 1] = yg;
     yellow[i * 3 + 2] = yb;
   }
-  const float yellowHue =
-      oklabHueDeg(srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
-                  srgbToLinear(yb / 65535.0f));
-
   auto yellowHueOut = [&](const QJsonObject& settings) {
     const QImage img =
         photon::ImageDeveloper::develop(yellow.data(), w, h, settings);
@@ -1307,8 +1326,7 @@ void TestRawEngine::testOklabCreativeOps() {
     C = std::sqrt(A * A + B * B);
   };
   float inL = 0.0f, inC = 0.0f;
-  labLC(srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
-        srgbToLinear(yb / 65535.0f), inL, inC);
+  labLC(yIn[0], yIn[1], yIn[2], inL, inC);
 
   const QImage yellowDark =
       photon::ImageDeveloper::develop(yellow.data(), w, h, yDown);
@@ -1831,6 +1849,7 @@ void TestRawEngine::testBlackAndWhiteCpuDevelop() {
   constexpr int h = 4;
   std::vector<ushort> src(size_t(w) * size_t(h) * 3);
   auto setPixel = [&](int px, ushort r, ushort g, ushort b) {
+    srgb16ToWorking16(r, g, b);
     const size_t base = size_t(px) * 3;
     src[base + 0] = r;
     src[base + 1] = g;
@@ -3170,7 +3189,8 @@ void TestRawEngine::testExportAdobeRgb() {
   // Colour patches: the Adobe RGB export converted back to sRGB by Qt's
   // colour management matches the sRGB export, and the profile is embedded.
   const int w = 64, h = 16;
-  const ushort patches[4][3] = {{46000, 46000, 46000}, {60000, 9000, 9000}, {9000, 52000, 12000}, {12000, 16000, 58000}};
+  ushort patches[4][3] = {{46000, 46000, 46000}, {60000, 9000, 9000}, {9000, 52000, 12000}, {12000, 16000, 58000}};
+  for (auto& p : patches) srgb16ToWorking16(p[0], p[1], p[2]);  // sRGB colours
   std::vector<ushort> src(size_t(w) * h * 3);
   for (int y = 0; y < h; ++y)
     for (int x = 0; x < w; ++x)
@@ -3196,6 +3216,38 @@ void TestRawEngine::testExportAdobeRgb() {
     QVERIFY(QImageWriter(path, fmt).write(adobe));
     QCOMPARE(QImage(path).colorSpace(), QColorSpace(QColorSpace::AdobeRgb));
   }
+}
+
+void TestRawEngine::testColorSpaceRec2020() {
+  namespace cs = photon::colorspace;
+  // sRGB -> Rec.2020 -> sRGB round trip, and luminance agrees across spaces.
+  const float colors[][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0.2f, 0.5f, 0.8f}, {0.18f, 0.18f, 0.18f}};
+  for (const auto& c : colors) {
+    float r = c[0], g = c[1], b = c[2];
+    cs::srgbToRec2020(r, g, b);
+    QVERIFY(std::abs(cs::luma(r, g, b) - (0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2])) < 1e-4f);
+    cs::rec2020ToSrgb(r, g, b);
+    QVERIFY(std::abs(r - c[0]) < 1e-4f && std::abs(g - c[1]) < 1e-4f && std::abs(b - c[2]) < 1e-4f);
+  }
+  // White is neutral in OKLab of the working space, and OKLab round-trips.
+  float L, A, B;
+  cs::rec2020ToOklab(1, 1, 1, L, A, B);
+  QVERIFY(std::abs(L - 1.0f) < 1e-3f && std::abs(A) < 1e-3f && std::abs(B) < 1e-3f);
+  float r, g, b;
+  cs::rec2020ToOklab(0.3f, 0.6f, 0.1f, L, A, B);
+  cs::oklabToRec2020(L, A, B, r, g, b);
+  QVERIFY(std::abs(r - 0.3f) < 1e-3f && std::abs(g - 0.6f) < 1e-3f && std::abs(b - 0.1f) < 1e-3f);
+  // A Rec.2020 primary (outside sRGB) maps into sRGB with its luminance kept.
+  r = 0.0f; g = 0.8f; b = 0.0f;
+  const float y = cs::luma(r, g, b);
+  cs::toOutput(r, g, b, false, false);
+  QVERIFY(std::min({r, g, b}) >= -1e-6f);
+  QVERIFY(std::abs(0.2126f * r + 0.7152f * g + 0.0722f * b - y) < 1e-4f);
+  QVERIFY(g > r && g > b);  // still green
+  // ...and Adobe RGB keeps more of it than sRGB (wider gamut).
+  float ar = 0.0f, ag = 0.8f, ab = 0.0f;
+  cs::toOutput(ar, ag, ab, true, false);
+  QVERIFY(ag - std::max(ar, ab) > g - std::max(r, b) - 1e-4f);
 }
 
 QTEST_MAIN(TestRawEngine)

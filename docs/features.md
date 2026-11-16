@@ -314,3 +314,20 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Validation: `testColorSpaceRec2020` (matrix round trips, luminance agreement, OKLab neutral white, gamut mapping keeps luminance and hue; Adobe RGB keeps more of a Rec.2020 green than sRGB). Colour tests build their patches from intended sRGB colours via `srgb16ToWorking16`. The Reference fit holds (Highlights 0.95, Shadows 2.92, Whites 2.38, Blacks 2.51).
 - Files: `src/engine/ColorSpace.h`, `RawDecode.h`, `ImageDecoder.{h,cpp}`, `ImageDeveloper.cpp`, `RawEngine.cpp`, `Calibration.h`, `SceneWhite.h`, `ToneMask.cpp`, `CameraLook.cpp`, `src/components/RawViewport.frag`, `Photon001Log.frag`, `content/views/App.qml`, `src/managers/ExportManager.cpp`, `PreviewManager.cpp`, `tests/auto/tst_RawEngine.cpp`.
 
+## Clarity matched to Reference (2026-11-16)
+
+- Purpose: our Clarity boosted 1–3.5 px detail (about 0.06 % of the long edge). Reference's works at a much larger scale and differently per tone.
+- Measurement (Reference exports of three photos, `testphoton/reference`): per-pixel regression of Reference's Clarity shift on `log L − G_R(log L)`.
+  - The correlation peaks at R ≈ 16–40 px at 2048 px (1–2 % of the long edge), r ≈ 0.5–0.7.
+  - +100 gives about 0.6–1.5× detail in shadows and midtones, ~0 above ~65 %.
+  - −100 gives ~0 below 15 %, then about −0.3 to −0.65× in midtones and highlights.
+  - A local-Laplacian-style remap fits only slightly better. The remaining effect is photo-adaptive (image-scale compression on one photo, expansion on another), so it isn't modelled.
+- Model (`ToneMath.h`, mirrored in `Photon001Delta.frag`): `detail = clamp(pixelLog − mask, ±2.5)`, the pixel against the edge-aware tone mask (whose scale is 2 % of the long edge), so flat areas and hard edges stay untouched.
+  - **+Clarity:** `1.0 · (1 − smoothstep((x − 0.3)/1.2))`, full up to ~48 %, gone by ~73 %.
+  - **−Clarity:** `0.3 · smoothstep((x + 4.5)/4.5)`, from ~10 % to full at mid-grey.
+  - It still fades out in the deepest shadows, and goes through the lift roll-off. The tone mask is now computed when Clarity is used, too.
+- Validation:
+  - **Spatial, against Reference:** correlation 0.36–0.48; regression gain Reference/ours 0.68–1.06 (+100) and 0.83–1.25 (−100). Adding the old fine-scale detail on top made the correlation worse, so it was dropped.
+  - **Binned fixture:** `testToneSlidersMatchReference` guards the per-tone means (error 2.43, was 2.53).
+- Files: `src/engine/ToneMath.h`, `src/components/Photon001Delta.frag`, `src/engine/ImageDeveloper.cpp`, `src/engine/RawEngine.cpp`, `tests/auto/tst_RawEngine.cpp`.
+

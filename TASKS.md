@@ -724,12 +724,12 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.7 | HDR merge (OpenCV alignment) | DONE | `d538d7f` |
 | 40.8 | Camera-look fitting from embedded JPEG | DONE | `8531c59` |
 | 40.9 | AI denoise (RawNIND/ncnn) + colour pass, export parity, 50000 K WB | DONE | `8d9156e` |
-| 40.10 | Light sliders: local tone mapping, fitted to Reference (adb-driven exports); 16-bit preview; integer Contrast | DONE | (this commit) |
-| 40.11 | 16-bit TIFF export | TODO | |
-| 40.12 | Adobe RGB export + ICC-aware import | TODO | |
-| 40.13 | Full-headroom RAW decode + highlight recovery | TODO | |
-| 40.14 | Rec.2020 wide-gamut working space | TODO | |
-| 40.15 | Clarity fitted to Reference (large-scale) | TODO | |
+| 40.10 | Light sliders: local tone mapping, fitted to Reference (adb-driven exports); 16-bit preview; integer Contrast | DONE | `fa54ec5` |
+| 40.11 | 16-bit TIFF export | DONE | `0c1158e` |
+| 40.12 | Adobe RGB export + ICC-aware import | DONE | `1f7c70d` |
+| 40.13 | Full-headroom RAW decode + highlight recovery | DONE | `87344f8` |
+| 40.14 | Rec.2020 wide-gamut working space | DONE | `c3b58e9` |
+| 40.15 | Clarity fitted to Reference (large-scale) | DONE | (this commit) |
 
 ## 40.1 Calibration panel — DONE
 

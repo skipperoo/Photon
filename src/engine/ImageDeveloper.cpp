@@ -1522,17 +1522,19 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   // prepared (denoised, lens-corrected, cropped) source, white-balanced, at
   // 0 EV - exactly what the preview computes (RawEngine::updateToneMask).
   photon::tone::ToneMask toneMask;
-  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f) {
+  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f ||
+      clarity != 0.0f) {  // (Clarity works against the tone mask too)
     const float wbMul[3] = {r_wb, g_wb, b_wb};
     toneMask = photon::tone::computeToneMask(src, width, height, 3, wbMul);
   }
   stage("tone mask");
 
-  // Local detail for Clarity / +Shadows: the working log luminance after WB +
+  // Fine local detail for +Shadows (Clarity uses the tone mask): the working
+  // log luminance after WB +
   // exposure (the GPU log pass), blurred in log with the GPU taps, so the
   // export matches the preview (blurring linear RGB first biased it dark).
   std::vector<float> fineLogImg, coarseLogImg;
-  if (clarity != 0.0f || shad > 0.0f) {
+  if (shad > 0.0f) {
     std::vector<float> logImg(size_t(width) * size_t(height));
     std::vector<int> logRows(height);
     std::iota(logRows.begin(), logRows.end(), 0);

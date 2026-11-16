@@ -128,6 +128,13 @@ constexpr float kLiftShoulder = 4.0f;
 constexpr float kMaxLiftStops = 4.0f;
 // Clarity fades out in the deepest shadows (noise would be amplified).
 constexpr float kClarityBlackStart = -7.0f, kClarityBlackSpan = 3.0f;
+// Clarity (measured on Reference): local contrast at ~1-2 % of the long edge,
+// i.e. the pixel against the edge-aware tone mask. + adds detail in shadows
+// and midtones (fading out by ~73 % display), - smooths midtones and
+// highlights (ramping in from ~10 %); - is weaker than +.
+constexpr float kClarityGainPos = 1.0f, kClarityGainNeg = 0.3f;
+constexpr float kClarityPosFadeStart = 0.3f, kClarityPosFadeSpan = 1.2f;
+constexpr float kClarityNegStart = -4.5f, kClarityNegSpan = 4.5f;
 
 constexpr float kFlareLinear = 0.000244140625f;  // 2^-12
 constexpr float kFlareLog = -12.0f;
@@ -279,10 +286,17 @@ inline ToneRangeResult toneRangeStops(float srcLog, float bandLog,
   const float lapFine = srcLog - fineLog;
   const float lapMid = fineLog - coarseLog;
   const float detail = std::clamp(lapFine + 0.6f * lapMid, -2.5f, 2.5f);
-  // Clarity: local detail only (flat areas are untouched).
-  float localContrast =
-      detail * clarity * detailScale *
-      std::clamp(1.0f + 0.35f * (-highlights + shadows), 1.0f, 2.0f);
+  // Clarity: the pixel against its edge-aware region (tone mask), so flat
+  // areas and hard edges are untouched; tone weighting per sign.
+  const float regionDetail = std::clamp(pixelLog - bandLog, -2.5f, 2.5f);
+  const float clarityWeight =
+      clarity > 0.0f
+          ? kClarityGainPos *
+                (1.0f - smoothstep01((xPix - kClarityPosFadeStart) /
+                                     kClarityPosFadeSpan))
+          : kClarityGainNeg *
+                smoothstep01((xPix - kClarityNegStart) / kClarityNegSpan);
+  float localContrast = regionDetail * clarity * clarityWeight;
   // +Shadows keeps the local contrast of the regions it lifts.
   localContrast += detail * kShadowsDetail * std::max(shadows, 0.0f) *
                    shadowsWeight(x) * detailScale;

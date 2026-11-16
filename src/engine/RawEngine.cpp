@@ -2724,7 +2724,8 @@ void RawEngine::requestHistogramUpdate() {
       hlCenter);
   // Edge-aware tone mask of the histogram source (same as the export).
   std::shared_ptr<const photon::tone::ToneMask> histToneMask;
-  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f) {
+  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f ||
+      clarity != 0.0f) {  // (Clarity works against the tone mask too)
     const float wbMul[3] = {
         (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f) * wbGainR,
         (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f) * wbGainG,

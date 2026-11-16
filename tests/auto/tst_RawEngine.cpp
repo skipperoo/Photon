@@ -440,7 +440,7 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
   };
 
   // Clarity is local contrast: it needs texture (a smooth ramp has none and
-  // must stay put), and +/-100 act with comparable strength.
+  // must stay put), and both +/-100 act.
   {
     QJsonObject clarityOn = base;
     clarityOn["clarity"] = 100.0;
@@ -475,10 +475,10 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
 
   const float upDiff = meanAbsLumaDiff(clarityUp, texRef);
   const float downDiff = meanAbsLumaDiff(clarityDown, texRef);
+  // Both directions act; their strengths differ by tone, like Reference
+  // (+ on shadows/midtones, - on midtones/highlights), so no symmetry check.
   QVERIFY(upDiff > 0.001f);
   QVERIFY(downDiff > 0.001f);
-  QVERIFY(upDiff < 2.0f * downDiff);
-  QVERIFY(downDiff < 2.0f * upDiff);
 }
 
 void TestRawEngine::testCalibrationReferenceBehavior() {
@@ -3119,7 +3119,10 @@ void TestRawEngine::testToneSlidersMatchReference() {
   const int values[] = {-100, -50, -25, 25, 50, 100};
   // Weighted squared error (stops) at the end of the fit, +25 % slack.
   const std::pair<const char*, double> sliders[] = {
-      {"highlights", 1.0}, {"shadows", 3.14}, {"whites", 2.76}, {"blacks", 2.48}};
+      // (after the Rec.2020 / full-range base; Clarity's per-tone means are a
+      // regression guard - its local contrast was matched spatially)
+      {"highlights", 0.95}, {"shadows", 2.92}, {"whites", 2.38}, {"blacks", 2.51},
+      {"clarity", 2.43}};
   const bool report = qEnvironmentVariableIsSet("PHOTON_TONE_REPORT");
   for (const auto& [slider, fitted] : sliders) {
     double err = 0;

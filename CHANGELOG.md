@@ -22,6 +22,8 @@ All notable changes to Photon. Each release's section is published as its GitHub
 - Bundled model: RawNIND UtNet2 by Benoit Brummer and Christophe De Vleeschouwer (UCLouvain), GPL-3.0 weights, as published by darktable-ai. Its licence and notice ship in `models/`.
 - RAW temperature in Kelvin with a Planckian blue → amber track: 2000–50,000 K, with 5500 K at about a third of the track and 10,000 K at the middle.
 - Click any slider's number to type a value.
+- **16-bit TIFF export** (Export ▸ TIFF ▸ Bit depth).
+- **Adobe RGB export:** Export ▸ Color space (sRGB / Adobe RGB). Exports embed the matching ICC profile.
 
 ### Changed
 
@@ -39,6 +41,9 @@ All notable changes to Photon. Each release's section is published as its GitHub
   - Moving neighbouring sliders in opposite directions can no longer invert tones.
   - Existing edits that use these sliders will look somewhat different.
 - The preview now renders from the full 16-bit image, so gradients don't band when sliders are pushed hard.
+- **Highlight recovery:** RAWs are decoded with the sensor's full range. Before, the brightest ~1 % was clipped at decode. The usual brightness is restored with a soft highlight shoulder, so near-blown areas keep their detail and can be brought back with −Exposure / −Highlights / −Whites. Very bright tinted areas fade to white instead of keeping a colour cast. Photos look slightly different, with softer highlights.
+- **Wide-gamut colour:** editing happens in Rec.2020, so colours outside sRGB (saturated flowers, neon, deep skies) are no longer clipped at decode. They're mapped into the output gamut only at the end, preserving hue and brightness, and an Adobe RGB export keeps them where Adobe RGB can. JPEG/TIFF files with an embedded profile (Adobe RGB, Display P3, …) keep their gamut too.
+- **Clarity** now works like Reference: it adds local contrast at a larger scale (about 1–2 % of the image) in shadows and midtones, and −Clarity smooths midtones and highlights.
 
 ### Fixed
 

@@ -28,15 +28,22 @@ exec "$APPDIR/usr/bin/Photon" "$@"
 EOF
 chmod +x AppDir/AppRun
 
-# AI denoise model (RawNIND, GPL-3.0): staged by cmake/AiDenoiseModel.cmake in
-# build_dir/models; the app looks for it in <executable dir>/models.
-# linuxdeploy only copies the executable, so bundle it explicitly.
-if [ -f build_dir/models/rawnind_bayer.ncnn.param ] && [ -f build_dir/models/rawnind_bayer.ncnn.bin ]; then
+# AI denoise models (RawNIND Bayer + Linear, GPL-3.0): staged by
+# cmake/AiDenoiseModel.cmake in build_dir/models; the app looks for them in
+# <executable dir>/models. linuxdeploy only copies the executable, so bundle
+# them explicitly.
+models_ok=1
+for v in bayer linear; do
+    if [ ! -f "build_dir/models/rawnind_${v}.ncnn.param" ] || [ ! -f "build_dir/models/rawnind_${v}.ncnn.bin" ]; then
+        models_ok=0
+    fi
+done
+if [ "$models_ok" = 1 ]; then
     mkdir -p AppDir/usr/bin/models
     cp build_dir/models/* AppDir/usr/bin/models/
-    echo "[ build_internal.sh ] - Bundled AI denoise model"
+    echo "[ build_internal.sh ] - Bundled AI denoise models"
 else
-    echo "[ build_internal.sh ] - ERROR: AI denoise model missing in build_dir/models (configure step failed to fetch it?)"
+    echo "[ build_internal.sh ] - ERROR: AI denoise models missing in build_dir/models (configure step failed to fetch them?)"
     exit 1
 fi
 

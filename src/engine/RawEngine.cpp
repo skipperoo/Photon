@@ -612,8 +612,16 @@ RawEngine::RawEngine(QObject* parent)
         }
         m_aiTargetAmount = wantsAiDenoise() ? m_denoiseAmount / 100.0f : 0.0f;
         m_aiTargetColor = wantsAiDenoise() ? m_denoiseColor / 100.0f : 0.0f;
-        setAiStatus(QStringLiteral("AI denoise (%1)")
-                        .arg(photon::ai::deviceDescription()));
+        {
+          // Short: the panel line is narrow. "AI · Linear · GPU"
+          const photon::ai::Model model = r.product->model;
+          const bool gpu = photon::ai::deviceDescription(model).startsWith(
+              QLatin1String("GPU"));
+          setAiStatus(QStringLiteral("AI · %1 · %2")
+                          .arg(QLatin1String(photon::ai::modelName(model)),
+                               gpu ? QStringLiteral("GPU")
+                                   : QStringLiteral("CPU")));
+        }
         if (m_hasDenoisedResult) clearDenoisedResult();
         scheduleAiBlend();
         break;
@@ -623,9 +631,10 @@ RawEngine::RawEngine(QObject* parent)
       case Status::Unsupported:
       case Status::NoModel:
       case Status::Failed:
-        setAiStatus(r.message.isEmpty()
-                        ? QStringLiteral("AI denoise unavailable - using Classic")
-                        : r.message + QStringLiteral(" - using Classic"));
+        // Short status (the panel line is narrow); the reason is logged.
+        setAiStatus(r.status == Status::Failed
+                        ? QStringLiteral("AI failed · Classic")
+                        : QStringLiteral("No AI model · Classic"));
         LogManager::instance()->log(
             QString("[ RawEngine.cpp ] - AI denoise not applied: %1")
                 .arg(r.message),
@@ -1466,7 +1475,7 @@ void RawEngine::updateAiDenoise() {
     // Revert to the plain source if a blend is in place.
     if (blendStale) scheduleAiBlend();
     if (m_isBitmap && denoiseMode() == QLatin1String("ai") && m_denoiseEnabled)
-      setAiStatus(QStringLiteral("AI denoise needs a Bayer RAW - using Classic"));
+      setAiStatus(QStringLiteral("AI: RAW only · Classic"));
     else if (!m_aiRunning)
       setAiStatus(QString());
     emit aiDenoiseStateChanged();
@@ -1506,7 +1515,7 @@ void RawEngine::updateAiDenoise() {
     if (!photon::ai::isSupportedRaw(path)) {
       r.status = photon::ai::Status::Unsupported;
       r.support = 0;
-      r.message = QStringLiteral("AI denoise needs a Bayer-sensor RAW");
+      r.message = QStringLiteral("no AI model for this RAW");
       return r;
     }
     r.support = 1;

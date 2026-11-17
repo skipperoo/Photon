@@ -356,3 +356,33 @@ Short entries for features that predate this document; details live in `TASKS.md
   - Visual: 1:1 crops of 9111 at 0/25/50/100 show progressive noise removal with edges kept and no blocks.
 - Files: `src/engine/Denoiser.{h,cpp}`, `DenoiseChroma.h`, `AiDenoiser.{h,cpp}`, `RawDecode.h`, `ColorSpace.h`, `CameraLook.{h,cpp}`, `ImageDeveloper.cpp`, `RawEngine.cpp`, `src/managers/{AppStateManager,ExportManager,PreviewManager}`, `content/views/{DevelopView,SettingView,App}.qml`, tests.
 
+## AI denoise for non-Bayer RAWs: RawNIND linear model (2026-11-17)
+
+- Purpose: AI denoise covered only standard Bayer sensors, so Fujifilm X-Trans, Foveon and linear DNGs fell back to Classic. The darktable-ai archive we already download (`rawdenoise-nind.dtmodel`, pinned) also contains `model_linear.onnx`. Its config says it is for "X-Trans, Foveon, or any already-demosaicked pipeline", with input `lin_rec2020`, which is our working space.
+- Model: same UtNet2 architecture and training data. Input is 3 planes of demosaicked linear Rec.2020, output is 3 planes at the same resolution (a 1×1 conv at the end, no 2× upsampling).
+  - Converted by `cmake/AiDenoiseModel.cmake` alongside the Bayer model: `pnnx … inputshape=[1,3,512,512]`.
+  - Pinned hashes: ONNX `df957efa…`, param `9686a7ce…`, bin `ebbbedbd…`.
+  - Staged as `rawnind_linear.ncnn.{param,bin}`; the AppImage requires both models.
+- Output scale: about **−3.1 × 10⁹ × input**. Negative, with per-channel values from −3.0 to −3.4 × 10⁹ on flat noisy fields; one strongly saturated field reached −2.3 × 10⁹ on its weak channel.
+  - The per-tile mean match (`matchedGain`, shared with the Bayer runner) now works relative to a signed nominal: tolerance ±30 % for Linear, ±15 % for Bayer.
+  - A model of the wrong sign keeps the nominal gain, so a bad result is visibly wrong rather than silently rescaled.
+- Routing (`modelForRaw`):
+  - A standard Bayer layout uses the Bayer model when it is present.
+  - Every other RAW LibRaw can develop uses the Linear model.
+  - JPEG/TIFF stay on Classic: their noise has been through the camera's NR, sharpening, tone curve and compression, so it is outside what either model was trained on.
+  - The chosen model keys the cache: each model has its own fingerprint, so existing Bayer products stay valid.
+- Linear path (`computeLinear`):
+  1. The develop source (LibRaw's demosaic with `configureDevelopDecode`) is decoded to linear float.
+  2. `denoiseLinear` runs it in 512-pixel tiles with 64-pixel feathered overlap and mirrored edges.
+  3. Clipped pixels (a channel ≥ 0.98, dilated by 2 px) keep the plain values.
+  4. Negatives are gamut-mapped towards grey (luminance kept), then the result is encoded to the 16-bit working space.
+  - The product keeps the plain image's colours exactly.
+  - A float camera-RGB input, unclipped, was measured and dropped: it made no difference, because LibRaw already clips each channel at the black level before demosaicking. In extreme noise (ISO 6400 shadows) the Bayer model is a little more accurate there because it reads the raw mosaic.
+- Engine: models load independently; a build or folder with only one model works for the photos that model covers. Each GPU net is checked against the CPU on its own synthetic tile, and the log reports the measured output scale. Device reported per model.
+- Status text is short so it fits the panel line: `AI · Bayer · GPU`, `AI · Linear · CPU`, `AI: RAW only · Classic`, `No AI model · Classic`, `AI failed · Classic`. Reasons go to the log.
+- Measured:
+  - `DSCF7929.RAF` (X-Trans, 4934×3296): 26 s on a GTX 1650 including the colour pass, mean within 0.02 levels.
+  - `_DSC9064` (ISO 6400) through the linear model: flat-area noise removed like the Bayer model, slightly greyer in the deepest shadows (see above).
+- Tests: `testAiDenoiseLinearMock` checks the signed gain, seams, abort and failure paths. `testAiDenoiseLinearIntegration` runs the RAF through the engine: Linear model chosen, the ARW gets Bayer, roughness drops, mean is kept, the status fits, the product is cached.
+- Files: `cmake/AiDenoiseModel.cmake`, `cmake/rawnind/NOTICE.md`, `build_internal.sh`, `src/engine/AiDenoiser.{h,cpp}`, `src/engine/RawEngine.cpp`, `tests/auto/tst_RawEngine.cpp`.
+

@@ -6,7 +6,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 ### Highlights
 
-- **AI denoise.** A neural network (RawNIND) removes luminance noise from Bayer RAW files, then a colour pass (chroma BM3D followed by a guided filter) cleans up colour noise. Both run once per photo in the background and are cached, so the **Noise Reduction** and **Color** sliders respond instantly. On a 24 MP photo it takes about 5–8 s on a mid-range GPU and about 25 s on the CPU.
+- **AI denoise.** A neural network (RawNIND) removes luminance noise from RAW files (a Bayer model, and a linear model for X-Trans, Foveon, linear DNGs and other sensors), then a colour pass (chroma BM3D followed by a guided filter) cleans up colour noise. Both run once per photo in the background and are cached, so the **Noise Reduction** and **Color** sliders respond instantly. On a 24 MP photo it takes about 5–8 s on a mid-range GPU and about 25 s on the CPU.
 - **Exports now match the preview.** Exports of photos that had used the History panel were rendered without any of their edits. That's fixed, along with several smaller differences between preview and export.
 - **White balance up to 50,000 K** on a logarithmic temperature slider.
 - **Light sliders matched to Reference.** Highlights, Shadows, Whites and Blacks were fitted to Reference's measured response on three photos. They're smooth from −100 to +100, always move in one direction, and lifts never clip.
@@ -15,7 +15,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 ### Added
 
 - **Settings ▸ Denoise:**
-  - **Engine:** AI (default) or Classic (BM3D). Photos AI can't process (X-Trans, Foveon, JPEG/TIFF, linear DNGs, or when the model is missing) use Classic automatically.
+  - **Engine:** AI (default) or Classic (BM3D). Bayer RAWs use RawNIND's Bayer model; every other RAW (Fujifilm X-Trans, Foveon, linear DNGs) uses its linear model. JPEG/TIFF files use Classic automatically: their noise has already been through the camera's processing and compression, which the AI models weren't trained on.
   - **AI denoise device:** Auto (the GPU when it gives the same result as the CPU and is faster), CPU, or a specific GPU. Takes effect without a restart.
 - Detail ▸ Denoise is simplified to **Denoise**, **Noise Reduction** (luminance) and **Color** (chroma), with a progress bar while the AI runs.
 - Results are cached per photo in `.PhotonData/denoise`, about 45 MB each for a 24 MP photo. Library previews reuse the cached result and never run the model.

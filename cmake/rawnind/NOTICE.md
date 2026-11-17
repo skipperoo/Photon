@@ -7,9 +7,11 @@ Photon's **AI denoise** uses the *UtNet2* raw denoiser trained on the
 - Paper: "Learning Joint Denoising, Demosaicing, and Compression from the Raw
   Natural Image Noise Dataset", arXiv:2501.08924
 - Source code: <https://github.com/trougnouf/rawnind_jddc>
-- Distribution used: darktable-ai `rawdenoise-nind.dtmodel`
-  (release-5.6.0, file `model_bayer.onnx`,
-  SHA-256 `da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901`),
+- Distribution used: darktable-ai `rawdenoise-nind.dtmodel` (release-5.6.0),
+  files `model_bayer.onnx`
+  (SHA-256 `da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901`)
+  and `model_linear.onnx`
+  (SHA-256 `df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181`),
   <https://github.com/darktable-org/darktable-ai/tree/master/models/rawdenoise-nind>
 - Training data: RawNIND, real noisy/clean photo pairs published on Wikimedia
   Commons and the UCLouvain Dataverse (per-image CC BY 4.0 / CC0).
@@ -23,10 +25,11 @@ permits combining the two.
 
 ## Modification
 
-The files `rawnind_bayer.ncnn.param` and `rawnind_bayer.ncnn.bin` are a format
-conversion of `model_bayer.onnx` to the ncnn format, produced with pnnx
-(release 20261020) by `cmake/AiDenoiseModel.cmake`
-(`pnnx rawnind_bayer.onnx inputshape=[1,4,512,512]`). The conversion stores the
+The files `rawnind_bayer.ncnn.{param,bin}` and `rawnind_linear.ncnn.{param,bin}`
+are format conversions of `model_bayer.onnx` and `model_linear.onnx` to the ncnn
+format, produced with pnnx (release 20261020) by `cmake/AiDenoiseModel.cmake`
+(`pnnx rawnind_bayer.onnx inputshape=[1,4,512,512]`,
+`pnnx rawnind_linear.onnx inputshape=[1,3,512,512]`). The conversion stores the
 weights as 16-bit floats; the network itself is unchanged. The corresponding
 source (the original ONNX model) is available from the darktable-ai link above,
 and the conversion script is part of Photon's source.

@@ -18,6 +18,7 @@
 #include <QThread>
 #include <QtConcurrent>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -37,18 +38,60 @@ namespace photon::ai {
 
 namespace {
 
-constexpr const char* kParamFile = "rawnind_bayer.ncnn.param";
-constexpr const char* kBinFile = "rawnind_bayer.ncnn.bin";
+#ifdef PHOTON_HAS_AI_DENOISE
+// Model files, indexed by modelIndex(): Bayer, Linear.
+constexpr const char* kParamFiles[2] = {"rawnind_bayer.ncnn.param",
+                                        "rawnind_linear.ncnn.param"};
+constexpr const char* kBinFiles[2] = {"rawnind_bayer.ncnn.bin",
+                                      "rawnind_linear.ncnn.bin"};
+constexpr Model kModels[2] = {Model::Bayer, Model::Linear};
 constexpr const char* kInputBlob = "in0";
 constexpr const char* kOutputBlob = "out0";
+#endif
 constexpr float kMinSignal = 1.0e-3f;
 // Normalised level above which a Bayer cell counts as clipped: the plain
 // LibRaw rendering is kept there so clipped highlights look as before.
 constexpr float kClipLevel = 0.98f;
+#ifdef PHOTON_HAS_AI_DENOISE
+// Linear model: its output carries its own scale, about -3.1e9 x the input
+// (measured per channel on flat noisy fields: -3.0e9 .. -3.4e9; a strongly
+// saturated field reached -2.3e9 on its weak channel, hence the wider
+// tolerance). Matched per tile like the Bayer model's ~1e6.
+constexpr float kLinearGainNominal = -3.14e9f;
+constexpr float kLinearGainMaxDeviation = 0.3f;
+
+int modelIndex(Model m) { return m == Model::Bayer ? 0 : 1; }
+
+// Folders searched for the model files, in order.
+QStringList modelSearchDirs() {
+  QStringList dirs;
+  const QString env = qEnvironmentVariable("PHOTON_AI_MODEL_DIR");
+  if (!env.isEmpty()) dirs << env;
+  const QString app = QCoreApplication::applicationDirPath();
+  dirs << app + QStringLiteral("/models") << app + QStringLiteral("/../models")
+       << app + QStringLiteral("/../share/photon/models");
+  return dirs;
+}
+#endif
 
 void log(const QString& msg, LogLevel level = PHOTON_INFO) {
   LogManager::instance()->log(QStringLiteral("[ AiDenoiser.cpp ] - ") + msg,
                               level);
+}
+
+// Per-tile output gain: the measured out/in mean ratio when there is enough
+// signal and it has the nominal's sign, else the nominal; kept within
+// nominal * (1 +/- maxDeviation). Works for negative nominals (the linear
+// model's output is about -3.1e9 x its input).
+float matchedGain(double meanIn, double meanOut, const TileParams& p) {
+  double ratio = 1.0;  // relative to the nominal
+  if (meanIn >= kMinSignal && p.gainNominal != 0.0f) {
+    const double r = (meanOut / meanIn) / double(p.gainNominal);
+    if (r > 0.0) ratio = r;
+  }
+  ratio = std::clamp(ratio, 1.0 - double(p.gainMaxDeviation),
+                     1.0 + double(p.gainMaxDeviation));
+  return float(double(p.gainNominal) * ratio);
 }
 
 int reflectIndex(int v, int n) {
@@ -183,12 +226,7 @@ Status denoiseMosaic(const float* mosaic, int width, int height,
         for (int c = 0; c < 3; ++c) {
           const double meanIn = cells > 0 ? inSum[c] / cells : 0.0;
           const double meanOut = cells > 0 ? outSum[c] / (4.0 * cells) : 0.0;
-          float g = p.gainNominal;
-          if (meanIn >= kMinSignal && meanOut > 0.0)
-            g = float(meanOut / meanIn);
-          g = std::clamp(g, p.gainNominal * (1.0f - p.gainMaxDeviation),
-                         p.gainNominal * (1.0f + p.gainMaxDeviation));
-          const float inv = 1.0f / g;
+          const float inv = 1.0f / matchedGain(meanIn, meanOut, p);
           float* pl = output.data() + size_t(c) * side * side;
           for (size_t k = 0; k < size_t(side) * side; ++k) pl[k] *= inv;
         }
@@ -231,6 +269,131 @@ Status denoiseMosaic(const float* mosaic, int width, int height,
       dst[1] *= inv;
       dst[2] *= inv;
     }
+  }
+  return Status::Ok;
+}
+
+Status denoiseLinear(const float* lin, int width, int height,
+                     const TileFn& model, const TileParams& p,
+                     std::vector<float>& linRgb, std::atomic<bool>* abort,
+                     const ProgressFn& progress, QString* error) {
+  if (!lin || width < 1 || height < 1 || p.tile <= 0 || p.overlap < 0 ||
+      p.overlap >= p.tile) {
+    if (error) *error = QStringLiteral("invalid image or tile parameters");
+    return Status::Failed;
+  }
+
+  const int t = p.tile;
+  const size_t plane = size_t(t) * t;
+  const std::vector<int> sx = tileStarts(width, t, p.overlap);
+  const std::vector<int> sy = tileStarts(height, t, p.overlap);
+  const int total = int(sx.size() * sy.size());
+
+  linRgb.assign(size_t(width) * size_t(height) * 3, 0.0f);
+  std::vector<float> wsum(size_t(width) * size_t(height), 0.0f);
+  std::vector<float> input(3 * plane);
+  std::vector<float> output;
+  std::vector<float> wx(static_cast<size_t>(t));
+  std::vector<float> wy(static_cast<size_t>(t));
+  std::vector<float> gains;  // measured per tile (diagnostics)
+
+  int done = 0;
+  for (size_t j = 0; j < sy.size(); ++j) {
+    for (size_t i = 0; i < sx.size(); ++i) {
+      if (abort && abort->load()) return Status::Aborted;
+      const int x0 = sx[i];
+      const int y0 = sy[j];
+      const bool bx = i > 0, ax = i + 1 < sx.size();
+      const bool by = j > 0, ay = j + 1 < sy.size();
+
+      // Pack the tile as planes (mirrored at the picture edge).
+      for (int y = 0; y < t; ++y) {
+        const float* row = lin + size_t(reflectIndex(y0 + y, height)) * width * 3;
+        for (int x = 0; x < t; ++x) {
+          const float* px = row + size_t(reflectIndex(x0 + x, width)) * 3;
+          const size_t k = size_t(y) * t + x;
+          input[k] = px[0];
+          input[plane + k] = px[1];
+          input[2 * plane + k] = px[2];
+        }
+      }
+
+      if (!model(input.data(), output) || output.size() != 3 * plane) {
+        if (error) *error = QStringLiteral("the model failed on a tile");
+        return Status::Failed;
+      }
+      for (const float v : output) {
+        if (!std::isfinite(v)) {
+          if (error)
+            *error = QStringLiteral("the model produced non-finite values");
+          return Status::Failed;
+        }
+      }
+
+      // Bring the tile to the input's scale: match channel means over the
+      // part of the tile that is not feathered into a neighbour.
+      {
+        const int m = p.overlap / 2;
+        const int i0 = bx ? m : 0, i1 = t - (ax ? m : 0);
+        const int j0 = by ? m : 0, j1 = t - (ay ? m : 0);
+        const int validI1 = std::min(i1, width - x0);
+        const int validJ1 = std::min(j1, height - y0);
+        for (int c = 0; c < 3; ++c) {
+          double inSum = 0.0, outSum = 0.0, n = 0.0;
+          for (int y = j0; y < validJ1; ++y) {
+            for (int x = i0; x < validI1; ++x) {
+              const size_t k = size_t(c) * plane + size_t(y) * t + x;
+              inSum += input[k];
+              outSum += output[k];
+              n += 1.0;
+            }
+          }
+          const double meanIn = n > 0 ? inSum / n : 0.0;
+          const double meanOut = n > 0 ? outSum / n : 0.0;
+          if (meanIn >= kMinSignal) gains.push_back(float(meanOut / meanIn));
+          const float inv = 1.0f / matchedGain(meanIn, meanOut, p);
+          float* pl = output.data() + size_t(c) * plane;
+          for (size_t k = 0; k < plane; ++k) pl[k] *= inv;
+        }
+      }
+
+      // Feathered accumulation.
+      for (int k = 0; k < t; ++k) {
+        wx[size_t(k)] = tileWeight(k, t, p.overlap, bx, ax);
+        wy[size_t(k)] = tileWeight(k, t, p.overlap, by, ay);
+      }
+      for (int y = 0; y < t && y0 + y < height; ++y) {
+        for (int x = 0; x < t && x0 + x < width; ++x) {
+          const float w = wx[size_t(x)] * wy[size_t(y)];
+          const size_t pix = size_t(y0 + y) * width + x0 + x;
+          wsum[pix] += w;
+          const size_t k = size_t(y) * t + x;
+          float* dst = linRgb.data() + pix * 3;
+          dst[0] += w * output[k];
+          dst[1] += w * output[plane + k];
+          dst[2] += w * output[2 * plane + k];
+        }
+      }
+
+      ++done;
+      if (progress) progress(float(done) / float(total));
+    }
+  }
+
+  for (size_t pix = 0; pix < wsum.size(); ++pix) {
+    const float inv = wsum[pix] > 0.0f ? 1.0f / wsum[pix] : 0.0f;
+    float* dst = linRgb.data() + pix * 3;
+    dst[0] *= inv;
+    dst[1] *= inv;
+    dst[2] *= inv;
+  }
+  if (!gains.empty()) {
+    std::sort(gains.begin(), gains.end());
+    log(QStringLiteral("linear model tile gain: min %1 median %2 max %3")
+            .arg(gains.front(), 0, 'g', 4)
+            .arg(gains[gains.size() / 2], 0, 'g', 4)
+            .arg(gains.back(), 0, 'g', 4),
+        PHOTON_DEBUG);
   }
   return Status::Ok;
 }
@@ -535,40 +698,49 @@ class Engine {
     return e;
   }
 
-  // Locate and load the model; choose GPU or CPU. Thread-safe, done once.
+  // Locate and load the models; choose GPU or CPU per model. Thread-safe,
+  // done once. True when at least one model loaded.
   bool ensure() {
     std::lock_guard<std::mutex> lock(m_mutex);
     return ensureLocked();
   }
 
-  QString fingerprint() {
+  bool has(Model m) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    return ensureLocked() ? m_fingerprint : QString();
+    return ensureLocked() && net(m).cpu != nullptr;
   }
 
-  QString device() {
+  QString fingerprint(Model m) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    return ensureLocked() ? m_device : QString();
+    return ensureLocked() && net(m).cpu ? net(m).fingerprint : QString();
+  }
+
+  QString device(Model m) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!ensureLocked() || !net(m).cpu) return QString();
+    return net(m).useGpu ? QStringLiteral("GPU: ") + m_gpuName
+                         : QStringLiteral("CPU");
   }
 
   // Exclusive access for a whole photo (one job at a time).
   std::mutex& jobMutex() { return m_jobMutex; }
 
-  bool runTile(const float* in, std::vector<float>& out) {
+  bool runTile(Model m, const float* in, std::vector<float>& out) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!ensureLocked()) return false;
-    return runOn(m_useGpu ? *m_gpuNet : *m_cpuNet, in, out);
+    ModelNet& n = net(m);
+    if (!n.cpu) return false;
+    return runOn(n.useGpu ? *n.gpu : *n.cpu, m, in, out);
   }
 
   void shutdown() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_gpuNet.reset();
-    m_cpuNet.reset();
+    releaseNets();
     if (m_gpuInstanceCreated) {
       ncnn::destroy_gpu_instance();
       m_gpuInstanceCreated = false;
     }
-    // Stay down: a job still unwinding must not reload the model.
+    // Stay down: a job still unwinding must not reload the models.
     m_shutdown = true;
     m_ok = false;
   }
@@ -579,8 +751,7 @@ class Engine {
     if (m_preference == preference) return;
     m_preference = preference;
     // Re-pick the device on the next use (the model files stay in memory).
-    m_gpuNet.reset();
-    m_cpuNet.reset();
+    releaseNets();
     m_tried = false;
     m_ok = false;
     log(QStringLiteral("device preference: %1").arg(preference));
@@ -589,36 +760,51 @@ class Engine {
  private:
   static constexpr int kTile = 512;
 
-  QStringList candidateDirs() const {
-    QStringList dirs;
-    const QString env = qEnvironmentVariable("PHOTON_AI_MODEL_DIR");
-    if (!env.isEmpty()) dirs << env;
-    const QString app = QCoreApplication::applicationDirPath();
-    dirs << app + QStringLiteral("/models")
-         << app + QStringLiteral("/../models")
-         << app + QStringLiteral("/../share/photon/models");
-    return dirs;
+  // One model: its files, CPU net and (when checked and faster) GPU net.
+  struct ModelNet {
+    QByteArray param;
+    QByteArray bin;
+    QString dir;
+    QString fingerprint;
+    std::unique_ptr<ncnn::Net> cpu;
+    std::unique_ptr<ncnn::Net> gpu;
+    bool useGpu = false;
+  };
+
+  ModelNet& net(Model m) { return m_nets[modelIndex(m)]; }
+
+  void releaseNets() {
+    for (ModelNet& n : m_nets) {
+      n.gpu.reset();
+      n.cpu.reset();
+      n.useGpu = false;
+    }
   }
 
-  bool loadNet(ncnn::Net& net, bool gpu, int gpuIndex) {
+  static int inputPlanes(Model m) { return m == Model::Bayer ? 4 : 3; }
+  static int outputSide(Model m) { return m == Model::Bayer ? 2 * kTile : kTile; }
+
+  bool loadNet(ncnn::Net& net, const ModelNet& model, bool gpu, int gpuIndex) {
     net.opt.num_threads = std::max(1, QThread::idealThreadCount());
     net.opt.use_vulkan_compute = gpu;
-    // The model's output is ~1e6x its input: fp16 storage overflows on the
-    // GPU, so keep every intermediate in fp32.
+    // The Bayer model's output is ~1e6x its input: fp16 storage overflows on
+    // the GPU, so keep every intermediate in fp32 (both models, alike).
     net.opt.use_fp16_packed = false;
     net.opt.use_fp16_storage = false;
     net.opt.use_fp16_arithmetic = false;
     net.opt.use_bf16_storage = false;
     if (gpu) net.set_vulkan_device(gpuIndex);
-    if (net.load_param_mem(m_param.constData()) != 0) return false;
+    if (net.load_param_mem(model.param.constData()) != 0) return false;
     const int used = net.load_model(
-        reinterpret_cast<const unsigned char*>(m_bin.constData()));
+        reinterpret_cast<const unsigned char*>(model.bin.constData()));
     return used > 0;
   }
 
-  static bool runOn(ncnn::Net& net, const float* in, std::vector<float>& out) {
-    ncnn::Mat x(kTile, kTile, 4);
-    for (int c = 0; c < 4; ++c) {
+  static bool runOn(ncnn::Net& net, Model m, const float* in,
+                    std::vector<float>& out) {
+    const int planes = inputPlanes(m);
+    ncnn::Mat x(kTile, kTile, planes);
+    for (int c = 0; c < planes; ++c) {
       std::memcpy(x.channel(c).data, in + size_t(c) * kTile * kTile,
                   size_t(kTile) * kTile * sizeof(float));
     }
@@ -626,7 +812,7 @@ class Engine {
     if (ex.input(kInputBlob, x) != 0) return false;
     ncnn::Mat y;
     if (ex.extract(kOutputBlob, y) != 0) return false;
-    const int side = 2 * kTile;
+    const int side = outputSide(m);
     if (y.w != side || y.h != side || y.c != 3) return false;
     out.resize(size_t(3) * side * side);
     for (int c = 0; c < 3; ++c) {
@@ -637,20 +823,23 @@ class Engine {
   }
 
   // Deterministic synthetic check tile: smooth scene + signal-dependent noise.
-  static std::vector<float> checkTile() {
-    std::vector<float> in(size_t(4) * kTile * kTile);
+  static std::vector<float> checkTile(Model m) {
+    const int planes = inputPlanes(m);
+    std::vector<float> in(size_t(planes) * kTile * kTile);
     uint32_t seed = 12345u;
     auto rnd = [&seed]() {
       seed = seed * 1664525u + 1013904223u;
       return float(seed >> 8) / float(1u << 24) - 0.5f;
     };
-    const float gains[4] = {0.6f, 1.0f, 1.0f, 0.45f};
-    for (int c = 0; c < 4; ++c) {
+    const float bayerGains[4] = {0.6f, 1.0f, 1.0f, 0.45f};
+    const float rgbGains[3] = {0.8f, 1.0f, 0.7f};
+    for (int c = 0; c < planes; ++c) {
+      const float gain = m == Model::Bayer ? bayerGains[c] : rgbGains[c];
       for (int y = 0; y < kTile; ++y) {
         for (int x = 0; x < kTile; ++x) {
           const float s = 0.05f + 0.25f * (0.5f + 0.5f * std::sin(x * 0.0176f) *
                                                       std::cos(y * 0.0137f));
-          const float v = s * gains[c];
+          const float v = s * gain;
           in[size_t(c) * kTile * kTile + size_t(y) * kTile + x] =
               v + rnd() * 2.0f * std::sqrt(v * 0.002f + 1e-5f);
         }
@@ -664,42 +853,48 @@ class Engine {
     if (m_tried) return m_ok;
     m_tried = true;
 
-    for (const QString& d : candidateDirs()) {
-      if (!m_bin.isEmpty()) break;  // already read (device change)
-      QFile pf(QDir(d).filePath(kParamFile));
-      QFile bf(QDir(d).filePath(kBinFile));
-      if (pf.exists() && bf.exists() && pf.open(QIODevice::ReadOnly) &&
-          bf.open(QIODevice::ReadOnly)) {
-        m_param = pf.readAll();
-        m_param.append('\0');
-        m_bin = bf.readAll();
-        m_modelDir = QDir(d).absolutePath();
-        break;
+    int loaded = 0;
+    for (const Model m : kModels) {
+      ModelNet& n = net(m);
+      for (const QString& d : modelSearchDirs()) {
+        if (!n.bin.isEmpty()) break;  // already read (device change)
+        QFile pf(QDir(d).filePath(kParamFiles[modelIndex(m)]));
+        QFile bf(QDir(d).filePath(kBinFiles[modelIndex(m)]));
+        if (pf.exists() && bf.exists() && pf.open(QIODevice::ReadOnly) &&
+            bf.open(QIODevice::ReadOnly)) {
+          n.param = pf.readAll();
+          n.param.append('\0');
+          n.bin = bf.readAll();
+          n.dir = QDir(d).absolutePath();
+          break;
+        }
       }
+      if (n.bin.isEmpty()) {
+        log(QStringLiteral("RawNIND %1 model not found (looked in %2)")
+                .arg(QLatin1String(modelName(m)),
+                     modelSearchDirs().join(QStringLiteral(", "))),
+            PHOTON_WARNING);
+        continue;
+      }
+      QCryptographicHash h(QCryptographicHash::Sha256);
+      h.addData(n.param);
+      h.addData(n.bin);
+      // The product also depends on the develop decode (RawDecode.h).
+      n.fingerprint = QString::fromLatin1(h.result().toHex().left(24)) +
+                      QStringLiteral("-v%1-d%2")
+                          .arg(kAlgorithmVersion)
+                          .arg(photon::raw::kDevelopDecodeVersion);
+      n.cpu = std::make_unique<ncnn::Net>();
+      if (!loadNet(*n.cpu, n, false, -1)) {
+        log(QStringLiteral("failed to load the %1 model on the CPU")
+                .arg(QLatin1String(modelName(m))),
+            PHOTON_ERROR);
+        n.cpu.reset();
+        continue;
+      }
+      ++loaded;
     }
-    if (m_bin.isEmpty()) {
-      log(QStringLiteral("RawNIND model not found (looked in %1)")
-              .arg(candidateDirs().join(QStringLiteral(", "))),
-          PHOTON_WARNING);
-      return false;
-    }
-    QCryptographicHash h(QCryptographicHash::Sha256);
-    h.addData(m_param);
-    h.addData(m_bin);
-    // The product also depends on the develop decode (RawDecode.h).
-    m_fingerprint = QString::fromLatin1(h.result().toHex().left(24)) +
-                    QStringLiteral("-v%1-d%2")
-                        .arg(kAlgorithmVersion)
-                        .arg(photon::raw::kDevelopDecodeVersion);
-
-    m_cpuNet = std::make_unique<ncnn::Net>();
-    if (!loadNet(*m_cpuNet, false, -1)) {
-      log(QStringLiteral("failed to load the model on the CPU"), PHOTON_ERROR);
-      m_cpuNet.reset();
-      return false;
-    }
-    m_useGpu = false;
-    m_device = QStringLiteral("CPU");
+    if (loaded == 0) return false;
 
     // Environment override (diagnostics) wins over the Settings choice.
     const QString forced =
@@ -718,14 +913,20 @@ class Engine {
       tryGpu(true, pref);  // a specific GPU chosen in Settings
     }
 
-    log(QStringLiteral("model loaded from %1, device: %2")
-            .arg(m_modelDir, m_device));
+    for (const Model m : kModels) {
+      const ModelNet& n = net(m);
+      if (!n.cpu) continue;
+      log(QStringLiteral("%1 model loaded from %2, device: %3")
+              .arg(QLatin1String(modelName(m)), n.dir,
+                   n.useGpu ? QStringLiteral("GPU: ") + m_gpuName
+                            : QStringLiteral("CPU")));
+    }
     m_ok = true;
     return true;
   }
 
-  // Pick the best Vulkan device, check it against the CPU on a synthetic
-  // tile, and keep it only when it is correct and faster.
+  // Pick the best Vulkan device, check each model on it against the CPU on a
+  // synthetic tile, and keep it per model only when correct and faster.
   // A GPU initialisation that crashes the process (driver/loader bugs cannot
   // be caught) leaves this marker behind; the next session then uses the CPU.
   static QString gpuCrashMarker() {
@@ -794,51 +995,69 @@ class Engine {
     }
     const QString name =
         QString::fromUtf8(ncnn::get_gpu_info(best).device_name());
-    auto gpuNet = std::make_unique<ncnn::Net>();
-    if (!loadNet(*gpuNet, true, best)) {
-      log(QStringLiteral("failed to load the model on GPU %1").arg(name),
-          PHOTON_WARNING);
-      return;
-    }
+    m_gpuName = name;
 
-    const std::vector<float> in = checkTile();
-    std::vector<float> outGpu, outCpu;
-    QElapsedTimer timer;
-    if (!runOn(*gpuNet, in.data(), outGpu)) {  // warm-up (pipeline compile)
-      log(QStringLiteral("GPU %1 failed the check tile").arg(name),
-          PHOTON_WARNING);
-      return;
-    }
-    timer.start();
-    runOn(*gpuNet, in.data(), outGpu);
-    const qint64 gpuMs = timer.elapsed();
-    timer.restart();
-    if (!runOn(*m_cpuNet, in.data(), outCpu)) return;
-    const qint64 cpuMs = timer.elapsed();
+    for (const Model m : kModels) {
+      ModelNet& n = net(m);
+      if (!n.cpu) continue;
+      const QString model = QLatin1String(modelName(m));
+      auto gpuNet = std::make_unique<ncnn::Net>();
+      if (!loadNet(*gpuNet, n, true, best)) {
+        log(QStringLiteral("failed to load the %1 model on GPU %2")
+                .arg(model, name),
+            PHOTON_WARNING);
+        continue;
+      }
+      const std::vector<float> in = checkTile(m);
+      std::vector<float> outGpu, outCpu;
+      QElapsedTimer timer;
+      if (!runOn(*gpuNet, m, in.data(), outGpu)) {  // warm-up (compile)
+        log(QStringLiteral("GPU %1 failed the %2 check tile").arg(name, model),
+            PHOTON_WARNING);
+        continue;
+      }
+      timer.start();
+      runOn(*gpuNet, m, in.data(), outGpu);
+      const qint64 gpuMs = timer.elapsed();
+      timer.restart();
+      if (!runOn(*n.cpu, m, in.data(), outCpu)) continue;
+      const qint64 cpuMs = timer.elapsed();
 
-    double diff = 0.0, ref = 0.0;
-    for (size_t k = 0; k < outCpu.size(); ++k) {
-      diff += std::abs(double(outGpu[k]) - outCpu[k]);
-      ref += std::abs(double(outCpu[k]));
+      double diff = 0.0, ref = 0.0, inSum = 0.0, outSum = 0.0;
+      for (size_t k = 0; k < outCpu.size(); ++k) {
+        diff += std::abs(double(outGpu[k]) - outCpu[k]);
+        ref += std::abs(double(outCpu[k]));
+        outSum += outCpu[k];
+      }
+      for (const float v : in) inSum += v;
+      const double relErr = ref > 0.0 ? diff / ref : 1.0;
+      // Output / input scale of the model (cf. TileParams::gainNominal).
+      const double scale =
+          inSum > 0.0 ? (outSum / double(outCpu.size())) /
+                            (inSum / double(in.size()))
+                      : 0.0;
+      log(QStringLiteral("%1 check tile: GPU %2 %3 ms, CPU %4 ms, rel. error "
+                         "%5, output scale %6")
+              .arg(model, name)
+              .arg(gpuMs)
+              .arg(cpuMs)
+              .arg(relErr, 0, 'g', 3)
+              .arg(scale, 0, 'g', 4));
+      if (!(relErr < 1.0e-3)) {
+        log(QStringLiteral("GPU %1 result differs from the CPU; using the CPU")
+                .arg(model),
+            PHOTON_WARNING);
+        continue;
+      }
+      if (!forceGpu && gpuMs >= cpuMs) {
+        log(QStringLiteral("GPU is not faster than the CPU for the %1 model; "
+                           "using the CPU")
+                .arg(model));
+        continue;
+      }
+      n.gpu = std::move(gpuNet);
+      n.useGpu = true;
     }
-    const double relErr = ref > 0.0 ? diff / ref : 1.0;
-    log(QStringLiteral("check tile: GPU %1 %2 ms, CPU %3 ms, rel. error %4")
-            .arg(name)
-            .arg(gpuMs)
-            .arg(cpuMs)
-            .arg(relErr, 0, 'g', 3));
-    if (!(relErr < 1.0e-3)) {
-      log(QStringLiteral("GPU result differs from the CPU; using the CPU"),
-          PHOTON_WARNING);
-      return;
-    }
-    if (!forceGpu && gpuMs >= cpuMs) {
-      log(QStringLiteral("GPU is not faster than the CPU; using the CPU"));
-      return;
-    }
-    m_gpuNet = std::move(gpuNet);
-    m_useGpu = true;
-    m_device = QStringLiteral("GPU: ") + name;
   }
 
   std::mutex m_mutex;
@@ -847,15 +1066,9 @@ class Engine {
   bool m_shutdown = false;
   QString m_preference = QStringLiteral("Auto");
   bool m_ok = false;
-  bool m_useGpu = false;
   bool m_gpuInstanceCreated = false;
-  QByteArray m_param;
-  QByteArray m_bin;
-  QString m_modelDir;
-  QString m_fingerprint;
-  QString m_device;
-  std::unique_ptr<ncnn::Net> m_cpuNet;
-  std::unique_ptr<ncnn::Net> m_gpuNet;
+  QString m_gpuName;
+  ModelNet m_nets[2];
 };
 
 // 3x3 least-squares fit y = M x over the sample pairs (row-major M).
@@ -911,7 +1124,149 @@ void configure(LibRaw& lr) {
   lr.imgdata.params.half_size = 0;
 }
 
-Status computeFromRaw(const QString& path, Product& out,
+// Linear model: the develop source (LibRaw's demosaic of any sensor, as
+// RawEngine shows it) -> linear Rec.2020 -> model -> the 16-bit working
+// space, so the product keeps exactly the plain image's colours (per-tile
+// mean match). Clipped highlights keep the plain pixels, like the Bayer path.
+// (Decoding linear camera RGB and converting it in float instead was
+// measured: no difference, since LibRaw already clips each channel at the
+// black level before demosaicking.)
+Status computeLinear(LibRaw& lr, Product& out, std::atomic<bool>* abort,
+                     const ProgressFn& progress, QString* message,
+                     const QElapsedTimer& timer) {
+  if (lr.dcraw_process() != LIBRAW_SUCCESS) {
+    if (message) *message = QStringLiteral("LibRaw processing failed");
+    return Status::Failed;
+  }
+  if (abort && abort->load()) return Status::Aborted;
+  int ret = 0;
+  libraw_processed_image_t* mem = lr.dcraw_make_mem_image(&ret);
+  if (!mem || mem->type != LIBRAW_IMAGE_BITMAP || mem->colors != 3 ||
+      mem->bits != 16) {
+    if (mem) LibRaw::dcraw_clear_mem(mem);
+    if (message) *message = QStringLiteral("could not build the source image");
+    return Status::Failed;
+  }
+  const int W = mem->width;
+  const int H = mem->height;
+  const size_t pixels = size_t(W) * size_t(H);
+  std::vector<ushort> plain(pixels * 3);
+  std::memcpy(plain.data(), mem->data, plain.size() * sizeof(ushort));
+  LibRaw::dcraw_clear_mem(mem);
+
+  // Linear Rec.2020 input and the clip mask (a channel at the white).
+  std::vector<float> in(pixels * 3);
+  std::vector<uint8_t> clipped(pixels, 0);
+  {
+    std::vector<float> decode(65536);
+    for (int v = 0; v < 65536; ++v)
+      decode[size_t(v)] = colorspace::decodeSrgb(float(v) / 65535.0f);
+    const ushort clip16 =
+        ushort(std::lround(colorspace::encodeSrgb(kClipLevel) * 65535.0f));
+    std::vector<int> rows(static_cast<size_t>(H));
+    std::iota(rows.begin(), rows.end(), 0);
+    QtConcurrent::blockingMap(rows, [&](int y) {
+      for (size_t i = size_t(y) * W, e = i + W; i < e; ++i) {
+        const ushort* q = &plain[i * 3];
+        clipped[i] = q[0] >= clip16 || q[1] >= clip16 || q[2] >= clip16;
+        for (int k = 0; k < 3; ++k) in[i * 3 + k] = decode[q[k]];
+      }
+    });
+  }
+  lr.recycle();  // free LibRaw's buffers before inference
+  if (progress) progress(0.05f);
+
+  std::vector<float> lin;
+  {
+    TileParams tp;
+    tp.gainNominal = kLinearGainNominal;
+    tp.gainMaxDeviation = kLinearGainMaxDeviation;
+    QString err;
+    Engine& engine = Engine::instance();
+    const Status st = denoiseLinear(
+        in.data(), W, H,
+        [&engine](const float* in, std::vector<float>& o) {
+          return engine.runTile(Model::Linear, in, o);
+        },
+        tp, lin, abort,
+        [&progress](float f) {
+          if (progress) progress(0.05f + 0.9f * f);
+        },
+        &err);
+    if (st != Status::Ok) {
+      if (message) *message = err;
+      return st;
+    }
+  }
+  log(QStringLiteral("linear inference %1x%2 done in %3 ms on %4")
+          .arg(W)
+          .arg(H)
+          .arg(timer.elapsed())
+          .arg(Engine::instance().device(Model::Linear)));
+
+  // Highlight protection: pixels with a clipped channel (dilated by 2 px)
+  // keep the plain rendering.
+  std::vector<uint8_t> protect(pixels, 0);
+  constexpr int kProtectRadius = 2;
+  {
+    std::vector<uint8_t> rowPass(pixels, 0);
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        uint8_t v = 0;
+        for (int d = -kProtectRadius; d <= kProtectRadius && !v; ++d) {
+          const int xx = x + d;
+          if (xx >= 0 && xx < W) v = clipped[size_t(y) * W + xx];
+        }
+        rowPass[size_t(y) * W + x] = v;
+      }
+    }
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        uint8_t v = 0;
+        for (int d = -kProtectRadius; d <= kProtectRadius && !v; ++d) {
+          const int yy = y + d;
+          if (yy >= 0 && yy < H) v = rowPass[size_t(yy) * W + x];
+        }
+        protect[size_t(y) * W + x] = v;
+      }
+    }
+  }
+
+  out.width = W;
+  out.height = H;
+  out.rgb.resize(pixels * 3);
+  std::vector<int> rows(static_cast<size_t>(H));
+  std::iota(rows.begin(), rows.end(), 0);
+  QtConcurrent::blockingMap(rows, [&](int y) {
+    for (size_t i = size_t(y) * W, e = i + W; i < e; ++i) {
+      ushort* o = &out.rgb[i * 3];
+      if (protect[i]) {
+        std::memcpy(o, &plain[i * 3], 3 * sizeof(ushort));
+        continue;
+      }
+      // The model may undershoot below zero in the deepest shadows: map to
+      // the gamut like the output stage (towards grey, luminance kept).
+      float r = lin[i * 3], g = lin[i * 3 + 1], b = lin[i * 3 + 2];
+      colorspace::gamutMapToPositive(r, g, b, colorspace::luma(r, g, b));
+      auto enc = [](float v) {
+        return ushort(std::clamp(colorspace::encodeSrgb(v) * 65535.0f + 0.5f,
+                                 0.0f, 65535.0f));
+      };
+      o[0] = enc(r);
+      o[1] = enc(g);
+      o[2] = enc(b);
+    }
+  });
+  if (progress) progress(1.0f);
+  log(QStringLiteral("product %1x%2 (Linear) ready in %3 ms")
+          .arg(W)
+          .arg(H)
+          .arg(timer.elapsed()));
+  return Status::Ok;
+}
+
+// `model` comes from modelForRaw (it also keys the cache).
+Status computeFromRaw(const QString& path, Model model, Product& out,
                       std::atomic<bool>* abort, const ProgressFn& progress,
                       QString* message) {
   QElapsedTimer timer;
@@ -923,9 +1278,16 @@ Status computeFromRaw(const QString& path, Product& out,
     if (message) *message = QStringLiteral("could not read the RAW file");
     return Status::Failed;
   }
+  Engine& engine = Engine::instance();
+  if (!engine.has(model)) {
+    if (message) *message = QStringLiteral("AI denoise model not available");
+    return Status::NoModel;
+  }
+  out.model = model;
+  if (model == Model::Linear)
+    return computeLinear(*lr, out, abort, progress, message, timer);
   if (!isBayerLayout(*lr) || !lr->imgdata.rawdata.raw_image) {
-    if (message)
-      *message = QStringLiteral("AI denoise needs a Bayer-sensor RAW");
+    if (message) *message = QStringLiteral("not a Bayer mosaic");
     return Status::Unsupported;
   }
 
@@ -1003,11 +1365,10 @@ Status computeFromRaw(const QString& path, Product& out,
   {
     TileParams tp;
     QString err;
-    Engine& engine = Engine::instance();
     const Status st = denoiseMosaic(
         mosaic.data(), Wa, Ha,
         [&engine](const float* in, std::vector<float>& o) {
-          return engine.runTile(in, o);
+          return engine.runTile(Model::Bayer, in, o);
         },
         tp, cam, abort,
         [&progress](float f) {
@@ -1024,7 +1385,7 @@ Status computeFromRaw(const QString& path, Product& out,
           .arg(Wa)
           .arg(Ha)
           .arg(timer.elapsed())
-          .arg(Engine::instance().device()));
+          .arg(engine.device(Model::Bayer)));
 
   // Dilated clip mask (3x3 cells) for highlight protection.
   const int ncx = Wa / 2, ncy = Ha / 2;
@@ -1141,37 +1502,55 @@ Status computeFromRaw(const QString& path, Product& out,
 }  // namespace
 
 bool isCompiledIn() { return true; }
-bool modelFilesPresent() {
-  static const bool present = [] {
-    QStringList dirs;
-    const QString env = qEnvironmentVariable("PHOTON_AI_MODEL_DIR");
-    if (!env.isEmpty()) dirs << env;
-    const QString app = QCoreApplication::applicationDirPath();
-    dirs << app + QStringLiteral("/models")
-         << app + QStringLiteral("/../models")
-         << app + QStringLiteral("/../share/photon/models");
-    for (const QString& d : dirs) {
-      if (QFileInfo::exists(QDir(d).filePath(kParamFile)) &&
-          QFileInfo::exists(QDir(d).filePath(kBinFile)))
-        return true;
+bool modelFilesPresent(Model model) {
+  static const std::array<bool, 2> present = [] {
+    std::array<bool, 2> found{false, false};
+    for (const Model m : kModels) {
+      for (const QString& d : modelSearchDirs()) {
+        if (QFileInfo::exists(QDir(d).filePath(kParamFiles[modelIndex(m)])) &&
+            QFileInfo::exists(QDir(d).filePath(kBinFiles[modelIndex(m)]))) {
+          found[size_t(modelIndex(m))] = true;
+          break;
+        }
+      }
     }
-    return false;
+    return found;
   }();
-  return present;
+  return present[size_t(modelIndex(model))];
+}
+bool modelFilesPresent() {
+  return modelFilesPresent(Model::Bayer) || modelFilesPresent(Model::Linear);
 }
 bool isModelAvailable() { return Engine::instance().ensure(); }
-QString deviceDescription() { return Engine::instance().device(); }
-QString modelFingerprint() { return Engine::instance().fingerprint(); }
+QString deviceDescription(Model model) {
+  return Engine::instance().device(model);
+}
+QString modelFingerprint(Model model) {
+  return Engine::instance().fingerprint(model);
+}
 void shutdown() { Engine::instance().shutdown(); }
 void setDevicePreference(const QString& preference, bool userChanged) {
   Engine::instance().setDevicePreference(preference, userChanged);
 }
 
-bool isSupportedRaw(const QString& path) {
+bool modelForRaw(const QString& path, Model& model) {
   LibRaw lr;
   if (lr.open_file(path.toLocal8Bit().constData()) != LIBRAW_SUCCESS)
     return false;
-  return isBayerLayout(lr);
+  if (isBayerLayout(lr) && modelFilesPresent(Model::Bayer)) {
+    model = Model::Bayer;
+    return true;
+  }
+  if (modelFilesPresent(Model::Linear)) {
+    model = Model::Linear;
+    return true;
+  }
+  return false;
+}
+
+bool isSupportedRaw(const QString& path) {
+  Model model;
+  return modelForRaw(path, model);
 }
 
 namespace {
@@ -1239,7 +1618,12 @@ bool saveColor(const QString& file, const Product& p) {
 Status obtainProduct(const QString& path, Product& out, bool computeIfMissing,
                      std::atomic<bool>* abort, const ProgressFn& progress,
                      QString* message) {
-  const QString fp = modelFingerprint();
+  Model model;
+  if (!modelForRaw(path, model)) {
+    if (message) *message = QStringLiteral("no AI model for this RAW");
+    return Status::NoModel;
+  }
+  const QString fp = modelFingerprint(model);
   if (fp.isEmpty()) {
     if (message) *message = QStringLiteral("AI denoise model not available");
     return Status::NoModel;
@@ -1248,6 +1632,7 @@ Status obtainProduct(const QString& path, Product& out, bool computeIfMissing,
   const QString colorFile = colorCachePath(path, fp);
 
   if (loadProduct(file, out)) {
+    out.model = model;
     if (loadColor(colorFile, out) || !computeIfMissing) {
       if (progress) progress(1.0f);
       return Status::Ok;
@@ -1260,9 +1645,11 @@ Status obtainProduct(const QString& path, Product& out, bool computeIfMissing,
   std::lock_guard<std::mutex> job(engine.jobMutex());
   Product p;
   // Another job may have produced it while we waited.
-  if (!loadProduct(file, p)) {
+  if (loadProduct(file, p)) {
+    p.model = model;
+  } else {
     const Status st = computeFromRaw(
-        path, p, abort,
+        path, model, p, abort,
         [&progress](float f) {
           if (progress) progress(0.85f * f);
         },
@@ -1297,11 +1684,13 @@ Status obtainProduct(const QString& path, Product& out, bool computeIfMissing,
 
 bool isCompiledIn() { return false; }
 bool modelFilesPresent() { return false; }
+bool modelFilesPresent(Model) { return false; }
 bool isModelAvailable() { return false; }
-QString deviceDescription() { return QString(); }
-QString modelFingerprint() { return QString(); }
+QString deviceDescription(Model) { return QString(); }
+QString modelFingerprint(Model) { return QString(); }
 void shutdown() {}
 void setDevicePreference(const QString&, bool) {}
+bool modelForRaw(const QString&, Model&) { return false; }
 bool isSupportedRaw(const QString&) { return false; }
 
 Status obtainProduct(const QString&, Product&, bool, std::atomic<bool>*,

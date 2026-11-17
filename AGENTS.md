@@ -16,7 +16,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 - **Language:** C++17
 - **Framework:** Qt 6.8+ (Quick, ShaderTools, Gui, RHI)
 - **Libraries:** LibRaw (RAW decoding), Vulkan, OpenCV, ncnn (AI denoise; fetched from a pinned source release at configure time)
-- **AI model:** RawNIND UtNet2 (GPL-3.0 weights) — downloaded, SHA-256-verified and converted to ncnn with pnnx at configure time by `cmake/AiDenoiseModel.cmake`, staged in `build/models` and installed to `bin/models`; never committed to git
+- **AI models:** RawNIND UtNet2 (GPL-3.0 weights), Bayer and Linear variants (Linear for X-Trans, Foveon, linear DNGs) — downloaded, SHA-256-verified and converted to ncnn with pnnx at configure time by `cmake/AiDenoiseModel.cmake`, staged in `build/models` and installed to `bin/models`; never committed to git
 - **Build System:** CMake 3.16+
 
 ## 🚀 Key Commands
@@ -32,7 +32,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
   ```
 
 - **Run Application:** `./build/Photon`
-- **AI denoise build options:** the first configure needs network access (ncnn source + model). `-DPHOTON_ENABLE_AI_DENOISE=OFF` builds without ncnn (Classic denoise only); `-DPHOTON_BUNDLE_AI_MODEL=OFF` skips the model download; `-DPHOTON_AI_MODEL_SOURCE_DIR=<dir>` uses prebuilt `rawnind_bayer.ncnn.{param,bin}`; `-DFETCHCONTENT_SOURCE_DIR_NCNN=<dir>` builds ncnn from a local source tree. Runtime overrides: `PHOTON_AI_MODEL_DIR`, `PHOTON_AI_DENOISE_DEVICE=cpu|gpu`.
+- **AI denoise build options:** the first configure needs network access (ncnn source + model). `-DPHOTON_ENABLE_AI_DENOISE=OFF` builds without ncnn (Classic denoise only); `-DPHOTON_BUNDLE_AI_MODEL=OFF` skips the model download; `-DPHOTON_AI_MODEL_SOURCE_DIR=<dir>` uses prebuilt `rawnind_{bayer,linear}.ncnn.{param,bin}`; `-DFETCHCONTENT_SOURCE_DIR_NCNN=<dir>` builds ncnn from a local source tree. Runtime overrides: `PHOTON_AI_MODEL_DIR`, `PHOTON_AI_DENOISE_DEVICE=cpu|gpu`.
 
 ### Testing
 

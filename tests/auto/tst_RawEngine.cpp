@@ -89,10 +89,12 @@ class TestRawEngine : public QObject {
   void testExportSceneWhiteMatchesPreview();
   void testAiDenoiseTiling();
   void testAiDenoiseMosaicMock();
+  void testAiDenoiseLinearMock();
   void testAiDenoiseCacheRoundTrip();
   void testAiDenoiseBlendAndResample();
   void testAiDenoiseModeAndFallback();
   void testAiDenoiseEngineIntegration();
+  void testAiDenoiseLinearIntegration();
   void testWhiteBalanceKelvinRange50k();
   void testLightSlidersSmoothMonotoneAndRanged();
   void testToneBandsLocalNoHaloKeepDetail();
@@ -3390,6 +3392,137 @@ void TestRawEngine::testDenoiseNoiseAdaptive() {
   qInfo() << "noise est" << est << "residual rms" << rms << "edge" << edgeOut;
   QVERIFY2(rms < 2.0, qPrintable(QString::number(rms)));       // noise removed
   QVERIFY2(edgeOut > 55.0, qPrintable(QString::number(edgeOut)));  // edge kept
+}
+
+// The linear runner on a mock "model" with the linear RawNIND model's
+// negative output scale (-3.1e9, a few % off per run): the per-tile signed
+// gain match must restore the input exactly, without seams.
+void TestRawEngine::testAiDenoiseLinearMock() {
+  using namespace photon::ai;
+  const int w = 300, h = 170;  // several 64-px tiles, not multiples
+  std::vector<float> lin(size_t(w) * h * 3);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      for (int c = 0; c < 3; ++c)
+        lin[(size_t(y) * w + x) * 3 + c] =
+            (0.05f + 0.5f * float(x) / w + 0.3f * float(y) / h) * (0.6f + 0.2f * c);
+  TileParams tp;
+  tp.tile = 64;
+  tp.overlap = 16;
+  tp.gainNominal = -3.14e9f;
+  tp.gainMaxDeviation = 0.3f;
+  for (const float scale : {-3.14e9f, -3.3e9f, -2.9e9f}) {
+    int calls = 0;
+    TileFn mock = [&](const float* in, std::vector<float>& out) {
+      ++calls;
+      out.resize(size_t(3) * tp.tile * tp.tile);
+      for (size_t k = 0; k < out.size(); ++k) out[k] = in[k] * scale;
+      return true;
+    };
+    std::vector<float> out;
+    QString err;
+    QCOMPARE(int(denoiseLinear(lin.data(), w, h, mock, tp, out, nullptr, {}, &err)),
+             int(Status::Ok));
+    QVERIFY(calls > 4);
+    QCOMPARE(out.size(), lin.size());
+    float maxErr = 0.0f;
+    for (size_t k = 0; k < lin.size(); ++k)
+      maxErr = std::max(maxErr, std::abs(out[k] - lin[k]));
+    QVERIFY2(maxErr < 1e-5f, qPrintable(QString::number(maxErr)));
+  }
+  // A model of the wrong sign cannot flip the image: the gain stays nominal.
+  TileFn wrongSign = [&](const float* in, std::vector<float>& out) {
+    out.resize(size_t(3) * tp.tile * tp.tile);
+    for (size_t k = 0; k < out.size(); ++k) out[k] = in[k] * 3.14e9f;
+    return true;
+  };
+  std::vector<float> out;
+  QCOMPARE(int(denoiseLinear(lin.data(), w, h, wrongSign, tp, out, nullptr, {}, nullptr)),
+           int(Status::Ok));
+  QVERIFY(out[0] < 0.0f);  // -input: visibly wrong, never a silent rescale
+
+  std::atomic<bool> abort{true};
+  TileFn never = [](const float*, std::vector<float>&) { return true; };
+  QCOMPARE(int(denoiseLinear(lin.data(), w, h, never, tp, out, &abort, {}, nullptr)),
+           int(Status::Aborted));
+  TileFn failing = [](const float*, std::vector<float>&) { return false; };
+  QCOMPARE(int(denoiseLinear(lin.data(), w, h, failing, tp, out, nullptr, {}, nullptr)),
+           int(Status::Failed));
+}
+
+// End-to-end: a non-Bayer RAW (Fujifilm X-Trans) uses the linear model.
+void TestRawEngine::testAiDenoiseLinearIntegration() {
+  if (!photon::ai::isCompiledIn() ||
+      !photon::ai::modelFilesPresent(photon::ai::Model::Linear))
+    QSKIP("linear AI denoise model not available in this build");
+  const QString testDir =
+      QCoreApplication::applicationDirPath() + QStringLiteral("/../../testphoton/");
+  const QString sample = testDir + QStringLiteral("DSCF7929.RAF");
+  if (!QFileInfo::exists(sample)) QSKIP("no sample X-Trans RAW available");
+
+  photon::ai::Model model = photon::ai::Model::Bayer;
+  QVERIFY(photon::ai::modelForRaw(sample, model));
+  QCOMPARE(int(model), int(photon::ai::Model::Linear));
+  if (photon::ai::modelFilesPresent(photon::ai::Model::Bayer) &&
+      QFileInfo::exists(testDir + QStringLiteral("_DSC8711.ARW"))) {
+    QVERIFY(photon::ai::modelForRaw(testDir + QStringLiteral("_DSC8711.ARW"), model));
+    QCOMPARE(int(model), int(photon::ai::Model::Bayer));
+  }
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QFileInfo(sample).fileName());
+  QVERIFY(QFile::copy(sample, path));
+  RawEngine engine;
+  QSignalSpy loaded(&engine, &RawEngine::imageLoaded);
+  engine.setSource(path);
+  QVERIFY(loaded.wait(60000));
+  const QImage plain = engine.getProcessedImage();
+  QVERIFY(!plain.isNull());
+  auto roughness = [](const QImage& img) {
+    double sum = 0.0;
+    size_t n = 0;
+    for (int y = img.height() / 3; y < img.height() * 2 / 3; ++y) {
+      const QRgba64* row = reinterpret_cast<const QRgba64*>(img.constScanLine(y));
+      for (int x = 1; x < img.width(); ++x, ++n)
+        sum += std::abs(int(row[x].green()) - int(row[x - 1].green()));
+    }
+    return sum / double(n);
+  };
+  auto meanGreen = [](const QImage& img) {
+    double sum = 0.0;
+    for (int y = 0; y < img.height(); ++y) {
+      const QRgba64* row = reinterpret_cast<const QRgba64*>(img.constScanLine(y));
+      for (int x = 0; x < img.width(); ++x) sum += row[x].green();
+    }
+    return sum / double(img.width() * img.height());
+  };
+
+  QSignalSpy pixels(&engine, &RawEngine::sourcePixelsChanged);
+  AppStateManager* app = AppStateManager::instance();
+  const QString savedEngine = app->denoiseEngine();
+  app->setDenoiseEngine(QStringLiteral("ai"));
+  engine.setDenoiseEnabled(true);
+  engine.setDenoiseAmount(100.0f);
+  QTRY_VERIFY_WITH_TIMEOUT(!engine.aiDenoiseRunning() && pixels.count() > 0,
+                           300000);
+  QVERIFY2(engine.aiDenoiseActive(), qPrintable(engine.aiDenoiseStatus()));
+  QVERIFY2(engine.aiDenoiseStatus().startsWith(QStringLiteral("AI · Linear")),
+           qPrintable(engine.aiDenoiseStatus()));
+  QVERIFY(engine.aiDenoiseStatus().size() <= 24);  // fits the panel line
+  const QImage denoised = engine.getProcessedImage();
+  QCOMPARE(denoised.size(), plain.size());
+  const double rPlain = roughness(plain);
+  const double rAi = roughness(denoised);
+  QVERIFY2(rAi < rPlain * 0.9,
+           qPrintable(QStringLiteral("roughness %1 -> %2").arg(rPlain).arg(rAi)));
+  QVERIFY(std::abs(meanGreen(denoised) - meanGreen(plain)) <
+          0.02 * meanGreen(plain));
+  QCOMPARE(QDir(dir.filePath(".PhotonData/denoise"))
+               .entryList({"*.ai-*.pdn"}, QDir::Files)
+               .size(),
+           1);
+  app->setDenoiseEngine(savedEngine);
 }
 
 QTEST_MAIN(TestRawEngine)

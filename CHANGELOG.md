@@ -2,11 +2,11 @@
 
 All notable changes to Photon. Each release's section is published as its GitHub release notes.
 
-## [v0.5.0] - Unreleased
+## [v0.5.0] - 2026-11-17
 
 ### Highlights
 
-- **AI denoise.** A neural network (RawNIND) removes luminance noise from Bayer RAW files, then a colour pass (chroma BM3D followed by a guided filter) cleans up colour noise. Both run once per photo in the background and are cached, so the **Noise Reduction** and **Color** sliders respond instantly. On a 24 MP photo it takes about 5–8 s on a mid-range GPU and about 25 s on the CPU.
+- **AI denoise.** A neural network (RawNIND) removes luminance noise from RAW files (a Bayer model, and a linear model for X-Trans, Foveon, linear DNGs and other sensors), then a colour pass (chroma BM3D followed by a guided filter) cleans up colour noise. Both run once per photo in the background and are cached, so the **Noise Reduction** and **Color** sliders respond instantly. On a 24 MP photo it takes about 5–8 s on a mid-range GPU and about 25 s on the CPU.
 - **Exports now match the preview.** Exports of photos that had used the History panel were rendered without any of their edits. That's fixed, along with several smaller differences between preview and export.
 - **White balance up to 50,000 K** on a logarithmic temperature slider.
 - **Light sliders matched to Reference.** Highlights, Shadows, Whites and Blacks were fitted to Reference's measured response on three photos. They're smooth from −100 to +100, always move in one direction, and lifts never clip.
@@ -15,13 +15,15 @@ All notable changes to Photon. Each release's section is published as its GitHub
 ### Added
 
 - **Settings ▸ Denoise:**
-  - **Engine:** AI (default) or Classic (BM3D). Photos AI can't process (X-Trans, Foveon, JPEG/TIFF, linear DNGs, or when the model is missing) use Classic automatically.
+  - **Engine:** AI (default) or Classic (BM3D). Bayer RAWs use RawNIND's Bayer model; every other RAW (Fujifilm X-Trans, Foveon, linear DNGs) uses its linear model. JPEG/TIFF files use Classic automatically: their noise has already been through the camera's processing and compression, which the AI models weren't trained on.
   - **AI denoise device:** Auto (the GPU when it gives the same result as the CPU and is faster), CPU, or a specific GPU. Takes effect without a restart.
 - Detail ▸ Denoise is simplified to **Denoise**, **Noise Reduction** (luminance) and **Color** (chroma), with a progress bar while the AI runs.
 - Results are cached per photo in `.PhotonData/denoise`, about 45 MB each for a 24 MP photo. Library previews reuse the cached result and never run the model.
 - Bundled model: RawNIND UtNet2 by Benoit Brummer and Christophe De Vleeschouwer (UCLouvain), GPL-3.0 weights, as published by darktable-ai. Its licence and notice ship in `models/`.
 - RAW temperature in Kelvin with a Planckian blue → amber track: 2000–50,000 K, with 5500 K at about a third of the track and 10,000 K at the middle.
 - Click any slider's number to type a value.
+- **16-bit TIFF export** (Export ▸ TIFF ▸ Bit depth).
+- **Adobe RGB export:** Export ▸ Color space (sRGB / Adobe RGB). Exports embed the matching ICC profile.
 
 ### Changed
 
@@ -39,6 +41,14 @@ All notable changes to Photon. Each release's section is published as its GitHub
   - Moving neighbouring sliders in opposite directions can no longer invert tones.
   - Existing edits that use these sliders will look somewhat different.
 - The preview now renders from the full 16-bit image, so gradients don't band when sliders are pushed hard.
+- **Highlight recovery:** RAWs are decoded with the sensor's full range. Before, the brightest ~1 % was clipped at decode. The usual brightness is restored with a soft highlight shoulder, so near-blown areas keep their detail and can be brought back with −Exposure / −Highlights / −Whites. Very bright tinted areas fade to white instead of keeping a colour cast. Photos look slightly different, with softer highlights.
+- **Wide-gamut colour:** editing happens in Rec.2020, so colours outside sRGB (saturated flowers, neon, deep skies) are no longer clipped at decode. They're mapped into the output gamut only at the end, preserving hue and brightness, and an Adobe RGB export keeps them where Adobe RGB can. JPEG/TIFF files with an embedded profile (Adobe RGB, Display P3, …) keep their gamut too.
+- **Clarity** now works like Reference: it adds local contrast at a larger scale (about 1–2 % of the image) in shadows and midtones, and −Clarity smooths midtones and highlights.
+- **Classic denoise adapts to each photo:** it measures the photo's noise, and the slider scales from that: 50 removes the measured noise, 100 removes twice as much. Before, it assumed far more noise than real photos have and smeared detail into blocks. The Color slider works the same way on colour noise.
+- **Camera Look** sits above Light in the Develop panel.
+- **Export panel:** each setting (Format, Color space, Bit depth or Quality, Output folder) has its own full-width line, so switching format no longer moves the other controls.
+- **Settings ▸ Clear Cache** deletes all generated data for the workspace (thumbnails, previews, camera looks, AI denoise results), not only thumbnails. Edits and ratings are kept.
+- AI denoise results are cached at full 16-bit precision (about 63 MB per 24 MP photo, up from ~45 MB), so lifted shadows stay smooth.
 
 ### Fixed
 
@@ -51,6 +61,8 @@ All notable changes to Photon. Each release's section is published as its GitHub
   - Lens vignetting correction no longer over-brightens corners.
 - **Preview denoise:** the preview no longer denoises with Denoise switched off, and no longer adds extra smoothing on top of the finished Classic result.
 - **Film grain** now looks the same at any zoom level and export size.
+- **AI denoise** no longer brightens and saturates photos (more so with Color): results cached under the previous decode are recomputed.
+- **Library previews** now include the Camera Look.
 - **Crop/rotate** no longer snaps back to the original frame after denoising.
 - **Ratings** survive edits, and the rating filter applies the chosen operator (=, >, ≥, <, ≤) correctly.
 - **Crashes and hangs:**

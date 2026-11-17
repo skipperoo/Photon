@@ -12,13 +12,17 @@
 namespace photon {
 
 struct Bm3dParams {
-  float sigma;
-  float hard_th_lambda;
-  float max_dist_hard;
+  float sigma;            // noise std removed, on the 0..255 domain
+  float hard_th_lambda;   // step-1 hard threshold = lambda * sigma
+  float max_dist_hard;    // step-1 patch match (per-pixel MSE)
+  float max_dist_wiener;  // step-2 patch match (per-pixel MSE)
 
-  static Bm3dParams fromIntensity(float i) {
-    float val = std::clamp(i, 0.001f, 1.0f);
-    return {val * 80.0f, 2.0f + (val * 2.5f), 3000.0f + (val * 20000.0f)};
+  // Reference parameters for a noise std `sigma` (Lebrun, "An Analysis and
+  // Implementation of the BM3D Image Denoising Method", IPOL 2012).
+  static Bm3dParams forSigma(float sigma) {
+    const bool high = sigma >= 35.0f;
+    return {std::max(sigma, 0.0f), 2.7f, high ? 5000.0f : 2500.0f,
+            high ? 3500.0f : 400.0f};
   }
 };
 
@@ -27,11 +31,39 @@ struct DenoiseParams {
   int groupSize = 16;      // Max patches per group (4, 8, 16)
   int chromaRadius = 4;    // Base guided filter radius (1-16)
   float chromaDenoise = 50.0f;  // Chroma guided filter strength (0-100)
-  float chromaBm3d = 50.0f;     // Chroma BM3D strength (0-100, 0=off, 50=half luma sigma)
+  float chromaBm3d = 50.0f;     // Chroma BM3D strength (0-100, 0=off; like
+                                // the luma amount, on the measured chroma noise)
+  // Linear gain of the photo's RAW base exposure (photon::tone::exposureGain(
+  // baseExposure); 1 for rendered files). See Denoiser's denoise domain.
+  float exposureGain = 1.0f;
 };
 
+// Denoise domain: every pass works on 0..255 floats of the source brightened
+// by its RAW base exposure, 255 * encodeSrgb(decodeSrgb(v) * exposureGain),
+// unclipped (highlights above the old white stay > 255). The sigmas and
+// filter epsilons are tuned for an auto-brightened sRGB-curve image; the
+// full-range develop source is up to ~5 EV darker, where the same sigma
+// flattened detail into 8x8 blocks. Inputs and outputs stay 16-bit
+// working-space sources (sRGB curve, no gain).
 class Denoiser {
  public:
+  /**
+   * @brief Noise std of a plane (0..255 domain): Donoho's MAD estimator on
+   * the finest Haar diagonal band, median(|a - b - c + d| / 2) / 0.6745.
+   * Robust to edges and texture; the sRGB curve keeps shot noise roughly
+   * level-independent, so one global value describes the image.
+   */
+  static float estimateNoiseSigma(const std::vector<float>& plane, int width,
+                                  int height);
+
+  /**
+   * @brief BM3D sigma for a slider amount (0..100) given the measured noise:
+   * 50 removes exactly the measured noise, 100 twice it.
+   */
+  static float sigmaForAmount(float measuredSigma, float amount) {
+    return measuredSigma * std::clamp(amount, 0.0f, 100.0f) / 50.0f;
+  }
+
   /**
    * @brief Main denoise entry point. Runs BM3D on luminance, then
    * multi-scale guided filter on chroma channels.
@@ -65,7 +97,15 @@ class Denoiser {
    * @return Denoised image (RGBX64), or a null image when aborted
    */
   static QImage denoiseChroma(const QImage& input, float strength,
-                              std::atomic<bool>* abort = nullptr);
+                              std::atomic<bool>* abort = nullptr,
+                              float exposureGain = 1.0f);
+
+  /**
+   * @brief Block-matching luminance of `input` in the denoise domain (what
+   * the BM3D luma pass matches on), for GpuSearcher.
+   */
+  static std::vector<float> searchLuma(const QImage& input,
+                                       float exposureGain);
 
   static QImage denoiseCpu(
       const QImage& input, float intensity, std::atomic<bool>* abort = nullptr,
@@ -132,6 +172,15 @@ class Denoiser {
   static void idct_1d_8(float* x, const float* coeffs);
   static void transpose_8x8(float* b);
   static void walsh_hadamard_1d(float* data, int n);
+
+  // Denoise domain conversion (see the class comment).
+  static void toDomain(const QImage& input, float exposureGain,
+                       std::vector<float>& r, std::vector<float>& g,
+                       std::vector<float>& b);
+  static QImage fromDomain(const std::vector<float>& r,
+                           const std::vector<float>& g,
+                           const std::vector<float>& b, int width, int height,
+                           float exposureGain);
 
   // --- Chroma Denoising (Multi-Scale Guided Filter) ---
   static void rgb_to_ycbcr(const std::vector<float>& r,

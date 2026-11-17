@@ -1,4 +1,5 @@
 #include "Denoiser.h"
+#include "ColorSpace.h"
 #include "DenoiseChroma.h"
 #include "GpuChromaFilter.h"
 #include "../managers/LogManager.h"
@@ -90,34 +91,9 @@ QImage Denoiser::denoiseCpu(
   int height = input.height();
   int size = width * height;
 
-  // Extract RGB channels from input image
-  std::vector<float> r_ch(size), g_ch(size), b_ch(size);
-  if (input.format() == QImage::Format_RGBX64 ||
-      input.format() == QImage::Format_RGBA64) {
-    const QRgba64* bits = reinterpret_cast<const QRgba64*>(input.constBits());
-    const int grain = 4096;
-    int numChunks = (size + grain - 1) / grain;
-    std::vector<int> chunks(numChunks);
-    std::iota(chunks.begin(), chunks.end(), 0);
-
-    QtConcurrent::blockingMap(chunks, [=, &r_ch, &g_ch, &b_ch](int chunk) {
-      int start = chunk * grain;
-      int end = std::min(size, start + grain);
-      for (int i = start; i < end; ++i) {
-        r_ch[i] = bits[i].red() / 257.0f;
-        g_ch[i] = bits[i].green() / 257.0f;
-        b_ch[i] = bits[i].blue() / 257.0f;
-      }
-    });
-  } else {
-    QImage converted = input.convertToFormat(QImage::Format_RGB888);
-    const uchar* bits = converted.constBits();
-    for (int i = 0; i < size; ++i) {
-      r_ch[i] = bits[i * 3];
-      g_ch[i] = bits[i * 3 + 1];
-      b_ch[i] = bits[i * 3 + 2];
-    }
-  }
+  // RGB planes in the denoise domain.
+  std::vector<float> r_ch, g_ch, b_ch;
+  toDomain(input, dparams.exposureGain, r_ch, g_ch, b_ch);
 
   if (abort && abort->load()) return input;
 
@@ -127,8 +103,10 @@ QImage Denoiser::denoiseCpu(
 
   if (abort && abort->load()) return input;
 
-  // BM3D on Y channel only
-  Bm3dParams params = Bm3dParams::fromIntensity(intensity / 100.0f);
+  // BM3D on Y channel only, at the image's measured noise.
+  const float lumaNoise = estimateNoiseSigma(y_ch, width, height);
+  Bm3dParams params =
+      Bm3dParams::forSigma(sigmaForAmount(lumaNoise, intensity));
   DctTables tables;
 
   std::vector<std::vector<float>> y_input = {y_ch};
@@ -142,10 +120,12 @@ QImage Denoiser::denoiseCpu(
   // BM3D on Cb/Cr using Y_clean as block-matching guide (reduced sigma)
   std::vector<float> cb_bm3d = cb_ch;
   std::vector<float> cr_bm3d = cr_ch;
+  float chromaNoise = 0.0f;
   if (dparams.chromaBm3d > 0.1f) {
-    float chromaSigmaScale = std::clamp(dparams.chromaBm3d, 0.0f, 100.0f) / 100.0f;
-    Bm3dParams chromaParams = params;
-    chromaParams.sigma *= chromaSigmaScale;
+    chromaNoise = 0.5f * (estimateNoiseSigma(cb_ch, width, height) +
+                          estimateNoiseSigma(cr_ch, width, height));
+    const Bm3dParams chromaParams =
+        Bm3dParams::forSigma(sigmaForAmount(chromaNoise, dparams.chromaBm3d));
 
     std::vector<std::vector<float>> cbcr_input = {cb_ch, cr_ch};
     auto cbcr_denoised = bm3d_process_joint(
@@ -180,38 +160,110 @@ QImage Denoiser::denoiseCpu(
   }
   if (abort && abort->load()) return input;
 
-  // Convert YCbCr → RGB
+  LogManager::instance()->log(
+      QString("[ Denoiser.cpp ] - classic %1x%2: noise luma %3 chroma %4, "
+              "amount %5 (sigma %6), colour %7")
+          .arg(width)
+          .arg(height)
+          .arg(lumaNoise, 0, 'f', 2)
+          .arg(chromaNoise, 0, 'f', 2)
+          .arg(intensity, 0, 'f', 0)
+          .arg(params.sigma, 0, 'f', 2)
+          .arg(dparams.chromaBm3d, 0, 'f', 0),
+      PHOTON_DEBUG);
+
+  // Convert YCbCr → RGB, back to the 16-bit source encoding.
   std::vector<float> r_out(size), g_out(size), b_out(size);
   ycbcr_to_rgb(y_clean, cb_denoised, cr_denoised, r_out, g_out, b_out);
+  return fromDomain(r_out, g_out, b_out, width, height, dparams.exposureGain);
+}
 
-  // Write output image
-  QImage output(width, height, QImage::Format_RGBX64);
-  QRgba64* out_bits = reinterpret_cast<QRgba64*>(output.bits());
-
-  const int grain_out = 4096;
-  int numChunksOut = (size + grain_out - 1) / grain_out;
-  std::vector<int> chunksOut(numChunksOut);
-  std::iota(chunksOut.begin(), chunksOut.end(), 0);
-
-  QtConcurrent::blockingMap(chunksOut, [=, &r_out, &g_out, &b_out](int chunk) {
-    int start = chunk * grain_out;
-    int end = std::min(size, start + grain_out);
-    for (int i = start; i < end; ++i) {
-      ushort r = static_cast<ushort>(
-          std::clamp(r_out[i], 0.0f, 255.0f) * 257.0f);
-      ushort g = static_cast<ushort>(
-          std::clamp(g_out[i], 0.0f, 255.0f) * 257.0f);
-      ushort b = static_cast<ushort>(
-          std::clamp(b_out[i], 0.0f, 255.0f) * 257.0f);
-      out_bits[i] = QRgba64::fromRgba64(r, g, b, 65535);
+void Denoiser::toDomain(const QImage& input, float exposureGain,
+                        std::vector<float>& r, std::vector<float>& g,
+                        std::vector<float>& b) {
+  const QImage src = (input.format() == QImage::Format_RGBX64 ||
+                      input.format() == QImage::Format_RGBA64)
+                         ? input
+                         : input.convertToFormat(QImage::Format_RGBX64);
+  const int width = src.width();
+  const int height = src.height();
+  const size_t size = size_t(width) * size_t(height);
+  r.resize(size);
+  g.resize(size);
+  b.resize(size);
+  const float gain = exposureGain > 0.0f ? exposureGain : 1.0f;
+  std::vector<float> lut(65536);
+  for (int v = 0; v < 65536; ++v) {
+    lut[v] = 255.0f * colorspace::encodeSrgb(
+                          colorspace::decodeSrgb(v / 65535.0f) * gain);
+  }
+  std::vector<int> rows(height);
+  std::iota(rows.begin(), rows.end(), 0);
+  QtConcurrent::blockingMap(rows, [&](int y) {
+    const QRgba64* line = reinterpret_cast<const QRgba64*>(src.constScanLine(y));
+    const size_t base = size_t(y) * width;
+    for (int x = 0; x < width; ++x) {
+      r[base + x] = lut[line[x].red()];
+      g[base + x] = lut[line[x].green()];
+      b[base + x] = lut[line[x].blue()];
     }
   });
+}
 
+QImage Denoiser::fromDomain(const std::vector<float>& r,
+                            const std::vector<float>& g,
+                            const std::vector<float>& b, int width, int height,
+                            float exposureGain) {
+  const float invGain = 1.0f / (exposureGain > 0.0f ? exposureGain : 1.0f);
+  auto toSource = [invGain](float d) {
+    const float e = colorspace::encodeSrgb(
+        colorspace::decodeSrgb(d / 255.0f) * invGain);
+    return ushort(std::clamp(e * 65535.0f + 0.5f, 0.0f, 65535.0f));
+  };
+  QImage output(width, height, QImage::Format_RGBX64);
+  std::vector<int> rows(height);
+  std::iota(rows.begin(), rows.end(), 0);
+  QtConcurrent::blockingMap(rows, [&](int y) {
+    QRgba64* line = reinterpret_cast<QRgba64*>(output.scanLine(y));
+    const size_t base = size_t(y) * width;
+    for (int x = 0; x < width; ++x) {
+      const size_t i = base + x;
+      line[x] = QRgba64::fromRgba64(toSource(r[i]), toSource(g[i]),
+                                    toSource(b[i]), 65535);
+    }
+  });
   return output;
 }
 
+float Denoiser::estimateNoiseSigma(const std::vector<float>& plane, int width,
+                                   int height) {
+  const int bw = width / 2, bh = height / 2;
+  if (bw < 1 || bh < 1 || plane.size() < size_t(width) * height) return 0.0f;
+  std::vector<float> hh(size_t(bw) * bh);
+  for (int y = 0; y < bh; ++y) {
+    const float* r0 = &plane[size_t(2 * y) * width];
+    const float* r1 = r0 + width;
+    for (int x = 0; x < bw; ++x) {
+      hh[size_t(y) * bw + x] =
+          0.5f * std::abs(r0[2 * x] - r0[2 * x + 1] - r1[2 * x] + r1[2 * x + 1]);
+    }
+  }
+  auto mid = hh.begin() + hh.size() / 2;
+  std::nth_element(hh.begin(), mid, hh.end());
+  return *mid / 0.6745f;
+}
+
+std::vector<float> Denoiser::searchLuma(const QImage& input,
+                                        float exposureGain) {
+  std::vector<float> r, g, b;
+  toDomain(input, exposureGain, r, g, b);
+  for (size_t i = 0; i < r.size(); ++i)
+    r[i] = colorspace::luma(r[i], g[i], b[i]);
+  return r;
+}
+
 QImage Denoiser::denoiseChroma(const QImage& input, float strength,
-                               std::atomic<bool>* abort) {
+                               std::atomic<bool>* abort, float exposureGain) {
   if (input.isNull()) return QImage();
   const QImage src = (input.format() == QImage::Format_RGBX64 ||
                       input.format() == QImage::Format_RGBA64)
@@ -223,27 +275,16 @@ QImage Denoiser::denoiseChroma(const QImage& input, float strength,
   strength = std::clamp(strength, 0.0f, 1.0f);
   if (strength <= 0.0f || width < 64 || height < 64) return src.copy();
 
-  // Chroma BM3D runs at 1/kChromaScale resolution; sigma is on the 0..255
-  // Cb/Cr scale of those reduced planes.
+  // Chroma BM3D runs at 1/kChromaScale resolution, at the chroma noise
+  // measured on those reduced planes (strength 1 = Color 100 = twice it,
+  // like the Classic sliders).
   constexpr int kChromaScale = 4;
   constexpr int kGuidedScale = 2;
   constexpr int kChromaStride = 8;
   constexpr bool kChromaStep2 = true;
-  constexpr float kChromaSigmaFull = 10.0f;
 
-  std::vector<float> r_ch(size), g_ch(size), b_ch(size);
-  std::vector<int> pixelRows(height);
-  std::iota(pixelRows.begin(), pixelRows.end(), 0);
-  {
-    const QRgba64* bits = reinterpret_cast<const QRgba64*>(src.constBits());
-    QtConcurrent::blockingMap(pixelRows, [&](int y) {
-      for (int i = y * width, e = i + width; i < e; ++i) {
-        r_ch[i] = bits[i].red() / 257.0f;
-        g_ch[i] = bits[i].green() / 257.0f;
-        b_ch[i] = bits[i].blue() / 257.0f;
-      }
-    });
-  }
+  std::vector<float> r_ch, g_ch, b_ch;
+  toDomain(src, exposureGain, r_ch, g_ch, b_ch);
   std::vector<float> y_ch, cb_ch, cr_ch;
   rgb_to_ycbcr(r_ch, g_ch, b_ch, y_ch, cb_ch, cr_ch);
   if (abort && abort->load()) return QImage();
@@ -313,8 +354,10 @@ QImage Denoiser::denoiseChroma(const QImage& input, float strength,
   std::vector<std::vector<float>> cbcr_q = {
       downsample(cb_ch, width, height, kChromaScale, qw, qh),
       downsample(cr_ch, width, height, kChromaScale, qw, qh)};
-  Bm3dParams chromaParams = Bm3dParams::fromIntensity(0.5f);
-  chromaParams.sigma = kChromaSigmaFull * strength;
+  const float chromaNoise = 0.5f * (estimateNoiseSigma(cbcr_q[0], qw, qh) +
+                                    estimateNoiseSigma(cbcr_q[1], qw, qh));
+  const Bm3dParams chromaParams =
+      Bm3dParams::forSigma(sigmaForAmount(chromaNoise, 100.0f * strength));
   DctTables tables;
   auto cbcr_clean = bm3d_process_joint(
       cbcr_q, qw, qh, chromaParams, tables, abort, kChromaStep2,
@@ -349,35 +392,26 @@ QImage Denoiser::denoiseChroma(const QImage& input, float strength,
   const std::vector<float> cr_out = upsample(cr_go, gw, gh, width, height);
 
   LogManager::instance()->log(
-      QString("[ Denoiser.cpp ] - colour pass %1x%2: BM3D (1/%3) %4 ms, "
-              "guided filter (1/%7) %5 ms (%6)")
+      QString("[ Denoiser.cpp ] - colour pass %1x%2: BM3D (1/%3, chroma "
+              "noise %8) %4 ms, guided filter (1/%7) %5 ms (%6)")
           .arg(width)
           .arg(height)
           .arg(kChromaScale)
           .arg(bm3dMs)
           .arg(timer.elapsed())
           .arg(gpuOk ? "GPU" : "CPU")
-          .arg(kGuidedScale),
+          .arg(kGuidedScale)
+          .arg(chromaNoise, 0, 'f', 2),
       PHOTON_INFO);
 
   std::vector<float> r_out, g_out, b_out;
   ycbcr_to_rgb(y_ch, cb_out, cr_out, r_out, g_out, b_out);
-  QImage output(width, height, QImage::Format_RGBX64);
-  QRgba64* out_bits = reinterpret_cast<QRgba64*>(output.bits());
-  QtConcurrent::blockingMap(pixelRows, [&](int y) {
-    for (int i = y * width, e = i + width; i < e; ++i) {
-      out_bits[i] = QRgba64::fromRgba64(
-          ushort(std::clamp(r_out[i], 0.0f, 255.0f) * 257.0f + 0.5f),
-          ushort(std::clamp(g_out[i], 0.0f, 255.0f) * 257.0f + 0.5f),
-          ushort(std::clamp(b_out[i], 0.0f, 255.0f) * 257.0f + 0.5f), 65535);
-    }
-  });
-  return output;
+  return fromDomain(r_out, g_out, b_out, width, height, exposureGain);
 }
 
 QImage denoiseChromaOnly(const QImage& input, float strength,
-                         std::atomic<bool>* abort) {
-  return Denoiser::denoiseChroma(input, strength, abort);
+                         std::atomic<bool>* abort, float exposureGain) {
+  return Denoiser::denoiseChroma(input, strength, abort, exposureGain);
 }
 
 std::vector<std::vector<float>> Denoiser::bm3d_process_joint(
@@ -427,9 +461,10 @@ std::vector<std::vector<float>> Denoiser::run_bm3d_step_joint(
     luma_buffer = guide[0];
   } else {
     luma_buffer.resize(count);
-    const float wr = 0.2126f;
-    const float wg = 0.7152f;
-    const float wb = 0.0722f;
+    // Luma of the working space (Rec.2020), like rgb_to_ycbcr's Y.
+    const float wr = colorspace::kLumaR;
+    const float wg = colorspace::kLumaG;
+    const float wb = colorspace::kLumaB;
     __m256 v_wr = _mm256_set1_ps(wr);
     __m256 v_wg = _mm256_set1_ps(wg);
     __m256 v_wb = _mm256_set1_ps(wb);
@@ -608,8 +643,7 @@ int Denoiser::block_matching_joint(
   };
 
   const float* luma = channels[0].data();
-  float threshold =
-      is_step_1 ? params.max_dist_hard : params.max_dist_hard * 0.5f;
+  float threshold = is_step_1 ? params.max_dist_hard : params.max_dist_wiener;
 
   float ref_patch[64];
   extract_patch(luma, w, rx, ry, ref_patch);
@@ -983,7 +1017,25 @@ void Denoiser::inverse_transform_3d(float* stack, int group_size,
     idct_2d_8x8(stack + i * 64, tables.idct_coeff);
 }
 
-// --- RGB ↔ YCbCr Conversion (BT.601) ---
+// --- RGB <-> Y'CbCr of the working space (BT.2020 non-constant luminance:
+// the Rec.2020 luma weights of photon::colorspace on the encoded values) ---
+
+namespace {
+constexpr float kKr = colorspace::kLumaR;
+constexpr float kKg = colorspace::kLumaG;
+constexpr float kKb = colorspace::kLumaB;
+// Cb = (B' - Y') / (2 (1 - Kb)), Cr = (R' - Y') / (2 (1 - Kr)), offset 128.
+constexpr float kCbR = -kKr / (2.0f * (1.0f - kKb));
+constexpr float kCbG = -kKg / (2.0f * (1.0f - kKb));
+constexpr float kCbB = 0.5f;
+constexpr float kCrR = 0.5f;
+constexpr float kCrG = -kKg / (2.0f * (1.0f - kKr));
+constexpr float kCrB = -kKb / (2.0f * (1.0f - kKr));
+constexpr float kRCr = 2.0f * (1.0f - kKr);
+constexpr float kBCb = 2.0f * (1.0f - kKb);
+constexpr float kGCb = -2.0f * kKb * (1.0f - kKb) / kKg;
+constexpr float kGCr = -2.0f * kKr * (1.0f - kKr) / kKg;
+}  // namespace
 
 void Denoiser::rgb_to_ycbcr(const std::vector<float>& r,
                               const std::vector<float>& g,
@@ -995,18 +1047,15 @@ void Denoiser::rgb_to_ycbcr(const std::vector<float>& r,
   cb.resize(size);
   cr.resize(size);
 
-  // BT.601: Y = 0.299R + 0.587G + 0.114B
-  //         Cb = 128 + (-0.169R - 0.331G + 0.500B)
-  //         Cr = 128 + ( 0.500R - 0.419G - 0.081B)
-  __m256 v_yr = _mm256_set1_ps(0.299f);
-  __m256 v_yg = _mm256_set1_ps(0.587f);
-  __m256 v_yb = _mm256_set1_ps(0.114f);
-  __m256 v_cbr = _mm256_set1_ps(-0.168736f);
-  __m256 v_cbg = _mm256_set1_ps(-0.331264f);
-  __m256 v_cbb = _mm256_set1_ps(0.5f);
-  __m256 v_crr = _mm256_set1_ps(0.5f);
-  __m256 v_crg = _mm256_set1_ps(-0.418688f);
-  __m256 v_crb = _mm256_set1_ps(-0.081312f);
+  __m256 v_yr = _mm256_set1_ps(kKr);
+  __m256 v_yg = _mm256_set1_ps(kKg);
+  __m256 v_yb = _mm256_set1_ps(kKb);
+  __m256 v_cbr = _mm256_set1_ps(kCbR);
+  __m256 v_cbg = _mm256_set1_ps(kCbG);
+  __m256 v_cbb = _mm256_set1_ps(kCbB);
+  __m256 v_crr = _mm256_set1_ps(kCrR);
+  __m256 v_crg = _mm256_set1_ps(kCrG);
+  __m256 v_crb = _mm256_set1_ps(kCrB);
   __m256 v_128 = _mm256_set1_ps(128.0f);
 
   int i = 0;
@@ -1024,9 +1073,9 @@ void Denoiser::rgb_to_ycbcr(const std::vector<float>& r,
     _mm256_storeu_ps(&cr[i], vcr);
   }
   for (; i < size; ++i) {
-    y[i] = 0.299f * r[i] + 0.587f * g[i] + 0.114f * b[i];
-    cb[i] = 128.0f + (-0.168736f * r[i] - 0.331264f * g[i] + 0.5f * b[i]);
-    cr[i] = 128.0f + (0.5f * r[i] - 0.418688f * g[i] - 0.081312f * b[i]);
+    y[i] = kKr * r[i] + kKg * g[i] + kKb * b[i];
+    cb[i] = 128.0f + (kCbR * r[i] + kCbG * g[i] + kCbB * b[i]);
+    cr[i] = 128.0f + (kCrR * r[i] + kCrG * g[i] + kCrB * b[i]);
   }
 }
 
@@ -1040,14 +1089,11 @@ void Denoiser::ycbcr_to_rgb(const std::vector<float>& y,
   g.resize(size);
   b.resize(size);
 
-  // R = Y + 1.402 * (Cr - 128)
-  // G = Y - 0.344136 * (Cb - 128) - 0.714136 * (Cr - 128)
-  // B = Y + 1.772 * (Cb - 128)
   __m256 v_128 = _mm256_set1_ps(128.0f);
-  __m256 v_cr_r = _mm256_set1_ps(1.402f);
-  __m256 v_cb_g = _mm256_set1_ps(-0.344136f);
-  __m256 v_cr_g = _mm256_set1_ps(-0.714136f);
-  __m256 v_cb_b = _mm256_set1_ps(1.772f);
+  __m256 v_cr_r = _mm256_set1_ps(kRCr);
+  __m256 v_cb_g = _mm256_set1_ps(kGCb);
+  __m256 v_cr_g = _mm256_set1_ps(kGCr);
+  __m256 v_cb_b = _mm256_set1_ps(kBCb);
 
   int i = 0;
   for (; i <= size - 8; i += 8) {
@@ -1066,9 +1112,9 @@ void Denoiser::ycbcr_to_rgb(const std::vector<float>& y,
   for (; i < size; ++i) {
     float cb_off = cb[i] - 128.0f;
     float cr_off = cr[i] - 128.0f;
-    r[i] = y[i] + 1.402f * cr_off;
-    g[i] = y[i] - 0.344136f * cb_off - 0.714136f * cr_off;
-    b[i] = y[i] + 1.772f * cb_off;
+    r[i] = y[i] + kRCr * cr_off;
+    g[i] = y[i] + kGCb * cb_off + kGCr * cr_off;
+    b[i] = y[i] + kBCb * cb_off;
   }
 }
 

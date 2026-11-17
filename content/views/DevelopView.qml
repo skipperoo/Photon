@@ -211,6 +211,35 @@ Control {
                 width: parent.width
                 spacing: 0
 
+                // --- Camera Look Section ---
+                Collapsible {
+                    title: "Camera Look"
+                    expanded: false
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        ControlGroup {
+                            title: "Amount";
+                            value: root.viewport ? root.viewport.cameraLookAmount : 0.0;
+                            from: 0; to: 100;
+                            defaultValue: 0.0
+                            onMoved: (v) => { if(root.viewport) root.viewport.cameraLookAmount = v };
+                            onReleased: if(root.viewport) root.viewport.commitEdit()
+                        }
+                        Text {
+                            text: root.viewport && root.viewport.cameraLookAvailable
+                                  ? "The camera's tone curve, fitted from this photo's embedded JPEG. Lower the amount to keep more highlight headroom."
+                                  : "Raise the amount to fit this photo's camera tone curve from its embedded JPEG; photos without one keep the standard rendering."
+                            font: Theme.fontSmall
+                            color: Theme.mutedFg
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
                 // --- Light Section ---
                 Collapsible {
                     title: "Light"
@@ -788,35 +817,6 @@ Control {
                             defaultValue: 0.0
                             onMoved: (v) => { if(root.viewport) root.viewport.centre = v }; 
                             onReleased: if(root.viewport) root.viewport.commitEdit()
-                        }
-                    }
-                }
-
-                // --- Camera Look Section ---
-                Collapsible {
-                    title: "Camera Look"
-                    expanded: false
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        ControlGroup {
-                            title: "Amount";
-                            value: root.viewport ? root.viewport.cameraLookAmount : 0.0;
-                            from: 0; to: 100;
-                            defaultValue: 0.0
-                            onMoved: (v) => { if(root.viewport) root.viewport.cameraLookAmount = v };
-                            onReleased: if(root.viewport) root.viewport.commitEdit()
-                        }
-                        Text {
-                            text: root.viewport && root.viewport.cameraLookAvailable
-                                  ? "The camera's tone curve, fitted from this photo's embedded JPEG. Lower the amount to keep more highlight headroom."
-                                  : "Raise the amount to fit this photo's camera tone curve from its embedded JPEG; photos without one keep the standard rendering."
-                            font: Theme.fontSmall
-                            color: Theme.mutedFg
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
                         }
                     }
                 }

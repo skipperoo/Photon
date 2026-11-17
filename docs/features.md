@@ -207,12 +207,12 @@ Short entries for features that predate this document; details live in `TASKS.md
   3. Tiles of 512 cells with 64-cell overlap (cell-wise mirror padding keeps the CFA phase). Each tile's channel means are matched back to the input (gain clamped to 1e6 ± 15 %), then tiles are blended with smoothstep partition-of-unity weights.
   4. LibRaw `dcraw_process()` of the same file gives the plain linear image. A 3×3 least-squares fit maps the model's camera RGB onto LibRaw's linear output (white balance + colour matrix + scale in one step, on unclipped samples; analytic `rgb_cam × pre_mul` fallback).
   5. The fitted linear RGB is written back into LibRaw's buffer (clipped areas keep LibRaw's own values), then `dcraw_make_mem_image()` applies LibRaw's own output curve and orientation. The product is therefore pixel-aligned with, and in the same space as, the plain develop source.
-  6. Cached as `.PhotonData/denoise/<file>.ai-<key>.pdn` (12-bit samples, LOCO-I/MED predictor, byte-shuffled deflate strips of 64 rows).
-- Colour pass (after AI): the AI result gets Classic's chroma chain once per photo at full strength (`Denoiser::denoiseChroma`): chroma BM3D on Cb/Cr at 1/4 resolution (block matching guided by luma, σ = 10 on the 0..255 scale, stride 8, two passes), bilinear-upsampled to 1/2, multi-scale guided filter at 1/2 guided by the clean luma (radius 4, strength 100), upsampled to full size, luma untouched. Cached as `.aic-<key>.pdn`. CPU box filters are parallel. ~11 s per 24 MP.
+  6. Cached as `.PhotonData/denoise/<file>.ai-<key>.pdn` (lossless 16-bit samples since 2026-11-16, LOCO-I/MED predictor, byte-shuffled deflate strips of 64 rows; the key includes the develop decode version).
+- Colour pass (after AI): the AI result gets Classic's chroma chain once per photo at full strength (`Denoiser::denoiseChroma`): chroma BM3D on Cb/Cr at 1/4 resolution (block matching guided by luma, σ = 2 × the chroma noise measured on those planes since 2026-11-16, at the RAW base exposure; stride 8, two passes), bilinear-upsampled to 1/2, multi-scale guided filter at 1/2 guided by the clean luma (radius 4, strength 100), upsampled to full size, luma untouched. Cached as `.aic-<key>.pdn`. CPU box filters are parallel. ~11 s per 24 MP.
 - Use: `Y = lerp(Yplain, Yai, NR)`, `C = lerp(lerp(Cplain, Cai, NR), Ccolor, Color)` in a (Y, B−Y, R−Y) basis (`blendDenoised`), applied to the develop source before every stage, so preview, histogram, geometry bake, library previews (cache only) and export (computes if missing) all agree. Moving either slider re-blends and never re-runs anything. Edit stack keys: `denoiseAmount`, `denoiseColor` (older edits migrate from `denoiseChromaAmount`). A legacy per-photo `denoiseMode` key is ignored.
 - Classic fallback: Noise Reduction drives the BM3D luma strength, and Color drives both chroma stages (`chromaBm3d` and `chromaDenoise`). Search window, group size and chroma radius keep their stored or default values and are no longer shown.
 - Device: Settings ▸ Denoise ▸ AI denoise device = Auto (GPU only if it matches the CPU on a check tile and is faster), CPU, or a GPU by name; it applies from the next tile (`photon::ai::setDevicePreference`). A GPU initialisation that crashes leaves `ai-denoise-gpu-init.marker` in the app data folder, so the next session uses the CPU; choosing a device in Settings clears it.
-- Measured (i7-9750H + GTX 1650, 24 MP Sony ARW): 4.6 s per photo on the GPU (89 ms per tile), about 20 s on the CPU (540 ms per tile); cache reload 0.2 s; cache size ~45 MB; channel means within 0.5 % of LibRaw's plain render.
+- Measured (i7-9750H + GTX 1650, 24 MP Sony ARW): 4.6 s per photo on the GPU (89 ms per tile), about 20 s on the CPU (540 ms per tile); cache reload 0.2 s; cache size ~45 MB (12-bit; 62.6 MB in 16-bit since 2026-11-16); channel means within 0.5 % of LibRaw's plain render.
 - Files: `src/engine/AiDenoiser.{h,cpp}`, `src/engine/RawEngine.{h,cpp}`, `src/components/RawViewport.{h,cpp}`, `src/managers/ExportManager.cpp`, `src/managers/PreviewManager.cpp`, `src/main.cpp`, `content/views/DevelopView.qml`, `content/components/MetadataPanel.qml`, `content/components/SettingsSelectionDialog.qml`, `cmake/Ncnn.cmake`, `cmake/AiDenoiseModel.cmake`, `cmake/rawnind/*`, `CMakeLists.txt`, `tests/CMakeLists.txt`, `tests/auto/tst_RawEngine.cpp`.
 
 ---
@@ -285,3 +285,104 @@ Short entries for features that predate this document; details live in `TASKS.md
 ---
 
 *Phase 40 features are appended here as they complete.*
+
+## Full-range RAW decode + highlight recovery (2026-11-16)
+
+- Purpose: LibRaw's auto-bright brightened every RAW until 1 % of its pixels clipped, destroying that highlight detail before editing (e.g. `_DSC9064`'s white tail tip, which Reference renders at 86 % with detail). All develop-source decodes now keep the sensor's full range.
+- Shared decode (`src/engine/RawDecode.h`, used by RawEngine, ExportManager, PreviewManager, the AI denoise products, CameraLook and the Reference fixture): `photon::raw::configureDevelopDecode()` sets 16-bit output, camera WB, `no_auto_bright = 1` and `highlight = 2` (blend clipped channels).
+- Base exposure: `photon::raw::baseExposure()` measures what auto-bright used to add. The brightest 1 % of each channel should reach white: `ev = log2(1 / L99) / 0.85` in exposure-slider units. It is measured on the plain source in every path (before AI denoise), and the pipeline adds it to the slider (`exposure + baseExposure`) through the exposure roll-off, so highlights get a soft shoulder instead of a hard clip. Rendered files (JPEG/TIFF) get 0.
+- Shoulder desaturation (`photon::tone::exposureDesaturation`): the more the roll-off compresses a pixel (target vs its plainly gained luminance), the closer its colour moves to neutral: `s = smoothstep((1 − target/luma − 0.05) / 0.45)`, `c' = mix(c, target, s)`. Without it, bright tinted areas kept their tint (the tail tip turned cyan) or clipped their dominant channel. Mirrored in the CPU export, the histogram, `Photon001Log.frag` and `RawViewport.frag`.
+- Effect on the test photos (base render): no pixel has all channels clipped any more (`_DSC9064`: 0.36 % → 0). The tail tip is near neutral (#e5ebe8, Reference #cfd7db) and recoverable with −Exposure/−Highlights. Overall brightness is within ~5–10 %.
+- Files: `src/engine/RawDecode.h`, `ToneMath.h`, `ImageDeveloper.cpp`, `RawEngine.{h,cpp}`, `AiDenoiser.cpp`, `CameraLook.cpp`, `src/managers/ExportManager.cpp`, `PreviewManager.cpp`, `src/components/RawViewport.h`, `RawViewport.frag`, `Photon001Log.frag`, `content/views/App.qml`, `tests/auto/tst_RawEngine.cpp`.
+
+## Rec.2020 working space (2026-11-16)
+
+- Purpose: colours outside sRGB (saturated flowers, neon, deep skies) were clipped at decode, because LibRaw rendered into sRGB primaries. Now they survive until the output, and an Adobe RGB export keeps the part of them Adobe RGB can hold.
+- Storage: RAWs decode into linear Rec.2020 primaries with the sRGB transfer curve (`configureDevelopDecode`: `output_color = 8`, `gamm = {1/2.4, 12.92}`; the old BT.709 curve never matched the pipeline's sRGB decode LUTs). JPEG/TIFF develop sources are converted into the same space by lcms2 (`ImageDecoder::decode(path, true)`, relative colorimetric from the embedded profile, or from sRGB when untagged). Thumbnails still decode to sRGB.
+- Maths (`src/engine/ColorSpace.h`, mirrored in `RawViewport.frag` / `Photon001Log.frag`):
+  - Luminance uses the Rec.2020 Y weights (0.2627, 0.6780, 0.0593).
+  - OKLab is Ottosson's M1 composed with Rec.2020 → sRGB, so hues match sRGB-defined OKLab.
+  - The working luminance's ProPhoto matrix is composed from Rec.2020.
+  - Calibration, HSL, colour grading and saturation follow automatically; the tone mask and scene white use the Rec.2020 luminance.
+  - AgX keeps its sRGB-primary maths: its input is converted and gamut-mapped first, and its output is sRGB.
+- Output: at the start of the display-encoded stages (CPU stage 9, GPU before `linear_to_srgb`, the histogram before binning), the working space converts to the output primaries: display sRGB, or sRGB / Adobe RGB on export.
+  - The gamut mapping is luminance-preserving: a colour with a negative channel moves towards grey of the same luminance until it reaches 0, so hue is kept and nothing clips to another colour.
+  - The display-encoded stages (tone curve, B&W, grain, vignette) then work in the output encoding.
+  - This replaces the earlier sRGB → Adobe RGB conversion at the very end of the export.
+- "Before" (show original) renders the source with only the RAW base exposure and the output conversion; the camera's embedded preview is still shown as-is.
+- Shortcut: the denoisers keep Rec.709 weights for their internal luma/chroma split (documented in code).
+- Validation: `testColorSpaceRec2020` (matrix round trips, luminance agreement, OKLab neutral white, gamut mapping keeps luminance and hue; Adobe RGB keeps more of a Rec.2020 green than sRGB). Colour tests build their patches from intended sRGB colours via `srgb16ToWorking16`. The Reference fit holds (Highlights 0.95, Shadows 2.92, Whites 2.38, Blacks 2.51).
+- Files: `src/engine/ColorSpace.h`, `RawDecode.h`, `ImageDecoder.{h,cpp}`, `ImageDeveloper.cpp`, `RawEngine.cpp`, `Calibration.h`, `SceneWhite.h`, `ToneMask.cpp`, `CameraLook.cpp`, `src/components/RawViewport.frag`, `Photon001Log.frag`, `content/views/App.qml`, `src/managers/ExportManager.cpp`, `PreviewManager.cpp`, `tests/auto/tst_RawEngine.cpp`.
+
+## Clarity matched to Reference (2026-11-16)
+
+- Purpose: our Clarity boosted 1–3.5 px detail (about 0.06 % of the long edge). Reference's works at a much larger scale and differently per tone.
+- Measurement (Reference exports of three photos, `testphoton/reference`): per-pixel regression of Reference's Clarity shift on `log L − G_R(log L)`.
+  - The correlation peaks at R ≈ 16–40 px at 2048 px (1–2 % of the long edge), r ≈ 0.5–0.7.
+  - +100 gives about 0.6–1.5× detail in shadows and midtones, ~0 above ~65 %.
+  - −100 gives ~0 below 15 %, then about −0.3 to −0.65× in midtones and highlights.
+  - A local-Laplacian-style remap fits only slightly better. The remaining effect is photo-adaptive (image-scale compression on one photo, expansion on another), so it isn't modelled.
+- Model (`ToneMath.h`, mirrored in `Photon001Delta.frag`): `detail = clamp(pixelLog − mask, ±2.5)`, the pixel against the edge-aware tone mask (whose scale is 2 % of the long edge), so flat areas and hard edges stay untouched.
+  - **+Clarity:** `1.0 · (1 − smoothstep((x − 0.3)/1.2))`, full up to ~48 %, gone by ~73 %.
+  - **−Clarity:** `0.3 · smoothstep((x + 4.5)/4.5)`, from ~10 % to full at mid-grey.
+  - It still fades out in the deepest shadows, and goes through the lift roll-off. The tone mask is now computed when Clarity is used, too.
+- Validation:
+  - **Spatial, against Reference:** correlation 0.36–0.48; regression gain Reference/ours 0.68–1.06 (+100) and 0.83–1.25 (−100). Adding the old fine-scale detail on top made the correlation worse, so it was dropped.
+  - **Binned fixture:** `testToneSlidersMatchReference` guards the per-tone means (error 2.43, was 2.53).
+- Files: `src/engine/ToneMath.h`, `src/components/Photon001Delta.frag`, `src/engine/ImageDeveloper.cpp`, `src/engine/RawEngine.cpp`, `tests/auto/tst_RawEngine.cpp`.
+
+## Denoise after the full-range / Rec.2020 decode (2026-11-16)
+
+- Purpose: after the decode changes, AI denoise brightened and saturated photos, AI + Color even more so, and Classic flattened detail into 8×8 blocks.
+- **AI: stale cache.** Products were keyed on model + file only, so products from the old auto-bright sRGB decode were blended into the new darker Rec.2020 source.
+  - `photon::raw::kDevelopDecodeVersion` (RawDecode.h, now 2) is part of the AI model fingerprint (`-v<algorithm>-d<decode>`).
+  - The camera-look cache stores it too (`"decode"`), so caches of decode-derived data are rebuilt whenever the decode changes.
+  - With a fresh product the AI result matches the plain image: mean RGB 55.6/64.3/83.0 against 55.4/64.2/83.1, and chroma goes down, not up.
+- **AI cache precision:** samples are now stored losslessly in 16 bit (`kCacheVersion` 4). The source is up to ~5 EV darker than before, so 12 bits posterised lifted shadows. Cost: 62.6 MB per 24 MP product, against ~45 MB before.
+- **Classic: noise-adaptive BM3D.** σ was `0.8 × amount` on the 0..255 scale (σ = 40 at amount 50), with λ up to 4.5 and patch-match tolerances up to 23 000 per-pixel MSE. That is far above real photo noise, so real detail was averaged into blocks. This was already the case before the decode changes (checked by rendering the old decode with the same denoiser).
+  - `Denoiser::estimateNoiseSigma`: Donoho's MAD on the finest Haar diagonal band, `median(|a − b − c + d| / 2) / 0.6745`, per image, for luma and (averaged) Cb/Cr. The sRGB curve keeps shot noise roughly level-independent, so one value describes the image.
+  - `sigmaForAmount`: `σ = measured × amount / 50`, so 50 removes the measured noise and 100 twice it. Same for Color on the chroma noise. The AI colour pass uses strength 1 = 2 × the chroma noise of its 1/4 planes.
+  - `Bm3dParams::forSigma`: reference constants (Lebrun, IPOL 2012): λ = 2.7, match tolerances 2500 / 400 (5000 / 3500 at σ ≥ 35).
+- **Denoise domain:** every pass works on `255 · encodeSrgb(decodeSrgb(v) · g)`, unclipped, with `g = exposureGain(baseExposure)`, the brightness its filters were tuned for. It returns to the 16-bit source encoding afterwards. Callers pass `DenoiseParams::exposureGain` (export `obj["baseExposure"]`, preview `m_baseExposure`, AI colour pass measured on the product). `Denoiser::searchLuma` gives GpuSearcher the same luma.
+- **Y'CbCr of the working space:** the denoisers and `blendDenoised` use the Rec.2020 luma weights (BT.2020 non-constant-luminance Y'CbCr) instead of BT.601 / Rec.709.
+- **Camera look everywhere:** `cameralook::applyToSettings` (load, or fit and save when missing, stale or purged) is used by export and, newly, by library previews, which previously ignored the look.
+- **Settings ▸ Maintenance ▸ Clear Cache** (`AppStateManager::clearCache`): deletes `.PhotonData/cache` (thumbnails, previews, camera looks) and `.PhotonData/denoise` (AI products), never edits or ratings. It reports the space freed in a toast.
+- UI: the Camera Look section moved above Light.
+- Validation:
+  - `testDenoiseNoiseAdaptive`: σ = 6 is estimated as 6.05; at amount 50 the residual is 1.2 RMS and a 60-level edge stays at 60.
+  - `testDenoiseAtBaseExposure`: the same scene stored 4 EV darker gives the same result with its gain.
+  - `testClearCacheKeepsUserData`.
+  - The cache round trip is lossless.
+  - Visual: 1:1 crops of 9111 at 0/25/50/100 show progressive noise removal with edges kept and no blocks.
+- Files: `src/engine/Denoiser.{h,cpp}`, `DenoiseChroma.h`, `AiDenoiser.{h,cpp}`, `RawDecode.h`, `ColorSpace.h`, `CameraLook.{h,cpp}`, `ImageDeveloper.cpp`, `RawEngine.cpp`, `src/managers/{AppStateManager,ExportManager,PreviewManager}`, `content/views/{DevelopView,SettingView,App}.qml`, tests.
+
+## AI denoise for non-Bayer RAWs: RawNIND linear model (2026-11-17)
+
+- Purpose: AI denoise covered only standard Bayer sensors, so Fujifilm X-Trans, Foveon and linear DNGs fell back to Classic. The darktable-ai archive we already download (`rawdenoise-nind.dtmodel`, pinned) also contains `model_linear.onnx`. Its config says it is for "X-Trans, Foveon, or any already-demosaicked pipeline", with input `lin_rec2020`, which is our working space.
+- Model: same UtNet2 architecture and training data. Input is 3 planes of demosaicked linear Rec.2020, output is 3 planes at the same resolution (a 1×1 conv at the end, no 2× upsampling).
+  - Converted by `cmake/AiDenoiseModel.cmake` alongside the Bayer model: `pnnx … inputshape=[1,3,512,512]`.
+  - Pinned hashes: ONNX `df957efa…`, param `9686a7ce…`, bin `ebbbedbd…`.
+  - Staged as `rawnind_linear.ncnn.{param,bin}`; the AppImage requires both models.
+- Output scale: about **−3.1 × 10⁹ × input**. Negative, with per-channel values from −3.0 to −3.4 × 10⁹ on flat noisy fields; one strongly saturated field reached −2.3 × 10⁹ on its weak channel.
+  - The per-tile mean match (`matchedGain`, shared with the Bayer runner) now works relative to a signed nominal: tolerance ±30 % for Linear, ±15 % for Bayer.
+  - A model of the wrong sign keeps the nominal gain, so a bad result is visibly wrong rather than silently rescaled.
+- Routing (`modelForRaw`):
+  - A standard Bayer layout uses the Bayer model when it is present.
+  - Every other RAW LibRaw can develop uses the Linear model.
+  - JPEG/TIFF stay on Classic: their noise has been through the camera's NR, sharpening, tone curve and compression, so it is outside what either model was trained on.
+  - The chosen model keys the cache: each model has its own fingerprint, so existing Bayer products stay valid.
+- Linear path (`computeLinear`):
+  1. The develop source (LibRaw's demosaic with `configureDevelopDecode`) is decoded to linear float.
+  2. `denoiseLinear` runs it in 512-pixel tiles with 64-pixel feathered overlap and mirrored edges.
+  3. Clipped pixels (a channel ≥ 0.98, dilated by 2 px) keep the plain values.
+  4. Negatives are gamut-mapped towards grey (luminance kept), then the result is encoded to the 16-bit working space.
+  - The product keeps the plain image's colours exactly.
+  - A float camera-RGB input, unclipped, was measured and dropped: it made no difference, because LibRaw already clips each channel at the black level before demosaicking. In extreme noise (ISO 6400 shadows) the Bayer model is a little more accurate there because it reads the raw mosaic.
+- Engine: models load independently; a build or folder with only one model works for the photos that model covers. Each GPU net is checked against the CPU on its own synthetic tile, and the log reports the measured output scale. Device reported per model.
+- Status text is short so it fits the panel line: `AI · Bayer · GPU`, `AI · Linear · CPU`, `AI: RAW only · Classic`, `No AI model · Classic`, `AI failed · Classic`. Reasons go to the log.
+- Measured:
+  - `DSCF7929.RAF` (X-Trans, 4934×3296): 26 s on a GTX 1650 including the colour pass, mean within 0.02 levels.
+  - `_DSC9064` (ISO 6400) through the linear model: flat-area noise removed like the Bayer model, slightly greyer in the deepest shadows (see above).
+- Tests: `testAiDenoiseLinearMock` checks the signed gain, seams, abort and failure paths. `testAiDenoiseLinearIntegration` runs the RAF through the engine: Linear model chosen, the ARW gets Bayer, roughness drops, mean is kept, the status fits, the product is cached.
+- Files: `cmake/AiDenoiseModel.cmake`, `cmake/rawnind/NOTICE.md`, `build_internal.sh`, `src/engine/AiDenoiser.{h,cpp}`, `src/engine/RawEngine.cpp`, `tests/auto/tst_RawEngine.cpp`.
+

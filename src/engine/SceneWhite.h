@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ColorSpace.h"
 #include <QtGlobal>
 #include <algorithm>
 #include <cmath>
@@ -37,7 +38,7 @@ inline float computeSceneWhite(const ushort* rgb, int width, int height,
     const float b = monochrome ? r : rgb[i * stride + 2] / 65535.0f;
 
     const float luma =
-        0.2126f * decode(r) + 0.7152f * decode(g) + 0.0722f * decode(b);
+        photon::colorspace::luma(decode(r), decode(g), decode(b));
 
     const int bin = static_cast<int>(std::clamp(luma, 0.0f, 1.0f) * BIN_SCALE);
     hist[bin]++;

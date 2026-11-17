@@ -20,9 +20,10 @@ const float PHOTON001_FLARE_LINEAR = 0.000244140625; // 2^-12
 const float PHOTON001_EPS = 0.00000190734;
 
 const mat3 RGB_TO_PROPHOTO = mat3(
-    0.52932379, 0.09842654, 0.01684577,
-    0.33005506, 0.87350873, 0.11769549,
-    0.14064019, 0.02811156, 0.86547399
+    // linear Rec.2020 -> ProPhoto (ImageDeveloper.cpp), column-major
+    0.83527615, 0.05413021, -0.00239579,
+    0.04872147, 0.92893104, 0.03638952,
+    0.11602142, 0.01698558, 0.96602152
 );
 
 const vec3 WORKING_LUMA_WEIGHTS = vec3(0.30, 0.59, 0.11);
@@ -92,9 +93,15 @@ void main() {
     float gain = exposure_gain(ubuf.exposure);
     color *= gain;
     if (ubuf.exposure > 0.0) {
-        float luma = dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+        float luma = dot(max(color, vec3(0.0)), vec3(0.2627002, 0.6779981, 0.0593017));  // Rec.2020
         float target = exposure_luma(luma / gain, ubuf.exposure);
-        if (target < luma) color *= target / max(luma, 1e-4);
+        if (target < luma) {
+            color *= target / max(luma, 1e-4);
+            // photon::tone::exposureDesaturation (film-like shoulder)
+            float s = clamp((1.0 - target / max(luma, 1e-6) - 0.05) / 0.45, 0.0, 1.0);
+            s = s * s * (3.0 - 2.0 * s);
+            color = mix(color, vec3(target), s);
+        }
     }
 
     // x: working (unrendered) log luminance (local detail, flare floor);
@@ -102,7 +109,7 @@ void main() {
     // z: log2 of the brightest channel (lift roll-off).
     float logL = photon001_encode_log_luma(photon001_working_luma_linear(color));
     float logActual = photon001_encode_log_luma(
-        dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722)));
+        dot(max(color, vec3(0.0)), vec3(0.2627002, 0.6779981, 0.0593017)));  // Rec.2020
     float logMax = log2(max(max(color.r, max(color.g, color.b)), 1e-6));
     fragColor = vec4(logL, logActual, logMax, 1.0);
 }

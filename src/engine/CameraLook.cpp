@@ -1,4 +1,8 @@
+#include "ColorSpace.h"
+#include "ToneMath.h"
+#include "RawDecode.h"
 #include "CameraLook.h"
+#include "ImageDecoder.h"
 
 #include <QDir>
 #include <QFile>
@@ -110,7 +114,10 @@ CameraLook loadCameraLook(const QString& sourcePath) {
   QFile file(cameraLookCachePath(sourcePath));
   if (!file.open(QIODevice::ReadOnly)) return look;
   const QJsonObject obj = QJsonDocument::fromJson(file.readAll()).object();
-  if (obj.value("version").toInt() != kCameraLookVersion) return look;
+  // The fit is made against the develop decode: refit when it changed.
+  if (obj.value("version").toInt() != kCameraLookVersion ||
+      obj.value("decode").toInt() != photon::raw::kDevelopDecodeVersion)
+    return look;
   look.tone = toneCurveFromJson(obj);
   if (!look.tone.valid) return CameraLook();
   return look;
@@ -122,6 +129,7 @@ bool saveCameraLook(const QString& sourcePath, const CameraLook& look) {
   if (!QDir().mkpath(QFileInfo(path).absolutePath())) return false;
   QJsonObject obj = toneCurveToJson(look.tone);
   obj["version"] = kCameraLookVersion;
+  obj["decode"] = photon::raw::kDevelopDecodeVersion;
   QFile file(path);
   if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
   return file.write(QJsonDocument(obj).toJson(QJsonDocument::Compact)) > 0;
@@ -134,10 +142,7 @@ CameraLook fitCameraLook(const QString& sourcePath) {
   // parameters as the engine (camera white balance, auto-bright threshold),
   // at half resolution for speed. Both sides end up in scene-linear sRGB.
   LibRaw processor;
-  processor.imgdata.params.output_bps = 16;
-  processor.imgdata.params.use_camera_wb = 1;
-  processor.imgdata.params.no_auto_bright = 0;
-  processor.imgdata.params.auto_bright_thr = 0.01f;
+  photon::raw::configureDevelopDecode(processor);
   processor.imgdata.params.half_size = 1;
   if (processor.open_file(sourcePath.toLocal8Bit().data()) != LIBRAW_SUCCESS)
     return look;
@@ -185,6 +190,10 @@ CameraLook fitCameraLook(const QString& sourcePath) {
   if (referenceProxy.isNull()) return look;
 
   const ushort* data = reinterpret_cast<const ushort*>(raw->data);
+  // The render adds the RAW base exposure (with its roll-off) before the
+  // tone curve stage the look is applied at: do the same to the proxy.
+  const float baseEv =
+      photon::raw::baseExposure(data, sensorWidth, sensorHeight, 3);
   std::vector<std::pair<float, float>> pairs;
   pairs.reserve(std::size_t(proxyWidth) * std::size_t(proxyHeight));
   for (int py = 0; py < proxyHeight; ++py) {
@@ -224,7 +233,9 @@ CameraLook fitCameraLook(const QString& sourcePath) {
         continue;
       const float target = luma709(jpegR, jpegG, jpegB);
       if (target < 0.015f || target > 0.85f) continue;
-      const float scene = luma709(sceneR, sceneG, sceneB);
+      const float scene =
+          photon::tone::exposureLuma(
+              photon::colorspace::luma(sceneR, sceneG, sceneB), baseEv);  // working space
       pairs.emplace_back(scene, target);
     }
   }
@@ -257,6 +268,22 @@ CameraLook fitCameraLook(const QString& sourcePath) {
           .arg(double(look.tone.knots[kToneKnots - 1][0])),
       PHOTON_DEBUG);
   return look;
+}
+
+CameraLook obtainCameraLook(const QString& sourcePath) {
+  CameraLook look = loadCameraLook(sourcePath);
+  if (look.tone.valid) return look;
+  look = fitCameraLook(sourcePath);
+  if (look.tone.valid) saveCameraLook(sourcePath, look);
+  return look;
+}
+
+void applyToSettings(const QString& sourcePath, QJsonObject& settings) {
+  if (ImageDecoder::isBitmap(sourcePath) ||
+      settings.value("cameraLookAmount").toDouble(0.0) <= 0.0)
+    return;
+  const CameraLook look = obtainCameraLook(sourcePath);
+  if (look.tone.valid) settings["cameraLook"] = toneCurveToJson(look.tone);
 }
 
 }  // namespace cameralook

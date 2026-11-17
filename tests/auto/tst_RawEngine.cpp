@@ -10,10 +10,15 @@
 #include <QMap>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QColorSpace>
+#include <QImageWriter>
 #include <QtTest>
 #include <vector>
 
 #include "AiDenoiser.h"
+#include "ColorSpace.h"
+#include "Denoiser.h"
+#include "RawDecode.h"
 #include "ToneMask.h"
 #include "ToneMath.h"
 #include "EditStack.h"
@@ -30,6 +35,21 @@
 #include "SceneWhite.h"
 #include "PreviewManager.h"
 #include "RawEngine.h"
+
+// Source buffers are in the working space (Rec.2020 primaries, sRGB curve):
+// converts an intended sRGB-encoded 16-bit colour into it.
+static void srgb16ToWorking16(ushort& r, ushort& g, ushort& b) {
+  auto dec = [](ushort v) {
+    const float e = v / 65535.0f;
+    return e <= 0.04045f ? e / 12.92f : std::pow((e + 0.055f) / 1.055f, 2.4f);
+  };
+  float lr = dec(r), lg = dec(g), lb = dec(b);
+  photon::colorspace::srgbToRec2020(lr, lg, lb);
+  auto enc = [](float l) {
+    return ushort(std::lround(std::clamp(photon::colorspace::encodeSrgb(l), 0.0f, 1.0f) * 65535.0f));
+  };
+  r = enc(lr); g = enc(lg); b = enc(lb);
+}
 
 class TestRawEngine : public QObject {
   Q_OBJECT
@@ -69,15 +89,22 @@ class TestRawEngine : public QObject {
   void testExportSceneWhiteMatchesPreview();
   void testAiDenoiseTiling();
   void testAiDenoiseMosaicMock();
+  void testAiDenoiseLinearMock();
   void testAiDenoiseCacheRoundTrip();
   void testAiDenoiseBlendAndResample();
   void testAiDenoiseModeAndFallback();
   void testAiDenoiseEngineIntegration();
+  void testAiDenoiseLinearIntegration();
   void testWhiteBalanceKelvinRange50k();
   void testLightSlidersSmoothMonotoneAndRanged();
   void testToneBandsLocalNoHaloKeepDetail();
   void testToneMaskEncoding();
   void testToneSlidersMatchReference();
+  void testExport16BitTiff();
+  void testExportAdobeRgb();
+  void testColorSpaceRec2020();
+  void testDenoiseAtBaseExposure();
+  void testDenoiseNoiseAdaptive();
   void testEditStackCurrentState();
   void testExportUsesHistorySelectedState();
 };
@@ -418,7 +445,7 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
   };
 
   // Clarity is local contrast: it needs texture (a smooth ramp has none and
-  // must stay put), and +/-100 act with comparable strength.
+  // must stay put), and both +/-100 act.
   {
     QJsonObject clarityOn = base;
     clarityOn["clarity"] = 100.0;
@@ -453,10 +480,10 @@ void TestRawEngine::testPhoton001ToneRangesReferenceBehavior() {
 
   const float upDiff = meanAbsLumaDiff(clarityUp, texRef);
   const float downDiff = meanAbsLumaDiff(clarityDown, texRef);
+  // Both directions act; their strengths differ by tone, like Reference
+  // (+ on shadows/midtones, - on midtones/highlights), so no symmetry check.
   QVERIFY(upDiff > 0.001f);
   QVERIFY(downDiff > 0.001f);
-  QVERIFY(upDiff < 2.0f * downDiff);
-  QVERIFY(downDiff < 2.0f * upDiff);
 }
 
 void TestRawEngine::testCalibrationReferenceBehavior() {
@@ -1224,18 +1251,18 @@ void TestRawEngine::testOklabCreativeOps() {
   constexpr int w = 8;
   constexpr int h = 8;
   std::vector<ushort> patch(w * h * 3);
-  const ushort pr = 100 * 257;
-  const ushort pg = 180 * 257;
-  const ushort pb = 80 * 257;
+  ushort pr = 100 * 257;
+  ushort pg = 180 * 257;
+  ushort pb = 80 * 257;
+  const float baseHue =  // of the intended sRGB colour
+      oklabHueDeg(srgbToLinear(pr / 65535.0f), srgbToLinear(pg / 65535.0f),
+                  srgbToLinear(pb / 65535.0f));
+  srgb16ToWorking16(pr, pg, pb);
   for (int i = 0; i < w * h; ++i) {
     patch[i * 3 + 0] = pr;
     patch[i * 3 + 1] = pg;
     patch[i * 3 + 2] = pb;
   }
-  const float baseHue =
-      oklabHueDeg(srgbToLinear(pr / 65535.0f), srgbToLinear(pg / 65535.0f),
-                  srgbToLinear(pb / 65535.0f));
-
   auto centerHue = [&](const QImage& img) {
     const uchar* scan = img.constScanLine(h / 2);
     return oklabHueDeg(srgbToLinear(scan[(w / 2) * 3 + 0] / 255.0f),
@@ -1258,18 +1285,20 @@ void TestRawEngine::testOklabCreativeOps() {
   // Saturated yellow at extreme lightness must keep its hue: the OKLab
   // conversion gamut-maps chroma instead of clipping channels.
   std::vector<ushort> yellow(w * h * 3);
-  const ushort yr = 230 * 257;
-  const ushort yg = 200 * 257;
-  const ushort yb = 40 * 257;
+  ushort yr = 230 * 257;
+  ushort yg = 200 * 257;
+  ushort yb = 40 * 257;
+  const float yellowHue =  // of the intended sRGB colour
+      oklabHueDeg(srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
+                  srgbToLinear(yb / 65535.0f));
+  const float yIn[3] = {srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
+                        srgbToLinear(yb / 65535.0f)};  // intended sRGB colour
+  srgb16ToWorking16(yr, yg, yb);
   for (int i = 0; i < w * h; ++i) {
     yellow[i * 3 + 0] = yr;
     yellow[i * 3 + 1] = yg;
     yellow[i * 3 + 2] = yb;
   }
-  const float yellowHue =
-      oklabHueDeg(srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
-                  srgbToLinear(yb / 65535.0f));
-
   auto yellowHueOut = [&](const QJsonObject& settings) {
     const QImage img =
         photon::ImageDeveloper::develop(yellow.data(), w, h, settings);
@@ -1302,8 +1331,7 @@ void TestRawEngine::testOklabCreativeOps() {
     C = std::sqrt(A * A + B * B);
   };
   float inL = 0.0f, inC = 0.0f;
-  labLC(srgbToLinear(yr / 65535.0f), srgbToLinear(yg / 65535.0f),
-        srgbToLinear(yb / 65535.0f), inL, inC);
+  labLC(yIn[0], yIn[1], yIn[2], inL, inC);
 
   const QImage yellowDark =
       photon::ImageDeveloper::develop(yellow.data(), w, h, yDown);
@@ -1826,6 +1854,7 @@ void TestRawEngine::testBlackAndWhiteCpuDevelop() {
   constexpr int h = 4;
   std::vector<ushort> src(size_t(w) * size_t(h) * 3);
   auto setPixel = [&](int px, ushort r, ushort g, ushort b) {
+    srgb16ToWorking16(r, g, b);
     const size_t base = size_t(px) * 3;
     src[base + 0] = r;
     src[base + 1] = g;
@@ -2160,7 +2189,7 @@ void TestRawEngine::testAiDenoiseCacheRoundTrip() {
   int maxDiff = 0;
   for (size_t i = 0; i < p.rgb.size(); ++i)
     maxDiff = std::max(maxDiff, std::abs(int(back.rgb[i]) - int(p.rgb[i])));
-  QVERIFY2(maxDiff <= 9, qPrintable(QString::number(maxDiff)));  // 12-bit
+  QVERIFY2(maxDiff == 0, qPrintable(QString::number(maxDiff)));  // lossless
 
   // A different model fingerprint is a different file; stale ones go away.
   const QString other = cachePath(photo, QStringLiteral("fp-other"));
@@ -2200,8 +2229,8 @@ void TestRawEngine::testAiDenoiseBlendAndResample() {
     const ushort a[3] = {26000, 21000, 14000};    // AI
     const ushort k[3] = {22000, 22000, 22000};    // AI + colour pass (grey)
     ushort o[3];
-    auto luma = [](const ushort* v) {
-      return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+    auto luma = [](const ushort* v) {  // working-space (Rec.2020) luma
+      return photon::colorspace::luma(v[0], v[1], v[2]);
     };
     blendDenoised(p, a, k, o, 1, 0.0f, 0.0f);
     for (int i = 0; i < 3; ++i) QVERIFY(std::abs(o[i] - p[i]) <= 1);
@@ -2373,6 +2402,8 @@ void TestRawEngine::testAiDenoiseEngineIntegration() {
   const QStringList cached =
       QDir(dir.filePath(".PhotonData/denoise")).entryList({"*.ai-*.pdn"}, QDir::Files);
   QCOMPARE(cached.size(), 1);
+  qInfo() << "cached product" << cached.first() << QFileInfo(dir.filePath(
+                 ".PhotonData/denoise/" + cached.first())).size() / 1e6 << "MB";
 
   // Colour pass: full Color has less chroma noise than none.
   auto chromaRoughness = [](const QImage& img) {
@@ -2986,6 +3017,7 @@ void TestRawEngine::testToneMaskEncoding() {
 namespace {
 struct FitPhoto {
   QString tag;
+  float baseEv = 0.0f;  // photon::raw::baseExposure of the decode
   int w = 0, h = 0;
   std::vector<ushort> px;
   std::vector<int> bin;      // base display bin per pixel
@@ -3005,22 +3037,23 @@ std::vector<float> fitLuma(const QImage& img) {
   return out;
 }
 
-QJsonObject fitBase() {
+QJsonObject fitBase(const FitPhoto& f) {
   QJsonObject s;
   s["contrast"] = 1.0; s["profile"] = "normal"; s["denoiseEnabled"] = false;
+  s["baseExposure"] = f.baseEv;
   return s;
 }
 
 FitPhoto loadFitPhoto(const QString& tag, int longEdge) {
   FitPhoto f; f.tag = tag;
   LibRaw lr;
-  lr.imgdata.params.output_bps = 16; lr.imgdata.params.use_camera_wb = 1;
-  lr.imgdata.params.no_auto_bright = 0; lr.imgdata.params.auto_bright_thr = 0.01f;
+  photon::raw::configureDevelopDecode(lr);
   lr.imgdata.params.half_size = 1;
   const QString path = QString("%1/testphoton/_DSC%2.ARW").arg(PHOTON_SOURCE_DIR_FIT, tag);
   if (lr.open_file(path.toLocal8Bit().constData()) != 0 || lr.unpack() != 0 || lr.dcraw_process() != 0) return f;
   int ret = 0; libraw_processed_image_t* mem = lr.dcraw_make_mem_image(&ret);
   const int sw = mem->width, sh = mem->height;
+  f.baseEv = photon::raw::baseExposure(reinterpret_cast<const ushort*>(mem->data), sw, sh, 3);
   const int step = std::max(1, std::max(sw, sh) / longEdge);
   f.w = sw / step; f.h = sh / step;
   f.px.resize(size_t(f.w) * f.h * 3);
@@ -3034,7 +3067,7 @@ FitPhoto loadFitPhoto(const QString& tag, int longEdge) {
         f.px[(size_t(y) * f.w + x) * 3 + c] = ushort(acc / (step * step));
       }
   LibRaw::dcraw_clear_mem(mem);
-  f.baseL = fitLuma(photon::ImageDeveloper::develop(f.px.data(), f.w, f.h, fitBase()));
+  f.baseL = fitLuma(photon::ImageDeveloper::develop(f.px.data(), f.w, f.h, fitBase(f)));
   f.bin.resize(f.baseL.size());
   for (size_t i = 0; i < f.baseL.size(); ++i) {
     const double l = std::clamp(double(f.baseL[i]), 0.0, 1.0);
@@ -3047,7 +3080,7 @@ FitPhoto loadFitPhoto(const QString& tag, int longEdge) {
 
 // mean stops per bin (and pixel fraction) for one slider value
 void fitResponse(const FitPhoto& f, const QString& slider, int value, double* stops, double* frac) {
-  QJsonObject s = fitBase(); s[slider] = double(value);
+  QJsonObject s = fitBase(f); s[slider] = double(value);
   const auto out = fitLuma(photon::ImageDeveloper::develop(f.px.data(), f.w, f.h, s));
   double sum[kFitBins] = {}, cnt[kFitBins] = {};
   for (size_t i = 0; i < out.size(); ++i) {
@@ -3093,7 +3126,10 @@ void TestRawEngine::testToneSlidersMatchReference() {
   const int values[] = {-100, -50, -25, 25, 50, 100};
   // Weighted squared error (stops) at the end of the fit, +25 % slack.
   const std::pair<const char*, double> sliders[] = {
-      {"highlights", 1.0}, {"shadows", 3.14}, {"whites", 2.76}, {"blacks", 2.48}};
+      // (after the Rec.2020 / full-range base; Clarity's per-tone means are a
+      // regression guard - its local contrast was matched spatially)
+      {"highlights", 0.95}, {"shadows", 2.92}, {"whites", 2.38}, {"blacks", 2.51},
+      {"clarity", 2.43}};
   const bool report = qEnvironmentVariableIsSet("PHOTON_TONE_REPORT");
   for (const auto& [slider, fitted] : sliders) {
     double err = 0;
@@ -3120,6 +3156,373 @@ void TestRawEngine::testToneSlidersMatchReference() {
     QVERIFY2(err < fitted * 1.25,
              qPrintable(QString("%1 drifted from Reference: error %2, fitted %3").arg(slider).arg(err).arg(fitted)));
   }
+}
+
+void TestRawEngine::testExport16BitTiff() {
+  // A smooth ramp: the 16-bit develop matches the 8-bit one (within its
+  // dither), keeps finer steps, and survives a TIFF round trip at 16 bits.
+  const int w = 256, h = 8;
+  std::vector<ushort> src(size_t(w) * h * 3);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      for (int c = 0; c < 3; ++c) src[(size_t(y) * w + x) * 3 + c] = ushort(x * 64 + 2000);
+  QJsonObject s;
+  s["contrast"] = 1.0; s["profile"] = "normal"; s["denoiseEnabled"] = false;
+  const QImage img8 = photon::ImageDeveloper::develop(src.data(), w, h, s);
+  s["outputBits"] = 16;
+  const QImage img16 = photon::ImageDeveloper::develop(src.data(), w, h, s);
+  QCOMPARE(img8.format(), QImage::Format_RGB888);
+  QCOMPARE(img16.format(), QImage::Format_RGBX64);
+  int distinct16 = 0, distinct8 = 0;
+  quint16 prev16 = 0; uchar prev8 = 0;
+  for (int x = 0; x < w; ++x) {
+    const quint16 v16 = reinterpret_cast<const quint16*>(img16.constScanLine(4))[x * 4 + 1];
+    const uchar v8 = img8.constScanLine(4)[x * 3 + 1];
+    QVERIFY2(std::abs(v16 / 257.0 - v8) <= 1.5, qPrintable(QString("x %1: %2 vs %3").arg(x).arg(v16).arg(v8)));
+    if (x == 0 || v16 != prev16) ++distinct16;
+    if (x == 0 || v8 != prev8) ++distinct8;
+    prev16 = v16; prev8 = v8;
+  }
+  QVERIFY2(distinct16 > distinct8, qPrintable(QString("%1 vs %2 levels").arg(distinct16).arg(distinct8)));
+  QTemporaryDir dir;
+  const QString path = dir.filePath("out.tif");
+  QVERIFY(QImageWriter(path, "tif").write(img16));
+  const QImage back(path);
+  QVERIFY(!back.isNull());
+  QCOMPARE(back.depth(), 64);
+  const QImage back64 = back.convertToFormat(QImage::Format_RGBX64);
+  QCOMPARE(reinterpret_cast<const quint16*>(back64.constScanLine(4))[128 * 4 + 1],
+           reinterpret_cast<const quint16*>(img16.constScanLine(4))[128 * 4 + 1]);
+}
+
+void TestRawEngine::testExportAdobeRgb() {
+  // Colour patches: the Adobe RGB export converted back to sRGB by Qt's
+  // colour management matches the sRGB export, and the profile is embedded.
+  const int w = 64, h = 16;
+  ushort patches[4][3] = {{46000, 46000, 46000}, {60000, 9000, 9000}, {9000, 52000, 12000}, {12000, 16000, 58000}};
+  for (auto& p : patches) srgb16ToWorking16(p[0], p[1], p[2]);  // sRGB colours
+  std::vector<ushort> src(size_t(w) * h * 3);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      for (int c = 0; c < 3; ++c) src[(size_t(y) * w + x) * 3 + c] = patches[x / 16][c];
+  QJsonObject s;
+  s["contrast"] = 1.0; s["profile"] = "normal"; s["denoiseEnabled"] = false;
+  const QImage srgb = photon::ImageDeveloper::develop(src.data(), w, h, s);
+  s["outputColorSpace"] = "adobergb";
+  const QImage adobe = photon::ImageDeveloper::develop(src.data(), w, h, s);
+  QCOMPARE(srgb.colorSpace(), QColorSpace(QColorSpace::SRgb));
+  QCOMPARE(adobe.colorSpace(), QColorSpace(QColorSpace::AdobeRgb));
+  QVERIFY(adobe != srgb);
+  const QImage back = adobe.convertedToColorSpace(QColorSpace(QColorSpace::SRgb)).convertToFormat(QImage::Format_RGB888);
+  for (int p = 0; p < 4; ++p) {
+    const QColor a = back.pixelColor(p * 16 + 8, 8), b = srgb.pixelColor(p * 16 + 8, 8);
+    // (8-bit round trip through another gamma: dark channels move a few levels)
+    QVERIFY2(std::abs(a.red() - b.red()) <= 4 && std::abs(a.green() - b.green()) <= 4 && std::abs(a.blue() - b.blue()) <= 4,
+             qPrintable(QString("patch %1: %2 vs %3").arg(p).arg(a.name(), b.name())));
+  }
+  QTemporaryDir dir;
+  for (const char* fmt : {"jpg", "tif"}) {
+    const QString path = dir.filePath(QString("out.%1").arg(fmt));
+    QVERIFY(QImageWriter(path, fmt).write(adobe));
+    QCOMPARE(QImage(path).colorSpace(), QColorSpace(QColorSpace::AdobeRgb));
+  }
+}
+
+void TestRawEngine::testColorSpaceRec2020() {
+  namespace cs = photon::colorspace;
+  // sRGB -> Rec.2020 -> sRGB round trip, and luminance agrees across spaces.
+  const float colors[][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0.2f, 0.5f, 0.8f}, {0.18f, 0.18f, 0.18f}};
+  for (const auto& c : colors) {
+    float r = c[0], g = c[1], b = c[2];
+    cs::srgbToRec2020(r, g, b);
+    QVERIFY(std::abs(cs::luma(r, g, b) - (0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2])) < 1e-4f);
+    cs::rec2020ToSrgb(r, g, b);
+    QVERIFY(std::abs(r - c[0]) < 1e-4f && std::abs(g - c[1]) < 1e-4f && std::abs(b - c[2]) < 1e-4f);
+  }
+  // White is neutral in OKLab of the working space, and OKLab round-trips.
+  float L, A, B;
+  cs::rec2020ToOklab(1, 1, 1, L, A, B);
+  QVERIFY(std::abs(L - 1.0f) < 1e-3f && std::abs(A) < 1e-3f && std::abs(B) < 1e-3f);
+  float r, g, b;
+  cs::rec2020ToOklab(0.3f, 0.6f, 0.1f, L, A, B);
+  cs::oklabToRec2020(L, A, B, r, g, b);
+  QVERIFY(std::abs(r - 0.3f) < 1e-3f && std::abs(g - 0.6f) < 1e-3f && std::abs(b - 0.1f) < 1e-3f);
+  // A Rec.2020 primary (outside sRGB) maps into sRGB with its luminance kept.
+  r = 0.0f; g = 0.8f; b = 0.0f;
+  const float y = cs::luma(r, g, b);
+  cs::toOutput(r, g, b, false, false);
+  QVERIFY(std::min({r, g, b}) >= -1e-6f);
+  QVERIFY(std::abs(0.2126f * r + 0.7152f * g + 0.0722f * b - y) < 1e-4f);
+  QVERIFY(g > r && g > b);  // still green
+  // ...and Adobe RGB keeps more of it than sRGB (wider gamut).
+  float ar = 0.0f, ag = 0.8f, ab = 0.0f;
+  cs::toOutput(ar, ag, ab, true, false);
+  QVERIFY(ag - std::max(ar, ab) > g - std::max(r, b) - 1e-4f);
+}
+
+// The denoisers work at the RAW base exposure: the same scene stored 4 EV
+// darker (the full-range decode) and denoised with its base gain must give
+// the same result as the bright source, instead of being over-smoothed into
+// 8x8 blocks by sigmas tuned for the bright image.
+void TestRawEngine::testDenoiseAtBaseExposure() {
+  namespace cs = photon::colorspace;
+  constexpr int w = 96, h = 96;
+  constexpr float kGain = 16.0f;  // 4 stops
+  // Linear scene at its display brightness: soft texture + colour + noise.
+  std::vector<float> scene(size_t(w) * h * 3);
+  uint32_t seed = 12345;
+  auto noise = [&seed]() {
+    seed = seed * 1664525u + 1013904223u;
+    return (float(seed >> 8) / 16777216.0f - 0.5f) * 0.06f;
+  };
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x) {
+      const float base = 0.18f + 0.12f * std::sin(x * 0.2f) * std::cos(y * 0.15f);
+      const float tint[3] = {1.1f, 1.0f, 0.85f};
+      for (int c = 0; c < 3; ++c)
+        scene[(size_t(y) * w + x) * 3 + c] =
+            std::max(0.0f, base * tint[c] * (1.0f + noise()));
+    }
+  auto source = [&](float scale) {
+    QImage img(w, h, QImage::Format_RGBX64);
+    for (int y = 0; y < h; ++y) {
+      QRgba64* line = reinterpret_cast<QRgba64*>(img.scanLine(y));
+      for (int x = 0; x < w; ++x) {
+        const float* p = &scene[(size_t(y) * w + x) * 3];
+        auto enc = [&](float v) {
+          return ushort(std::lround(cs::encodeSrgb(v * scale) * 65535.0f));
+        };
+        line[x] = QRgba64::fromRgba64(enc(p[0]), enc(p[1]), enc(p[2]), 65535);
+      }
+    }
+    return img;
+  };
+  // Mean absolute difference in display terms (sRGB-encoded, 0..255) after
+  // bringing `dark` up by kGain.
+  auto displayDiff = [&](const QImage& bright, const QImage& dark) {
+    double acc = 0.0;
+    for (int y = 0; y < h; ++y) {
+      const QRgba64* a = reinterpret_cast<const QRgba64*>(bright.constScanLine(y));
+      const QRgba64* b = reinterpret_cast<const QRgba64*>(dark.constScanLine(y));
+      for (int x = 0; x < w; ++x) {
+        const ushort av[3] = {a[x].red(), a[x].green(), a[x].blue()};
+        const ushort bv[3] = {b[x].red(), b[x].green(), b[x].blue()};
+        for (int c = 0; c < 3; ++c) {
+          const float ea = cs::encodeSrgb(cs::decodeSrgb(av[c] / 65535.0f));
+          const float eb = cs::encodeSrgb(cs::decodeSrgb(bv[c] / 65535.0f) * kGain);
+          acc += std::abs(ea - eb) * 255.0;
+        }
+      }
+    }
+    return acc / (double(w) * h * 3);
+  };
+  const QImage bright = source(1.0f);
+  const QImage dark = source(1.0f / kGain);
+
+  photon::DenoiseParams plain;
+  photon::DenoiseParams gained;
+  gained.exposureGain = kGain;
+  const QImage refOut = photon::Denoiser::denoise(bright, 60.0f, nullptr, true, 4, {}, plain);
+  const QImage darkOut = photon::Denoiser::denoise(dark, 60.0f, nullptr, true, 4, {}, gained);
+  const QImage darkOld = photon::Denoiser::denoise(dark, 60.0f, nullptr, true, 4, {}, plain);
+  const double invariant = displayDiff(refOut, darkOut);
+  const double old = displayDiff(refOut, darkOld);
+  qInfo() << "classic: with base gain" << invariant << "without" << old;
+  QVERIFY2(invariant < 0.5, qPrintable(QString::number(invariant)));
+  QVERIFY(old > 4.0 * invariant);  // the gain is what makes it match
+
+  const QImage chromaRef = photon::Denoiser::denoiseChroma(bright, 1.0f, nullptr, 1.0f);
+  const QImage chromaDark = photon::Denoiser::denoiseChroma(dark, 1.0f, nullptr, kGain);
+  const double chroma = displayDiff(chromaRef, chromaDark);
+  qInfo() << "colour: with base gain" << chroma;
+  QVERIFY2(chroma < 0.5, qPrintable(QString::number(chroma)));
+
+  // Gain 1 with no denoising work is a lossless round trip of the domain.
+  const QImage same = photon::Denoiser::denoiseChroma(bright, 0.0f, nullptr, kGain);
+  QCOMPARE(same.pixel(10, 10), bright.pixel(10, 10));
+}
+
+// Classic denoise works at the image's measured noise: the estimator finds a
+// known sigma, amount 50 removes the noise, and edges/texture survive (the
+// old fixed sigma of 0.8 x amount flattened real detail into 8x8 blocks).
+void TestRawEngine::testDenoiseNoiseAdaptive() {
+  constexpr int w = 128, h = 128;
+  uint32_t seed = 99;
+  auto gauss = [&seed]() {  // Box-Muller
+    auto u = [&seed]() {
+      seed = seed * 1664525u + 1013904223u;
+      return (float(seed >> 8) + 0.5f) / 16777216.0f;
+    };
+    const float a = u(), b = u();
+    return std::sqrt(-2.0f * std::log(a)) * std::cos(6.2831853f * b);
+  };
+  // Smooth gradient + vertical step edge at x = 64, plus sigma-6 noise.
+  std::vector<float> clean(size_t(w) * h), noisy(size_t(w) * h);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x) {
+      const size_t i = size_t(y) * w + x;
+      clean[i] = 80.0f + 0.3f * y + (x >= 64 ? 60.0f : 0.0f);
+      noisy[i] = clean[i] + 6.0f * gauss();
+    }
+  const float est = photon::Denoiser::estimateNoiseSigma(noisy, w, h);
+  QVERIFY2(std::abs(est - 6.0f) < 0.6f, qPrintable(QString::number(est)));
+  QVERIFY(photon::Denoiser::estimateNoiseSigma(clean, w, h) < 0.5f);
+
+  QImage img(w, h, QImage::Format_RGBX64);  // grey, values as 0..255 encoded
+  for (int y = 0; y < h; ++y) {
+    QRgba64* line = reinterpret_cast<QRgba64*>(img.scanLine(y));
+    for (int x = 0; x < w; ++x) {
+      const ushort v = ushort(std::lround(std::clamp(noisy[size_t(y) * w + x], 0.0f, 255.0f) * 257.0f));
+      line[x] = QRgba64::fromRgba64(v, v, v, 65535);
+    }
+  }
+  photon::DenoiseParams dp;  // gain 1: the 0..255 values are the domain
+  const QImage out = photon::Denoiser::denoise(img, 50.0f, nullptr, true, 4, {}, dp);
+  double err = 0.0, edgeOut = 0.0;
+  for (int y = 8; y < h - 8; ++y) {
+    const QRgba64* line = reinterpret_cast<const QRgba64*>(out.constScanLine(y));
+    for (int x = 8; x < w - 8; ++x) {
+      const double v = line[x].green() / 257.0;
+      if (std::abs(x - 64) > 4) err += (v - clean[size_t(y) * w + x]) * (v - clean[size_t(y) * w + x]);
+    }
+    edgeOut += line[66].green() / 257.0 - line[61].green() / 257.0;
+  }
+  const double rms = std::sqrt(err / ((h - 16.0) * (w - 16.0 - 9.0)));
+  edgeOut /= (h - 16.0);
+  qInfo() << "noise est" << est << "residual rms" << rms << "edge" << edgeOut;
+  QVERIFY2(rms < 2.0, qPrintable(QString::number(rms)));       // noise removed
+  QVERIFY2(edgeOut > 55.0, qPrintable(QString::number(edgeOut)));  // edge kept
+}
+
+// The linear runner on a mock "model" with the linear RawNIND model's
+// negative output scale (-3.1e9, a few % off per run): the per-tile signed
+// gain match must restore the input exactly, without seams.
+void TestRawEngine::testAiDenoiseLinearMock() {
+  using namespace photon::ai;
+  const int w = 300, h = 170;  // several 64-px tiles, not multiples
+  std::vector<float> lin(size_t(w) * h * 3);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      for (int c = 0; c < 3; ++c)
+        lin[(size_t(y) * w + x) * 3 + c] =
+            (0.05f + 0.5f * float(x) / w + 0.3f * float(y) / h) * (0.6f + 0.2f * c);
+  TileParams tp;
+  tp.tile = 64;
+  tp.overlap = 16;
+  tp.gainNominal = -3.14e9f;
+  tp.gainMaxDeviation = 0.3f;
+  for (const float scale : {-3.14e9f, -3.3e9f, -2.9e9f}) {
+    int calls = 0;
+    TileFn mock = [&](const float* in, std::vector<float>& out) {
+      ++calls;
+      out.resize(size_t(3) * tp.tile * tp.tile);
+      for (size_t k = 0; k < out.size(); ++k) out[k] = in[k] * scale;
+      return true;
+    };
+    std::vector<float> out;
+    QString err;
+    QCOMPARE(int(denoiseLinear(lin.data(), w, h, mock, tp, out, nullptr, {}, &err)),
+             int(Status::Ok));
+    QVERIFY(calls > 4);
+    QCOMPARE(out.size(), lin.size());
+    float maxErr = 0.0f;
+    for (size_t k = 0; k < lin.size(); ++k)
+      maxErr = std::max(maxErr, std::abs(out[k] - lin[k]));
+    QVERIFY2(maxErr < 1e-5f, qPrintable(QString::number(maxErr)));
+  }
+  // A model of the wrong sign cannot flip the image: the gain stays nominal.
+  TileFn wrongSign = [&](const float* in, std::vector<float>& out) {
+    out.resize(size_t(3) * tp.tile * tp.tile);
+    for (size_t k = 0; k < out.size(); ++k) out[k] = in[k] * 3.14e9f;
+    return true;
+  };
+  std::vector<float> out;
+  QCOMPARE(int(denoiseLinear(lin.data(), w, h, wrongSign, tp, out, nullptr, {}, nullptr)),
+           int(Status::Ok));
+  QVERIFY(out[0] < 0.0f);  // -input: visibly wrong, never a silent rescale
+
+  std::atomic<bool> abort{true};
+  TileFn never = [](const float*, std::vector<float>&) { return true; };
+  QCOMPARE(int(denoiseLinear(lin.data(), w, h, never, tp, out, &abort, {}, nullptr)),
+           int(Status::Aborted));
+  TileFn failing = [](const float*, std::vector<float>&) { return false; };
+  QCOMPARE(int(denoiseLinear(lin.data(), w, h, failing, tp, out, nullptr, {}, nullptr)),
+           int(Status::Failed));
+}
+
+// End-to-end: a non-Bayer RAW (Fujifilm X-Trans) uses the linear model.
+void TestRawEngine::testAiDenoiseLinearIntegration() {
+  if (!photon::ai::isCompiledIn() ||
+      !photon::ai::modelFilesPresent(photon::ai::Model::Linear))
+    QSKIP("linear AI denoise model not available in this build");
+  const QString testDir =
+      QCoreApplication::applicationDirPath() + QStringLiteral("/../../testphoton/");
+  const QString sample = testDir + QStringLiteral("DSCF7929.RAF");
+  if (!QFileInfo::exists(sample)) QSKIP("no sample X-Trans RAW available");
+
+  photon::ai::Model model = photon::ai::Model::Bayer;
+  QVERIFY(photon::ai::modelForRaw(sample, model));
+  QCOMPARE(int(model), int(photon::ai::Model::Linear));
+  if (photon::ai::modelFilesPresent(photon::ai::Model::Bayer) &&
+      QFileInfo::exists(testDir + QStringLiteral("_DSC8711.ARW"))) {
+    QVERIFY(photon::ai::modelForRaw(testDir + QStringLiteral("_DSC8711.ARW"), model));
+    QCOMPARE(int(model), int(photon::ai::Model::Bayer));
+  }
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QFileInfo(sample).fileName());
+  QVERIFY(QFile::copy(sample, path));
+  RawEngine engine;
+  QSignalSpy loaded(&engine, &RawEngine::imageLoaded);
+  engine.setSource(path);
+  QVERIFY(loaded.wait(60000));
+  const QImage plain = engine.getProcessedImage();
+  QVERIFY(!plain.isNull());
+  auto roughness = [](const QImage& img) {
+    double sum = 0.0;
+    size_t n = 0;
+    for (int y = img.height() / 3; y < img.height() * 2 / 3; ++y) {
+      const QRgba64* row = reinterpret_cast<const QRgba64*>(img.constScanLine(y));
+      for (int x = 1; x < img.width(); ++x, ++n)
+        sum += std::abs(int(row[x].green()) - int(row[x - 1].green()));
+    }
+    return sum / double(n);
+  };
+  auto meanGreen = [](const QImage& img) {
+    double sum = 0.0;
+    for (int y = 0; y < img.height(); ++y) {
+      const QRgba64* row = reinterpret_cast<const QRgba64*>(img.constScanLine(y));
+      for (int x = 0; x < img.width(); ++x) sum += row[x].green();
+    }
+    return sum / double(img.width() * img.height());
+  };
+
+  QSignalSpy pixels(&engine, &RawEngine::sourcePixelsChanged);
+  AppStateManager* app = AppStateManager::instance();
+  const QString savedEngine = app->denoiseEngine();
+  app->setDenoiseEngine(QStringLiteral("ai"));
+  engine.setDenoiseEnabled(true);
+  engine.setDenoiseAmount(100.0f);
+  QTRY_VERIFY_WITH_TIMEOUT(!engine.aiDenoiseRunning() && pixels.count() > 0,
+                           300000);
+  QVERIFY2(engine.aiDenoiseActive(), qPrintable(engine.aiDenoiseStatus()));
+  QVERIFY2(engine.aiDenoiseStatus().startsWith(QStringLiteral("AI · Linear")),
+           qPrintable(engine.aiDenoiseStatus()));
+  QVERIFY(engine.aiDenoiseStatus().size() <= 24);  // fits the panel line
+  const QImage denoised = engine.getProcessedImage();
+  QCOMPARE(denoised.size(), plain.size());
+  const double rPlain = roughness(plain);
+  const double rAi = roughness(denoised);
+  QVERIFY2(rAi < rPlain * 0.9,
+           qPrintable(QStringLiteral("roughness %1 -> %2").arg(rPlain).arg(rAi)));
+  QVERIFY(std::abs(meanGreen(denoised) - meanGreen(plain)) <
+          0.02 * meanGreen(plain));
+  QCOMPARE(QDir(dir.filePath(".PhotonData/denoise"))
+               .entryList({"*.ai-*.pdn"}, QDir::Files)
+               .size(),
+           1);
+  app->setDenoiseEngine(savedEngine);
 }
 
 QTEST_MAIN(TestRawEngine)

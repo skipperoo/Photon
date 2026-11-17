@@ -34,6 +34,8 @@
 #include "Denoiser.h"
 #include "SceneWhite.h"
 #include "ToneMask.h"
+#include "ColorSpace.h"
+#include "RawDecode.h"
 #include "ToneMath.h"
 #include "DevelopProfile.h"
 #include "GpuSearcher.h"
@@ -405,13 +407,14 @@ static Vec3fHist eval_undo_render_curve_hist(const Vec3fHist& col) {
 
 static float photon001_working_luma_linear_hist(const Vec3fHist& c) {
   Vec3fHist clamped = clamp_vec3_hist(c, 0.0001f, 0.999f);
+  // linear Rec.2020 -> ProPhoto (as ImageDeveloper)
   Vec3fHist prophoto{
-      0.52932379f * clamped.r + 0.33005506f * clamped.g +
-          0.14064019f * clamped.b,
-      0.09842654f * clamped.r + 0.87350873f * clamped.g +
-          0.02811156f * clamped.b,
-      0.01684577f * clamped.r + 0.11769549f * clamped.g +
-          0.86547399f * clamped.b};
+      0.83527615f * clamped.r + 0.04872147f * clamped.g +
+          0.11602142f * clamped.b,
+      0.05413021f * clamped.r + 0.92893104f * clamped.g +
+          0.01698558f * clamped.b,
+      -0.00239579f * clamped.r + 0.03638952f * clamped.g +
+          0.96602152f * clamped.b};
   Vec3fHist unmapped =
       clamp_vec3_hist(eval_undo_render_curve_hist(prophoto), 0.0f, 1.0f);
   return std::max(unmapped.r * 0.30f + unmapped.g * 0.59f + unmapped.b * 0.11f,
@@ -433,35 +436,22 @@ struct OklabHist {
   float b;
 };
 
-static OklabHist linear_srgb_to_oklab_hist(float r, float g, float b) {
-  const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
-  const float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
-  const float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
-  const float l3 = std::cbrt(l);
-  const float m3 = std::cbrt(m);
-  const float s3 = std::cbrt(s);
-  return {0.2104542553f * l3 + 0.7936177850f * m3 - 0.0040720468f * s3,
-          1.9779984951f * l3 - 2.4285922050f * m3 + 0.4505937099f * s3,
-          0.0259040371f * l3 + 0.7827717662f * m3 - 0.8086757660f * s3};
+// OKLab of the working space (linear Rec.2020, ColorSpace.h).
+static OklabHist linear_rgb_to_oklab_hist(float r, float g, float b) {
+  OklabHist lab;
+  photon::colorspace::rec2020ToOklab(r, g, b, lab.L, lab.a, lab.b);
+  return lab;
 }
 
-static void oklab_to_linear_srgb_hist(const OklabHist& lab, float& r, float& g,
-                                      float& b) {
-  const float l = lab.L + 0.3963377774f * lab.a + 0.2158037573f * lab.b;
-  const float m = lab.L - 0.1055613458f * lab.a - 0.0638541728f * lab.b;
-  const float s = lab.L - 0.0894841775f * lab.a - 1.2914855480f * lab.b;
-  const float l3 = l * l * l;
-  const float m3 = m * m * m;
-  const float s3 = s * s * s;
-  r = 4.0767416621f * l3 - 3.3077115913f * m3 + 0.2309699292f * s3;
-  g = -1.2684380046f * l3 + 2.6097574011f * m3 - 0.3413193965f * s3;
-  b = -0.0041960863f * l3 - 0.7034186147f * m3 + 1.7076147010f * s3;
+static void oklab_to_linear_rgb_hist(const OklabHist& lab, float& r, float& g,
+                                     float& b) {
+  photon::colorspace::oklabToRec2020(lab.L, lab.a, lab.b, r, g, b);
 }
 
 
-static void oklab_to_linear_srgb_gamut_hist(const OklabHist& lab, float& r,
+static void oklab_to_linear_rgb_gamut_hist(const OklabHist& lab, float& r,
                                             float& g, float& b) {
-  oklab_to_linear_srgb_hist(lab, r, g, b);
+  oklab_to_linear_rgb_hist(lab, r, g, b);
   const float mn = std::min({r, g, b});
   const float mx = std::max({r, g, b});
   if (mn >= 0.0f && mx <= 1.0f) return;
@@ -471,7 +461,7 @@ static void oklab_to_linear_srgb_gamut_hist(const OklabHist& lab, float& r,
   for (int i = 0; i < 6; ++i) {
     const float mid = 0.5f * (lo + hi);
     float cr, cg, cb;
-    oklab_to_linear_srgb_hist({lab.L, lab.a * mid, lab.b * mid}, cr, cg, cb);
+    oklab_to_linear_rgb_hist({lab.L, lab.a * mid, lab.b * mid}, cr, cg, cb);
     const float cMn = std::min({cr, cg, cb});
     const float cMx = std::max({cr, cg, cb});
     if (cMn >= 0.0f && cMx <= 1.0f) {
@@ -480,7 +470,7 @@ static void oklab_to_linear_srgb_gamut_hist(const OklabHist& lab, float& r,
       hi = mid;
     }
   }
-  oklab_to_linear_srgb_hist({lab.L, lab.a * lo, lab.b * lo}, r, g, b);
+  oklab_to_linear_rgb_hist({lab.L, lab.a * lo, lab.b * lo}, r, g, b);
 }
 
 static Vec3fHist apply_photon001_tone_ranges_hist(
@@ -495,9 +485,8 @@ static Vec3fHist apply_photon001_tone_ranges_hist(
   const float srcGrayLog = photon001_encode_log_luma_hist(srcGrayLinear);
   const float blurFineLog = photon001_log_luma_hist(blurredFine);
   const float blurCoarseLog = photon001_log_luma_hist(blurredCoarse);
-  const float actualLog = photon::tone::encodeLogLuma(
-      0.2126f * std::max(color.r, 0.0f) + 0.7152f * std::max(color.g, 0.0f) +
-      0.0722f * std::max(color.b, 0.0f));
+  const float actualLog = photon::tone::encodeLogLuma(photon::colorspace::luma(
+      std::max(color.r, 0.0f), std::max(color.g, 0.0f), std::max(color.b, 0.0f)));
   const float maxLog =
       std::log2(std::max({color.r, color.g, color.b, 1e-6f}));
   const float bandLog =
@@ -623,8 +612,16 @@ RawEngine::RawEngine(QObject* parent)
         }
         m_aiTargetAmount = wantsAiDenoise() ? m_denoiseAmount / 100.0f : 0.0f;
         m_aiTargetColor = wantsAiDenoise() ? m_denoiseColor / 100.0f : 0.0f;
-        setAiStatus(QStringLiteral("AI denoise (%1)")
-                        .arg(photon::ai::deviceDescription()));
+        {
+          // Short: the panel line is narrow. "AI · Linear · GPU"
+          const photon::ai::Model model = r.product->model;
+          const bool gpu = photon::ai::deviceDescription(model).startsWith(
+              QLatin1String("GPU"));
+          setAiStatus(QStringLiteral("AI · %1 · %2")
+                          .arg(QLatin1String(photon::ai::modelName(model)),
+                               gpu ? QStringLiteral("GPU")
+                                   : QStringLiteral("CPU")));
+        }
         if (m_hasDenoisedResult) clearDenoisedResult();
         scheduleAiBlend();
         break;
@@ -634,9 +631,10 @@ RawEngine::RawEngine(QObject* parent)
       case Status::Unsupported:
       case Status::NoModel:
       case Status::Failed:
-        setAiStatus(r.message.isEmpty()
-                        ? QStringLiteral("AI denoise unavailable - using Classic")
-                        : r.message + QStringLiteral(" - using Classic"));
+        // Short status (the panel line is narrow); the reason is logged.
+        setAiStatus(r.status == Status::Failed
+                        ? QStringLiteral("AI failed · Classic")
+                        : QStringLiteral("No AI model · Classic"));
         LogManager::instance()->log(
             QString("[ RawEngine.cpp ] - AI denoise not applied: %1")
                 .arg(r.message),
@@ -779,11 +777,7 @@ void RawEngine::releaseGpuResources() {
 }
 
 void RawEngine::updateProcessingParams() {
-  m_processor->imgdata.params.use_camera_wb = 1;
-  m_processor->imgdata.params.output_bps = 16;
-  // NOTE: The user should be able to change/adjust this
-  m_processor->imgdata.params.no_auto_bright = 0;
-  m_processor->imgdata.params.auto_bright_thr = 0.01;
+  photon::raw::configureDevelopDecode(*m_processor);
   m_processor->imgdata.params.half_size = m_halfSize ? 1 : 0;
 }
 
@@ -1481,7 +1475,7 @@ void RawEngine::updateAiDenoise() {
     // Revert to the plain source if a blend is in place.
     if (blendStale) scheduleAiBlend();
     if (m_isBitmap && denoiseMode() == QLatin1String("ai") && m_denoiseEnabled)
-      setAiStatus(QStringLiteral("AI denoise needs a Bayer RAW - using Classic"));
+      setAiStatus(QStringLiteral("AI: RAW only · Classic"));
     else if (!m_aiRunning)
       setAiStatus(QString());
     emit aiDenoiseStateChanged();
@@ -1521,7 +1515,7 @@ void RawEngine::updateAiDenoise() {
     if (!photon::ai::isSupportedRaw(path)) {
       r.status = photon::ai::Status::Unsupported;
       r.support = 0;
-      r.message = QStringLiteral("AI denoise needs a Bayer-sensor RAW");
+      r.message = QStringLiteral("no AI model for this RAW");
       return r;
     }
     r.support = 1;
@@ -1835,6 +1829,8 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   float amount = m_denoiseAmount;
   int stride = final ? 4 : 8;  // Faster search for previews
 
+  // The denoiser works at the RAW base exposure (Denoiser.h).
+  const float denoiseGain = photon::tone::exposureGain(m_baseExposure);
   std::vector<photon::GpuSearcher::SearchResult> gpuMatches;
   // Check if we can offload to GPU
   // Only offload for full image search (roi not valid) to keep logic simple for
@@ -1845,26 +1841,11 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
     }
     m_gpuSearcher->setWindow(m_window);
 
-    // Extract luma for GPU search
-    int w = img.width();
-    int h = img.height();
-    std::vector<float> luma(w * h);
-    if (img.format() == QImage::Format_RGBA64 ||
-        img.format() == QImage::Format_RGBX64) {
-      const QRgba64* bits = reinterpret_cast<const QRgba64*>(img.constBits());
-      for (int i = 0; i < w * h; ++i) {
-        luma[i] = (0.2126f * bits[i].red() + 0.7152f * bits[i].green() +
-                   0.0722f * bits[i].blue()) /
-                  257.0f;
-      }
-    } else {
-      QImage converted = img.convertToFormat(QImage::Format_RGB888);
-      const uchar* bits = converted.constBits();
-      for (int i = 0; i < w * h; ++i) {
-        luma[i] = 0.2126f * bits[i * 3] + 0.7152f * bits[i * 3 + 1] +
-                  0.0722f * bits[i * 3 + 2];
-      }
-    }
+    // Luma for the GPU search, as the BM3D luma pass sees it.
+    const int w = img.width();
+    const int h = img.height();
+    const std::vector<float> luma =
+        photon::Denoiser::searchLuma(img, denoiseGain);
 
     // Safety check: run on Render Thread via GpuSearcher's internal sync
     // to avoid RHI frame conflicts
@@ -1876,6 +1857,7 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   std::atomic<bool>* abortPtr = &m_abortDenoise;
 
   photon::DenoiseParams dparams;
+  dparams.exposureGain = denoiseGain;
   dparams.searchWindow = m_denoiseSearchWindow;
   dparams.groupSize = m_denoiseGroupSize;
   dparams.chromaRadius = m_denoiseChromaRadius;
@@ -2665,7 +2647,7 @@ void RawEngine::requestHistogramUpdate() {
 
   if (!src || totalPixels <= 0) return;
   // Capture current edit parameters for the computation
-  float exp = m_exposure;
+  float exp = m_exposure + m_baseExposure;
   float con = m_contrast;
   float high = m_highlights;
   float shad = m_shadows;
@@ -2739,7 +2721,8 @@ void RawEngine::requestHistogramUpdate() {
       hlCenter);
   // Edge-aware tone mask of the histogram source (same as the export).
   std::shared_ptr<const photon::tone::ToneMask> histToneMask;
-  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f) {
+  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f ||
+      clarity != 0.0f) {  // (Clarity works against the tone mask too)
     const float wbMul[3] = {
         (1.0f + temp * 0.2f) * (1.0f + tint * 0.25f) * wbGainR,
         (1.0f + temp * 0.05f) * (1.0f - tint * 0.25f) * wbGainG,
@@ -2812,13 +2795,16 @@ void RawEngine::requestHistogramUpdate() {
       Vec3fHist color{r, g, b};
 
       if (exp > 0.0f) {
-        const float l_tone =
-            0.2126f * std::max(0.0f, color.r) +
-            0.7152f * std::max(0.0f, color.g) +
-            0.0722f * std::max(0.0f, color.b);
+        const float l_tone = photon::colorspace::luma(
+            std::max(0.0f, color.r), std::max(0.0f, color.g),
+            std::max(0.0f, color.b));
         const float target = photon::tone::exposureLuma(l_tone / exp_mult, exp);
         if (target < l_tone) {
           apply_luma_target_hist(color.r, color.g, color.b, l_tone, target);
+          const float s = photon::tone::exposureDesaturation(l_tone, target);
+          color.r += (target - color.r) * s;
+          color.g += (target - color.g) * s;
+          color.b += (target - color.b) * s;
         }
       }
 
@@ -2850,8 +2836,7 @@ void RawEngine::requestHistogramUpdate() {
       g = std::max(0.0f, g);
       b = std::max(0.0f, b);
       if (std::abs(con - 1.0f) > 0.001f) {
-        const float lumaC =
-            0.2126f * r + 0.7152f * g + 0.0722f * b;
+        const float lumaC = photon::colorspace::luma(r, g, b);
         const float target = photon::tone::contrastLuma(lumaC, con);
         apply_luma_target_hist(r, g, b, lumaC, target);
       }
@@ -2867,8 +2852,8 @@ void RawEngine::requestHistogramUpdate() {
         }
         mixDelta *= smoothstep(0.04f, 0.22f, bwHsv.s);
         const float gray =
-            (0.2126f * std::max(0.0f, r) + 0.7152f * std::max(0.0f, g) +
-             0.0722f * std::max(0.0f, b)) *
+            photon::colorspace::luma(std::max(0.0f, r), std::max(0.0f, g),
+                                     std::max(0.0f, b)) *
             std::exp2(mixDelta);
         r = std::max(0.0f, gray);
         g = r;
@@ -2900,7 +2885,7 @@ void RawEngine::requestHistogramUpdate() {
       if (!blackAndWhite && (std::abs(hue_shift) > 1e-5f ||
                              std::abs(sat_mult) > 1e-5f ||
                              std::abs(lum_adj) > 1e-5f)) {
-        OklabHist lab = linear_srgb_to_oklab_hist(std::max(0.0f, r),
+        OklabHist lab = linear_rgb_to_oklab_hist(std::max(0.0f, r),
                                                   std::max(0.0f, g),
                                                   std::max(0.0f, b));
         const float hueOk =
@@ -2919,14 +2904,14 @@ void RawEngine::requestHistogramUpdate() {
         lab.L = targetL;
         lab.a = chroma * std::cos(hueOk);
         lab.b = chroma * std::sin(hueOk);
-        oklab_to_linear_srgb_gamut_hist(lab, r, g, b);
+        oklab_to_linear_rgb_gamut_hist(lab, r, g, b);
         r = std::max(0.0f, r);
         g = std::max(0.0f, g);
         b = std::max(0.0f, b);
       }
 
       // 6. COLOR GRADING (OKLab perceptual hue/chroma/lightness)
-      float l_cg = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+      float l_cg = photon::colorspace::luma(r, g, b);
       float s_end = 0.4f + cgBal * 0.3f;
       float h_start = 0.6f + cgBal * 0.3f;
       float w_s =
@@ -2955,21 +2940,23 @@ void RawEngine::requestHistogramUpdate() {
           out.b = chroma * std::sin(hueOk);
           return out;
         };
-        const OklabHist base = linear_srgb_to_oklab_hist(r, g, b);
+        const OklabHist base = linear_rgb_to_oklab_hist(r, g, b);
         const OklabHist ts = tintOk(base, cgSH, cgSS, cgSL);
         const OklabHist tm = tintOk(base, cgMH, cgMS, cgML);
         const OklabHist th = tintOk(base, cgHH, cgHS, cgHL);
         const OklabHist mixed{ts.L * w_s + tm.L * w_m + th.L * w_h,
                               ts.a * w_s + tm.a * w_m + th.a * w_h,
                               ts.b * w_s + tm.b * w_m + th.b * w_h};
-        oklab_to_linear_srgb_gamut_hist(mixed, r, g, b);
+        oklab_to_linear_rgb_gamut_hist(mixed, r, g, b);
         r = std::max(0.0f, r);
         g = std::max(0.0f, g);
         b = std::max(0.0f, b);
       }
 
-      // Display-encoded values (matches the rendered preview), then the tone
-      // curve in the same domain as the GPU/CPU paths.
+      // Working space -> display sRGB (gamut-mapped), display-encoded values
+      // (matches the rendered preview), then the tone curve in the same
+      // domain as the GPU/CPU paths.
+      photon::colorspace::toOutput(r, g, b, false, false);
       float sr = std::clamp(linear_to_srgb_hist(std::max(0.0f, r)), 0.0f, 1.0f);
       float sg = std::clamp(linear_to_srgb_hist(std::max(0.0f, g)), 0.0f, 1.0f);
       float sb = std::clamp(linear_to_srgb_hist(std::max(0.0f, b)), 0.0f, 1.0f);
@@ -3174,6 +3161,7 @@ void RawEngine::loadRawFileAsync(const QString& path) {
         if (isBitmap) {
           bool ok = loadBitmapFileSync(path, loadId);
           if (!ok || loadId != m_currentLoadId) return LoadResult{false, loadId};
+          m_baseExposure = 0.0f;  // rendered files: no RAW base exposure
           setSceneWhite(computeSceneWhite(m_customPixels.data(), m_customWidth,
                                           m_customHeight, 3));
           computeSceneStats(m_customPixels.data(), m_customWidth,
@@ -3188,6 +3176,8 @@ void RawEngine::loadRawFileAsync(const QString& path) {
         libraw_processed_image_t* img = m_processor->dcraw_make_mem_image();
         if (img) {
           const ushort* rgb = reinterpret_cast<const ushort*>(img->data);
+          m_baseExposure = photon::raw::baseExposure(rgb, img->width,
+                                                     img->height, img->colors);
           setSceneWhite(
               computeSceneWhite(rgb, img->width, img->height, img->colors));
           computeSceneStats(rgb, img->width, img->height, img->colors);
@@ -3204,7 +3194,7 @@ bool RawEngine::loadBitmapFileSync(const QString& path, int loadId) {
   m_isLoaded = false;
   clearProcessedImage();
 
-  photon::BitmapImage decoded = photon::ImageDecoder::decode(path);
+  photon::BitmapImage decoded = photon::ImageDecoder::decode(path, true);
   if (decoded.pixels.empty() || decoded.width <= 0 || decoded.height <= 0) {
     emit errorOccurred(QString("Failed to decode image: %1").arg(path));
     return false;

@@ -103,7 +103,10 @@ class AppStateManager : public QObject {
   Q_INVOKABLE void saveSettings();
   Q_INVOKABLE void clearLastSession();
   Q_INVOKABLE QVariantMap continueSession();
-  Q_INVOKABLE void clearThumbnailCache();
+  // Deletes the workspace's generated data (.PhotonData/cache: thumbnails,
+  // library previews, camera looks; .PhotonData/denoise: AI products), never
+  // edits or ratings. Everything is rebuilt on demand. Emits cacheCleared.
+  Q_INVOKABLE void clearCache();
 
   // Selection operations
   Q_INVOKABLE void toggleSelection(const QString& path);
@@ -137,6 +140,7 @@ class AppStateManager : public QObject {
   void setScanIntervalSeconds(int seconds);
 
  signals:
+  void cacheCleared(const QVariantMap& result);  // {success, message}
   void currentViewChanged();
   void currentFolderChanged();
   void currentImageChanged();

@@ -18,6 +18,7 @@ class TestAppStateManager : public QObject {
   void testLogSettings();
   void testGpuDetection();
   void testSettingsPersistence();
+  void testClearCacheKeepsUserData();
 
  private:
   AppStateManager* m_manager;
@@ -164,6 +165,35 @@ void TestAppStateManager::testSettingsPersistence() {
   QCOMPARE(m_manager->cacheSizeGB(), 20);
   QCOMPARE(m_manager->isDarkMode(), false);
   QCOMPARE(m_manager->accentColor(), QString("#ff00ff"));
+}
+
+void TestAppStateManager::testClearCacheKeepsUserData() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString root = dir.path() + "/.PhotonData/";
+  auto put = [&](const QString& rel, const QByteArray& data) {
+    QVERIFY(QDir().mkpath(QFileInfo(root + rel).absolutePath()));
+    QFile f(root + rel);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(data);
+  };
+  put("cache/thumbnails/a.jpg", QByteArray(1000, 'x'));
+  put("cache/previews/a.jpg", QByteArray(1000, 'x'));
+  put("cache/looks/a.ARW.json", "{}");
+  put("denoise/a.ARW.ai-0123.pdn", QByteArray(4000, 'x'));
+  put("edits/a.ARW.json", "[]");
+  put("ratings/a.ARW", "5");
+
+  m_manager->setCurrentFolder(dir.path());
+  QSignalSpy cleared(m_manager, &AppStateManager::cacheCleared);
+  m_manager->clearCache();
+  QCOMPARE(cleared.count(), 1);
+  const QVariantMap result = cleared.first().first().toMap();
+  QVERIFY(result.value("success").toBool());
+  QVERIFY(!QDir(root + "cache").exists());
+  QVERIFY(!QDir(root + "denoise").exists());
+  QVERIFY(QFile::exists(root + "edits/a.ARW.json"));
+  QVERIFY(QFile::exists(root + "ratings/a.ARW"));
 }
 
 QTEST_MAIN(TestAppStateManager)

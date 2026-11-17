@@ -1,3 +1,4 @@
+#include "../engine/RawDecode.h"
 #include "PreviewManager.h"
 #include "EditStack.h"
 
@@ -16,6 +17,7 @@
 #include <QtConcurrent>
 
 #include "../engine/ImageDeveloper.h"
+#include "../engine/CameraLook.h"
 #include "../engine/ImageDecoder.h"
 #include "AppStateManager.h"
 #include "CrashReporter.h"
@@ -206,6 +208,9 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
     }
   }
 
+  // Camera look, like the export.
+  photon::cameralook::applyToSettings(rawPath, lastState);
+
   // 2. Load pixels: LibRaw for RAW, ImageDecoder for JPEG/TIFF
   QImage result;
   lastState["denoiseSecondPass"] =
@@ -217,7 +222,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
     LogManager::instance()->log(
         QString("[ PreviewManager ] - Decoding bitmap file: %1").arg(rawPath),
         PHOTON_DEBUG);
-    BitmapImage decoded = ImageDecoder::decode(rawPath);
+    BitmapImage decoded = ImageDecoder::decode(rawPath, true);
     if (!decoded.pixels.empty()) {
       LogManager::instance()->log(
           QString("[ PreviewManager ] - Developing image: %1 (%2x%3)")
@@ -232,10 +237,7 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
         QString("[ PreviewManager ] - Opening RAW file: %1").arg(rawPath),
         PHOTON_DEBUG);
     LibRaw processor;
-    processor.imgdata.params.output_bps = 16;
-    processor.imgdata.params.use_camera_wb = 1;
-    processor.imgdata.params.no_auto_bright = 0;
-    processor.imgdata.params.auto_bright_thr = 0.01;
+    photon::raw::configureDevelopDecode(processor);
     processor.imgdata.params.half_size = 1;  // 1080p is enough, half_size is fast
 
     if (processor.open_file(rawPath.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
@@ -251,6 +253,9 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
             // AI denoise: use the cached product only (never run the model
             // for a library preview).
             if (mem->colors == 3 && mem->bits == 16) {
+              lastState["baseExposure"] = photon::raw::baseExposure(
+                  reinterpret_cast<const ushort*>(mem->data), mem->width,
+                  mem->height, 3);
               lastState["denoiseMode"] =
                   ::AppStateManager::instance()->denoiseEngine();
               photon::ai::applyToDevelopSource(

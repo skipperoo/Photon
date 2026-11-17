@@ -37,8 +37,10 @@ FolderDialog {
             Layout.fillWidth: true
             spacing: 15
 
-            // Format & Quality
-            RowLayout {
+            // One setting per line, each filling the panel width, so showing or
+            // hiding a setting never moves or resizes the others.
+            ColumnLayout {
+                Layout.fillWidth: true
                 spacing: 15
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -53,9 +55,31 @@ FolderDialog {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 5
+                    Text { text: "Color space"; color: Theme.mutedFg; font: Theme.fontSmall }
+                    ComboBox {
+                        id: colorSpaceCombo
+                        model: ["sRGB", "Adobe RGB"]
+                        Layout.fillWidth: true
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+                    visible: formatCombo.currentText === "TIFF"
+                    Text { text: "Bit depth"; color: Theme.mutedFg; font: Theme.fontSmall }
+                    ComboBox {
+                        id: bitDepthCombo
+                        model: ["8-bit", "16-bit"]
+                        Layout.fillWidth: true
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
                     visible: formatCombo.currentText === "JPG"
                     Text { text: "Quality"; color: Theme.mutedFg; font: Theme.fontSmall }
                     RowLayout {
+                        Layout.fillWidth: true
                         PhotonSlider {
                             id: qualitySlider
                             from: 10; to: 100; value: 90
@@ -65,7 +89,7 @@ FolderDialog {
                             value: qualitySlider.value
                             from: 10
                             to: 100
-                            width: 30
+                            Layout.preferredWidth: 30
                             horizontalAlignment: Text.AlignRight
                             onValueEdited: (v) => qualitySlider.value = v
                         }
@@ -177,7 +201,7 @@ FolderDialog {
                 text: "Start Export"
                 enabled: !ExportManager.isExporting && AppState.selectionCount > 0
                 onClicked: {
-                    ExportManager.startExport(AppState.selectedImages, folderInput.text, formatCombo.currentText, Math.round(qualitySlider.value))
+                    ExportManager.startExport(AppState.selectedImages, folderInput.text, formatCombo.currentText, Math.round(qualitySlider.value), bitDepthCombo.currentIndex === 1 ? 16 : 8, colorSpaceCombo.currentIndex === 1 ? "adobergb" : "srgb")
                 }
             }
         }

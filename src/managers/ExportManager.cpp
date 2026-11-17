@@ -1,3 +1,4 @@
+#include "../engine/RawDecode.h"
 #include "ExportManager.h"
 #include "EditStack.h"
 
@@ -30,7 +31,8 @@ ExportManager::~ExportManager() { cancelExport(); }
 
 void ExportManager::startExport(const QStringList& paths,
                                 const QString& outputFolder,
-                                const QString& format, int quality) {
+                                const QString& format, int quality,
+                                int bitDepth, const QString& colorSpace) {
   if (m_isExporting) return;
 
   m_isExporting = true;
@@ -41,8 +43,9 @@ void ExportManager::startExport(const QStringList& paths,
   emit progressChanged();
 
   QFuture<void> future =
-      QtConcurrent::run([this, paths, outputFolder, format, quality]() {
-        processExport(paths, outputFolder, format, quality);
+      QtConcurrent::run([this, paths, outputFolder, format, quality, bitDepth,
+                         colorSpace]() {
+        processExport(paths, outputFolder, format, quality, bitDepth, colorSpace);
       });
   m_watcher.setFuture(future);
 
@@ -62,7 +65,9 @@ void ExportManager::cancelExport() {
 
 void ExportManager::processExport(const QStringList& paths,
                                   const QString& outputFolder,
-                                  const QString& format, int quality) {
+                                  const QString& format, int quality,
+                                  int bitDepth, const QString& colorSpace) {
+  const bool tiff = format.toLower().startsWith("tif");
   QDir().mkpath(outputFolder);
 
   for (const QString& path : paths) {
@@ -89,26 +94,21 @@ void ExportManager::processExport(const QStringList& paths,
       }
     }
 
-    // 1b. Camera look: feed the fitted tone curve from the per-photo cache so
-    //     the export matches the preview when the photo's look amount is set.
-    if (!ImageDecoder::isBitmap(path) &&
-        lastState.value("cameraLookAmount").toDouble(0.0) > 0.0) {
-      const photon::cameralook::CameraLook look =
-          photon::cameralook::loadCameraLook(path);
-      if (look.tone.valid)
-        lastState["cameraLook"] =
-            photon::cameralook::toneCurveToJson(look.tone);
-    }
+    // 1b. Camera look: the fitted tone curve, so the export matches the
+    //     preview when the photo's look amount is set.
+    photon::cameralook::applyToSettings(path, lastState);
 
     // 2. Load pixels: LibRaw for RAW, ImageDecoder for JPEG/TIFF
     QImage result;
     lastState["denoiseSecondPass"] = true;
+    lastState["outputBits"] = tiff && bitDepth == 16 ? 16 : 8;
+    lastState["outputColorSpace"] = colorSpace;
 
     if (ImageDecoder::isBitmap(path)) {
       LogManager::instance()->log(
           QString("[ ExportManager ] - Decoding bitmap file: %1").arg(path),
           PHOTON_DEBUG);
-      BitmapImage decoded = ImageDecoder::decode(path);
+      BitmapImage decoded = ImageDecoder::decode(path, true);
       if (!decoded.pixels.empty()) {
         result = ImageDeveloper::develop(decoded.pixels.data(), decoded.width,
                                          decoded.height, lastState, m_rhi,
@@ -116,10 +116,7 @@ void ExportManager::processExport(const QStringList& paths,
       }
     } else {
       LibRaw processor;
-      processor.imgdata.params.output_bps = 16;
-      processor.imgdata.params.use_camera_wb = 1;
-      processor.imgdata.params.no_auto_bright = 0;
-      processor.imgdata.params.auto_bright_thr = 0.01;
+      photon::raw::configureDevelopDecode(processor);
 
       if (processor.open_file(path.toLocal8Bit().data()) == LIBRAW_SUCCESS) {
         // Transient EXIF fields for lens-profile matching during develop.
@@ -153,6 +150,9 @@ void ExportManager::processExport(const QStringList& paths,
               //     the develop source (falls back to Classic when the photo
               //     is not supported).
               if (mem->colors == 3 && mem->bits == 16) {
+                lastState["baseExposure"] = photon::raw::baseExposure(
+                    reinterpret_cast<const ushort*>(mem->data), mem->width,
+                    mem->height, 3);
                 lastState["denoiseMode"] =
                     ::AppStateManager::instance()->denoiseEngine();
                 photon::ai::applyToDevelopSource(

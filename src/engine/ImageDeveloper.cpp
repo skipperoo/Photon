@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <QColorSpace>
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -18,6 +19,7 @@
 #include "../managers/CrashReporter.h"
 #include "../managers/LogManager.h"
 #include "Calibration.h"
+#include "ColorSpace.h"
 #include "Denoiser.h"
 #include "SceneWhite.h"
 #include "ToneMask.h"
@@ -148,8 +150,9 @@ static float dither_noise(int x, int y) {
          0.5f;
 }
 
+// Luminance in the working space (linear Rec.2020, ColorSpace.h).
 static float get_luma_cpp(float r, float g, float b) {
-  return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+  return photon::colorspace::luma(r, g, b);
 }
 
 struct OklabCpp {
@@ -158,34 +161,21 @@ struct OklabCpp {
   float b;
 };
 
-static OklabCpp linear_srgb_to_oklab_cpp(float r, float g, float b) {
-  const float l = 0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b;
-  const float m = 0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b;
-  const float s = 0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b;
-  const float l3 = std::cbrt(l);
-  const float m3 = std::cbrt(m);
-  const float s3 = std::cbrt(s);
-  return {0.2104542553f * l3 + 0.7936177850f * m3 - 0.0040720468f * s3,
-          1.9779984951f * l3 - 2.4285922050f * m3 + 0.4505937099f * s3,
-          0.0259040371f * l3 + 0.7827717662f * m3 - 0.8086757660f * s3};
+// OKLab of the working space (linear Rec.2020, ColorSpace.h).
+static OklabCpp linear_rgb_to_oklab_cpp(float r, float g, float b) {
+  OklabCpp lab;
+  photon::colorspace::rec2020ToOklab(r, g, b, lab.L, lab.a, lab.b);
+  return lab;
 }
 
-static void oklab_to_linear_srgb_cpp(const OklabCpp& lab, float& r, float& g,
-                                     float& b) {
-  const float l = lab.L + 0.3963377774f * lab.a + 0.2158037573f * lab.b;
-  const float m = lab.L - 0.1055613458f * lab.a - 0.0638541728f * lab.b;
-  const float s = lab.L - 0.0894841775f * lab.a - 1.2914855480f * lab.b;
-  const float l3 = l * l * l;
-  const float m3 = m * m * m;
-  const float s3 = s * s * s;
-  r = 4.0767416621f * l3 - 3.3077115913f * m3 + 0.2309699292f * s3;
-  g = -1.2684380046f * l3 + 2.6097574011f * m3 - 0.3413193965f * s3;
-  b = -0.0041960863f * l3 - 0.7034186147f * m3 + 1.7076147010f * s3;
+static void oklab_to_linear_rgb_cpp(const OklabCpp& lab, float& r, float& g,
+                                    float& b) {
+  photon::colorspace::oklabToRec2020(lab.L, lab.a, lab.b, r, g, b);
 }
 
-static void oklab_to_linear_srgb_gamut_cpp(const OklabCpp& lab, float& r,
+static void oklab_to_linear_rgb_gamut_cpp(const OklabCpp& lab, float& r,
                                            float& g, float& b) {
-  oklab_to_linear_srgb_cpp(lab, r, g, b);
+  oklab_to_linear_rgb_cpp(lab, r, g, b);
   const float mn = std::min({r, g, b});
   const float mx = std::max({r, g, b});
   if (mn >= 0.0f && mx <= 1.0f) return;
@@ -195,7 +185,7 @@ static void oklab_to_linear_srgb_gamut_cpp(const OklabCpp& lab, float& r,
   for (int i = 0; i < 6; ++i) {
     const float mid = 0.5f * (lo + hi);
     float cr, cg, cb;
-    oklab_to_linear_srgb_cpp({lab.L, lab.a * mid, lab.b * mid}, cr, cg, cb);
+    oklab_to_linear_rgb_cpp({lab.L, lab.a * mid, lab.b * mid}, cr, cg, cb);
     const float cMn = std::min({cr, cg, cb});
     const float cMx = std::max({cr, cg, cb});
     if (cMn >= 0.0f && cMx <= 1.0f) {
@@ -204,7 +194,7 @@ static void oklab_to_linear_srgb_gamut_cpp(const OklabCpp& lab, float& r,
       hi = mid;
     }
   }
-  oklab_to_linear_srgb_cpp({lab.L, lab.a * lo, lab.b * lo}, r, g, b);
+  oklab_to_linear_rgb_cpp({lab.L, lab.a * lo, lab.b * lo}, r, g, b);
 }
 
 static float smoothstep_local(float edge0, float edge1, float x) {
@@ -512,13 +502,14 @@ static Vec3fCpp eval_undo_render_curve_cpp(const Vec3fCpp& col) {
 
 static float photon001_working_luma_linear_cpp(const Vec3fCpp& c) {
   Vec3fCpp clamped = clamp_vec3_cpp(c, 0.0001f, 0.999f);
+  // linear Rec.2020 -> ProPhoto (sRGB -> ProPhoto composed with Rec.2020 -> sRGB)
   Vec3fCpp prophoto{
-      0.52932379f * clamped.r + 0.33005506f * clamped.g +
-          0.14064019f * clamped.b,
-      0.09842654f * clamped.r + 0.87350873f * clamped.g +
-          0.02811156f * clamped.b,
-      0.01684577f * clamped.r + 0.11769549f * clamped.g +
-          0.86547399f * clamped.b};
+      0.83527615f * clamped.r + 0.04872147f * clamped.g +
+          0.11602142f * clamped.b,
+      0.05413021f * clamped.r + 0.92893104f * clamped.g +
+          0.01698558f * clamped.b,
+      -0.00239579f * clamped.r + 0.03638952f * clamped.g +
+          0.96602152f * clamped.b};
   Vec3fCpp unmapped =
       clamp_vec3_cpp(eval_undo_render_curve_cpp(prophoto), 0.0f, 1.0f);
   return std::max(unmapped.r * 0.30f + unmapped.g * 0.59f + unmapped.b * 0.11f,
@@ -591,7 +582,13 @@ static Vec3fCpp photon001_wb_exposure_cpp(Vec3fCpp c, float rWb, float gWb,
     const float luma = get_luma_cpp(std::max(0.0f, c.r), std::max(0.0f, c.g),
                                     std::max(0.0f, c.b));
     const float target = photon::tone::exposureLuma(luma / expMult, ev);
-    if (target < luma) apply_luma_target_cpp(c.r, c.g, c.b, luma, target);
+    if (target < luma) {
+      apply_luma_target_cpp(c.r, c.g, c.b, luma, target);
+      const float s = photon::tone::exposureDesaturation(luma, target);
+      c.r += (target - c.r) * s;
+      c.g += (target - c.g) * s;
+      c.b += (target - c.b) * s;
+    }
   }
   return c;
 }
@@ -1120,7 +1117,8 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   stage("params");
 
   // 1. Extract parameters from JSON
-  float exp = obj["exposure"].toDouble();
+  // The exposure slider plus the RAW base exposure (photon::raw::baseExposure).
+  float exp = float(obj["exposure"].toDouble() + obj["baseExposure"].toDouble());
   float con = obj["contrast"].toDouble(1.0);
   float high = obj["highlights"].toDouble();
   float shad = obj["shadows"].toDouble();
@@ -1399,17 +1397,14 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
               .arg(denoiseAmount, 0, 'f', 1)
               .arg((quintptr)rhi),
           PHOTON_INFO);
+      // The denoiser works at the RAW base exposure (Denoiser.h).
+      const float denoiseGain =
+          photon::tone::exposureGain(float(obj["baseExposure"].toDouble()));
       std::vector<GpuSearcher::SearchResult> gpuMatches;
       if (rhi) {
         const int w = work.width();
         const int h = work.height();
-        std::vector<float> luma(size_t(w) * size_t(h));
-        const QRgba64* bits = reinterpret_cast<const QRgba64*>(work.constBits());
-        for (size_t i = 0; i < luma.size(); ++i) {
-          luma[i] = (0.2126f * bits[i].red() + 0.7152f * bits[i].green() +
-                     0.0722f * bits[i].blue()) /
-                    257.0f;
-        }
+        const std::vector<float> luma = Denoiser::searchLuma(work, denoiseGain);
         // Runs on the render thread via GpuSearcher's internal sync to avoid
         // RHI frame conflicts.
         GpuSearcher searcher(rhi);
@@ -1424,6 +1419,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         }
       }
       photon::DenoiseParams dparams;
+      dparams.exposureGain = denoiseGain;
       dparams.searchWindow = denoiseSearchWindow;
       dparams.groupSize = denoiseGroupSize;
       dparams.chromaRadius = denoiseChromaRadius;
@@ -1524,17 +1520,19 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   // prepared (denoised, lens-corrected, cropped) source, white-balanced, at
   // 0 EV - exactly what the preview computes (RawEngine::updateToneMask).
   photon::tone::ToneMask toneMask;
-  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f) {
+  if (high != 0.0f || shad != 0.0f || whites != 0.0f || blacks != 0.0f ||
+      clarity != 0.0f) {  // (Clarity works against the tone mask too)
     const float wbMul[3] = {r_wb, g_wb, b_wb};
     toneMask = photon::tone::computeToneMask(src, width, height, 3, wbMul);
   }
   stage("tone mask");
 
-  // Local detail for Clarity / +Shadows: the working log luminance after WB +
+  // Fine local detail for +Shadows (Clarity uses the tone mask): the working
+  // log luminance after WB +
   // exposure (the GPU log pass), blurred in log with the GPU taps, so the
   // export matches the preview (blurring linear RGB first biased it dark).
   std::vector<float> fineLogImg, coarseLogImg;
-  if (clarity != 0.0f || shad > 0.0f) {
+  if (shad > 0.0f) {
     std::vector<float> logImg(size_t(width) * size_t(height));
     std::vector<int> logRows(height);
     std::iota(logRows.begin(), logRows.end(), 0);
@@ -1554,7 +1552,16 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
   }
   stage("detail blur");
 
-  QImage output(width, height, QImage::Format_RGB888);
+  // "outputBits": 16 renders RGBX64 (16-bit TIFF export), otherwise 8-bit.
+  const bool output16 = obj.value("outputBits").toInt(8) == 16;
+  QImage output(width, height,
+                output16 ? QImage::Format_RGBX64 : QImage::Format_RGB888);
+  // "outputColorSpace": "adobergb" renders into Adobe RGB (1998) at stage 9
+  // (from the Rec.2020 working space); the ICC profile is embedded by
+  // QImageWriter either way.
+  const bool outputAdobe = obj.value("outputColorSpace").toString() == "adobergb";
+  output.setColorSpace(outputAdobe ? QColorSpace(QColorSpace::AdobeRgb)
+                                   : QColorSpace(QColorSpace::SRgb));
 
   // Film grain lives in image-relative coordinates (long edge = 2000 units),
   // matching RawViewport.frag, so the grain looks the same at any resolution.
@@ -1688,7 +1695,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       if (!bw_enabled && (std::abs(hue_shift) > 1e-5f ||
                           std::abs(sat_mult) > 1e-5f ||
                           std::abs(lum_adj) > 1e-5f)) {
-        OklabCpp lab = linear_srgb_to_oklab_cpp(std::max(0.0f, r),
+        OklabCpp lab = linear_rgb_to_oklab_cpp(std::max(0.0f, r),
                                                 std::max(0.0f, g),
                                                 std::max(0.0f, b));
         const float hueOk =
@@ -1707,7 +1714,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         lab.L = targetL;
         lab.a = chroma * std::cos(hueOk);
         lab.b = chroma * std::sin(hueOk);
-        oklab_to_linear_srgb_gamut_cpp(lab, r, g, b);
+        oklab_to_linear_rgb_gamut_cpp(lab, r, g, b);
         r = std::max(0.0f, r);
         g = std::max(0.0f, g);
         b = std::max(0.0f, b);
@@ -1744,14 +1751,14 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
           out.b = chroma * std::sin(hueOk);
           return out;
         };
-        const OklabCpp base = linear_srgb_to_oklab_cpp(r, g, b);
+        const OklabCpp base = linear_rgb_to_oklab_cpp(r, g, b);
         const OklabCpp ts = tintOk(base, cg[0].h, cg[0].s, cg[0].l);
         const OklabCpp tm = tintOk(base, cg[1].h, cg[1].s, cg[1].l);
         const OklabCpp th = tintOk(base, cg[2].h, cg[2].s, cg[2].l);
         const OklabCpp mixed{ts.L * w_s + tm.L * w_m + th.L * w_h,
                              ts.a * w_s + tm.a * w_m + th.a * w_h,
                              ts.b * w_s + tm.b * w_m + th.b * w_h};
-        oklab_to_linear_srgb_gamut_cpp(mixed, r, g, b);
+        oklab_to_linear_rgb_gamut_cpp(mixed, r, g, b);
         r = std::max(0.0f, r);
         g = std::max(0.0f, g);
         b = std::max(0.0f, b);
@@ -1760,7 +1767,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
       // 7. Saturation & Vibrance (Global) — perceptual chroma scaling in OKLab
       if (!bw_enabled &&
           (std::abs(sat_global) > 0.001f || std::abs(vib_global) > 0.001f)) {
-        OklabCpp lab = linear_srgb_to_oklab_cpp(std::max(0.0f, r),
+        OklabCpp lab = linear_rgb_to_oklab_cpp(std::max(0.0f, r),
                                                 std::max(0.0f, g),
                                                 std::max(0.0f, b));
         const float hueOk = std::atan2(lab.b, lab.a);
@@ -1771,15 +1778,18 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
             std::max(1.0f + (vib_global / 100.0f) * (1.0f - satNorm), 0.0f);
         lab.a = chroma * std::cos(hueOk);
         lab.b = chroma * std::sin(hueOk);
-        oklab_to_linear_srgb_gamut_cpp(lab, r, g, b);
+        oklab_to_linear_rgb_gamut_cpp(lab, r, g, b);
       }
 
       r = std::max(0.0f, r);
       g = std::max(0.0f, g);
       b = std::max(0.0f, b);
 
-      // 8. Tonemapping
+      // 8. Tonemapping (AgX works on sRGB primaries; its output is sRGB)
       if (agx_enabled) {
+        const float y = get_luma_cpp(r, g, b);
+        photon::colorspace::rec2020ToSrgb(r, g, b);
+        photon::colorspace::gamutMapToPositive(r, g, b, y);
         agx_tonemap(r, g, b);
       }
 
@@ -1806,13 +1816,18 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         b = r;
       }
 
-      // 9. Linear to sRGB
-      r = std::max(0.0f, r);
-      g = std::max(0.0f, g);
-      b = std::max(0.0f, b);
-      r = linear_to_srgb_f(r);
-      g = linear_to_srgb_f(g);
-      b = linear_to_srgb_f(b);
+      // 9. Working space -> output space (sRGB or Adobe RGB, gamut-mapped)
+      //    and its transfer curve; the stages below are display-encoded.
+      photon::colorspace::toOutput(r, g, b, outputAdobe, agx_enabled);
+      if (outputAdobe) {
+        r = photon::colorspace::encodeAdobe(r);
+        g = photon::colorspace::encodeAdobe(g);
+        b = photon::colorspace::encodeAdobe(b);
+      } else {
+        r = linear_to_srgb_f(std::max(0.0f, r));
+        g = linear_to_srgb_f(std::max(0.0f, g));
+        b = linear_to_srgb_f(std::max(0.0f, b));
+      }
 
       // 10. Tone Curve LUT (display-encoded domain, after sRGB encode)
       if (toneCurveActive) {
@@ -1899,7 +1914,16 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         }
       }
 
-      // 11. Dithering
+      if (output16) {
+        auto q16 = [](float v) { return quint16(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f)); };
+        quint16* px = reinterpret_cast<quint16*>(scanline) + size_t(x) * 4;
+        px[0] = q16(r);
+        px[1] = q16(g);
+        px[2] = q16(b);
+        px[3] = 65535;
+        continue;
+      }
+      // 11. Dithering (8-bit output only)
       float d = dither_noise(x, y) / 255.0f;
       r += d;
       g += d;

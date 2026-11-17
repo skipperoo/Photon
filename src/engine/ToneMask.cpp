@@ -6,6 +6,7 @@
 #include <cmath>
 #include <numeric>
 
+#include "ColorSpace.h"
 #include "ToneMath.h"
 
 namespace photon::tone {
@@ -112,7 +113,9 @@ ToneMask computeToneMask(const ushort* rgb16, int width, int height,
   std::vector<float> I(size_t(gw) * gh, 0.0f);
   std::vector<int> rows(gh);
   std::iota(rows.begin(), rows.end(), 0);
-  const float kr = 0.2126f * wb[0], kg = 0.7152f * wb[1], kb = 0.0722f * wb[2];
+  const float kr = photon::colorspace::kLumaR * wb[0];
+  const float kg = photon::colorspace::kLumaG * wb[1];
+  const float kb = photon::colorspace::kLumaB * wb[2];
   QtConcurrent::blockingMap(rows, [&](int gy) {
     const int y0 = int(int64_t(gy) * height / gh);
     const int y1 = std::max(y0 + 1, int(int64_t(gy + 1) * height / gh));

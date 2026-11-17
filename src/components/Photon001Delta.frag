@@ -178,8 +178,12 @@ void main() {
     float lapFine = srcLog - fineLog;
     float lapMid = fineLog - coarseLog;
     float detail = clamp(lapFine + 0.6 * lapMid, -2.5, 2.5);
-    float localContrast = detail * clarity * ubuf.sceneDetailScale *
-                          clamp(1.0 + 0.35 * (-highlights + shadows), 1.0, 2.0);
+    // Clarity (photon::tone): the pixel against its edge-aware region.
+    float regionDetail = clamp(actualLog - bandLog, -2.5, 2.5);
+    float clarityWeight = clarity > 0.0
+        ? 1.0 * (1.0 - smoothstep01((xPix - 0.3) / 1.2))
+        : 0.3 * smoothstep01((xPix + 4.5) / 4.5);
+    float localContrast = regionDetail * clarity * clarityWeight;
     // +Shadows keeps the local contrast of the regions it lifts.
     localContrast += detail * 0.3 * max(shadows, 0.0) * shadows_weight(x) *
                      ubuf.sceneDetailScale;

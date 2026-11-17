@@ -32,9 +32,13 @@ class ExportManager : public QObject {
   int doneCount() const { return m_doneCount; }
   int totalCount() const { return m_totalCount; }
 
+  // bitDepth: 8 or 16 (16 applies to TIFF only); colorSpace: "srgb" or
+  // "adobergb".
   Q_INVOKABLE void startExport(const QStringList& paths,
                                const QString& outputFolder,
-                               const QString& format, int quality = 90);
+                               const QString& format, int quality = 90,
+                               int bitDepth = 8,
+                               const QString& colorSpace = "srgb");
   Q_INVOKABLE void cancelExport();
 
  signals:
@@ -52,7 +56,8 @@ class ExportManager : public QObject {
   QFutureWatcher<void> m_watcher;
 
   void processExport(const QStringList& paths, const QString& outputFolder,
-                     const QString& format, int quality);
+                     const QString& format, int quality, int bitDepth,
+                     const QString& colorSpace);
 };
 
 }  // namespace photon

@@ -2,7 +2,7 @@
 
 All notable changes to Photon. Each release's section is published as its GitHub release notes.
 
-## [v0.5.0] - Unreleased
+## [v0.5.0] - 2026-11-17
 
 ### Highlights
 
@@ -46,6 +46,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 - **Clarity** now works like Reference: it adds local contrast at a larger scale (about 1–2 % of the image) in shadows and midtones, and −Clarity smooths midtones and highlights.
 - **Classic denoise adapts to each photo:** it measures the photo's noise, and the slider scales from that: 50 removes the measured noise, 100 removes twice as much. Before, it assumed far more noise than real photos have and smeared detail into blocks. The Color slider works the same way on colour noise.
 - **Camera Look** sits above Light in the Develop panel.
+- **Export panel:** each setting (Format, Color space, Bit depth or Quality, Output folder) has its own full-width line, so switching format no longer moves the other controls.
 - **Settings ▸ Clear Cache** deletes all generated data for the workspace (thumbnails, previews, camera looks, AI denoise results), not only thumbnails. Edits and ratings are kept.
 - AI denoise results are cached at full 16-bit precision (about 63 MB per 24 MP photo, up from ~45 MB), so lifted shadows stay smooth.
 

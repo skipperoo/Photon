@@ -2920,10 +2920,10 @@ void TestRawEngine::testToneBandsLocalNoHaloKeepDetail() {
     const auto out = ToneEdgeScene::logLuma(photon::ImageDeveloper::develop(
         scene.src.data(), ToneEdgeScene::width, ToneEdgeScene::height, s));
     // far from the edge vs the 16 px next to it (4..20 px away)
-    const double far = c.darkSide
+    const double farShift = c.darkSide
                            ? ToneEdgeScene::shift(out, ref, 100, 500, rowsTop, rowsBottom)
                            : ToneEdgeScene::shift(out, ref, 1036, 1436, rowsTop, rowsBottom);
-    const double near = c.darkSide
+    const double nearShift = c.darkSide
                             ? ToneEdgeScene::shift(out, ref, ex - 20, ex - 4, rowsTop, rowsBottom)
                             : ToneEdgeScene::shift(out, ref, ex + 4, ex + 20, rowsTop, rowsBottom);
     const double detailRatio =
@@ -2933,15 +2933,15 @@ void TestRawEngine::testToneBandsLocalNoHaloKeepDetail() {
                          ToneEdgeScene::detail(ref, 1036, 1436, rowsTop, rowsBottom);
     if (report) {
       qInfo().noquote() << QString("%1=%2: far %3 st, near edge %4 st, detail x%5")
-                               .arg(c.key).arg(c.value).arg(far, 0, 'f', 3)
-                               .arg(near, 0, 'f', 3).arg(detailRatio, 0, 'f', 3);
+                               .arg(c.key).arg(c.value).arg(farShift, 0, 'f', 3)
+                               .arg(nearShift, 0, 'f', 3).arg(detailRatio, 0, 'f', 3);
     }
     // The slider acts on its side...
     if (QString(c.key) == "shadows" || QString(c.key) == "highlights")
-      QVERIFY2(std::abs(far) > 0.3, qPrintable(QString("%1=%2 far shift %3").arg(c.key).arg(c.value).arg(far)));
+      QVERIFY2(std::abs(farShift) > 0.3, qPrintable(QString("%1=%2 far shift %3").arg(c.key).arg(c.value).arg(farShift)));
     // ...uniformly up to the edge (no halo)...
-    QVERIFY2(std::abs(near - far) < 0.12,
-             qPrintable(QString("%1=%2: halo, far %3 vs near %4").arg(c.key).arg(c.value).arg(far).arg(near)));
+    QVERIFY2(std::abs(nearShift - farShift) < 0.12,
+             qPrintable(QString("%1=%2: halo, far %3 vs near %4").arg(c.key).arg(c.value).arg(farShift).arg(nearShift)));
     // ...keeping the texture (no wash-out / posterization).
     // (-Highlights reveals bright texture a little - the "recovery" look -
     // hence the upper bound.)

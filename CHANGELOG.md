@@ -2,7 +2,9 @@
 
 All notable changes to Photon. Each release's section is published as its GitHub release notes.
 
-## [v0.5.0] - 2026-11-17
+## [v0.5.1] - 2026-11-18
+
+v0.5.1 is the first published release of this feature set: v0.5.0 was tagged but never released, because its Windows build failed.
 
 ### Highlights
 
@@ -75,6 +77,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 - New dependency: ncnn 20261020, fetched from a pinned source release during configure and built with Vulkan. The model is downloaded and converted with pnnx during configure, all verified by SHA-256, so **the first configure needs network access**.
 - New options: `PHOTON_ENABLE_AI_DENOISE`, `PHOTON_BUNDLE_AI_MODEL` and `PHOTON_AI_MODEL_SOURCE_DIR`. Runtime overrides: `PHOTON_AI_MODEL_DIR` and `PHOTON_AI_DENOISE_DEVICE`.
 - Qt ShaderTools is now a build-time dependency only. Photon no longer links `libQt6ShaderTools` at runtime.
+- Windows: the test suite builds again (two test variables were named `near` and `far`, which the Windows headers define as macros).
 
 ## [v0.4.0] - 2026-10-13
 

@@ -65,6 +65,12 @@ Window {
         toaster.show(result.message, result.success ? "info" : "error")
       }
     }
+    Connections {
+      target: AppState
+      function onCacheCleared(result) {
+        toaster.show(result.message, result.success ? "info" : "error")
+      }
+    }
 
     HdrDialog {
         id: hdrDialog

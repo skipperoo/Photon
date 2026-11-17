@@ -44,6 +44,10 @@ All notable changes to Photon. Each release's section is published as its GitHub
 - **Highlight recovery:** RAWs are decoded with the sensor's full range. Before, the brightest ~1 % was clipped at decode. The usual brightness is restored with a soft highlight shoulder, so near-blown areas keep their detail and can be brought back with −Exposure / −Highlights / −Whites. Very bright tinted areas fade to white instead of keeping a colour cast. Photos look slightly different, with softer highlights.
 - **Wide-gamut colour:** editing happens in Rec.2020, so colours outside sRGB (saturated flowers, neon, deep skies) are no longer clipped at decode. They're mapped into the output gamut only at the end, preserving hue and brightness, and an Adobe RGB export keeps them where Adobe RGB can. JPEG/TIFF files with an embedded profile (Adobe RGB, Display P3, …) keep their gamut too.
 - **Clarity** now works like Reference: it adds local contrast at a larger scale (about 1–2 % of the image) in shadows and midtones, and −Clarity smooths midtones and highlights.
+- **Classic denoise adapts to each photo:** it measures the photo's noise, and the slider scales from that: 50 removes the measured noise, 100 removes twice as much. Before, it assumed far more noise than real photos have and smeared detail into blocks. The Color slider works the same way on colour noise.
+- **Camera Look** sits above Light in the Develop panel.
+- **Settings ▸ Clear Cache** deletes all generated data for the workspace (thumbnails, previews, camera looks, AI denoise results), not only thumbnails. Edits and ratings are kept.
+- AI denoise results are cached at full 16-bit precision (about 63 MB per 24 MP photo, up from ~45 MB), so lifted shadows stay smooth.
 
 ### Fixed
 
@@ -56,6 +60,8 @@ All notable changes to Photon. Each release's section is published as its GitHub
   - Lens vignetting correction no longer over-brightens corners.
 - **Preview denoise:** the preview no longer denoises with Denoise switched off, and no longer adds extra smoothing on top of the finished Classic result.
 - **Film grain** now looks the same at any zoom level and export size.
+- **AI denoise** no longer brightens and saturates photos (more so with Color): results cached under the previous decode are recomputed.
+- **Library previews** now include the Camera Look.
 - **Crop/rotate** no longer snaps back to the original frame after denoising.
 - **Ratings** survive edits, and the rating filter applies the chosen operator (=, >, ≥, <, ≤) correctly.
 - **Crashes and hangs:**

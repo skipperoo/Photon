@@ -74,6 +74,12 @@ inline void toOutput(float& r, float& g, float& b, bool adobe, bool fromSrgb) {
   gamutMapToPositive(r, g, b, y);
 }
 
+// sRGB transfer curve (also the storage curve of the working space).
+inline float decodeSrgb(float e) {
+  e = std::max(e, 0.0f);
+  return e <= 0.04045f ? e / 12.92f : std::pow((e + 0.055f) / 1.055f, 2.4f);
+}
+
 // Output transfer curves.
 inline float encodeSrgb(float v) {
   v = std::max(v, 0.0f);

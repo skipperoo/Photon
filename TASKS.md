@@ -729,7 +729,8 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.12 | Adobe RGB export + ICC-aware import | DONE | `1f7c70d` |
 | 40.13 | Full-headroom RAW decode + highlight recovery | DONE | `87344f8` |
 | 40.14 | Rec.2020 wide-gamut working space | DONE | `c3b58e9` |
-| 40.15 | Clarity fitted to Reference (large-scale) | DONE | (this commit) |
+| 40.15 | Clarity fitted to Reference (large-scale) | DONE | `b17ba0e` |
+| 40.16 | Denoise after the decode change (AI cache key + 16-bit, noise-adaptive Classic BM3D, base-exposure domain, Rec.2020 Y'CbCr), camera look in library previews, Camera Look above Light, Settings ▸ Clear Cache | DONE | (this commit) |
 
 ## 40.1 Calibration panel — DONE
 

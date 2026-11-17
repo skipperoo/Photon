@@ -7,11 +7,13 @@
 
 #include <QDebug>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <QMutexLocker>
 #include <QSaveFile>
 #include <QUrl>
@@ -178,18 +180,33 @@ QVariantMap AppStateManager::continueSession() {
   return result;
 }
 
-void AppStateManager::clearThumbnailCache() {
+void AppStateManager::clearCache() {
   if (m_currentFolder.isEmpty()) return;
 
-  QString thumbCachePath = QDir::toNativeSeparators(
-      m_currentFolder + "/.PhotonData/cache/thumbnails");
-  QDir thumbDir(thumbCachePath);
-  if (thumbDir.exists()) {
-    thumbDir.removeRecursively();
-    thumbDir.mkpath(".");
-    LogManager::instance()->log("Thumbnail cache cleared for " +
-                                m_currentFolder);
+  qint64 freed = 0;
+  bool ok = true;
+  for (const char* sub : {"/.PhotonData/cache", "/.PhotonData/denoise"}) {
+    QDir dir(QDir::toNativeSeparators(m_currentFolder + sub));
+    if (!dir.exists()) continue;
+    QDirIterator it(dir.absolutePath(), QDir::Files | QDir::Hidden,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+      it.next();
+      freed += it.fileInfo().size();
+    }
+    if (!dir.removeRecursively()) ok = false;
   }
+  const QString size = QLocale().formattedDataSize(freed);
+  LogManager::instance()->log(
+      QString("[ AppStateManager.cpp ] - cache cleared for %1 (%2)%3")
+          .arg(m_currentFolder, size, ok ? "" : ", some files were in use"),
+      ok ? PHOTON_INFO : PHOTON_WARNING);
+  emit cacheCleared(
+      {{"success", ok},
+       {"message", ok ? QString("Cache cleared (%1 freed)").arg(size)
+                      : QString("Cache partly cleared (%1 freed); some files "
+                                "were in use")
+                            .arg(size)}});
 }
 
 void AppStateManager::setCurrentView(ViewState view) {

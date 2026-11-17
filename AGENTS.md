@@ -110,5 +110,5 @@ Keep local study notes in `research/` as the deep reference for the current phas
 
 - **Integration:** MVVM-lite pattern. QML handles the View, C++ classes (exposed via `QML_ELEMENT`) handle the Logic/ViewModel.
 - **Rendering:** Custom `RawViewport` (C++) renders content via Qt RHI/Vulkan.
-- **Colour:** the develop working space is linear Rec.2020 (sources store it with the sRGB curve). Every primaries-dependent constant lives in `src/engine/ColorSpace.h` (the shaders mirror it), and the output space (display sRGB, export sRGB / Adobe RGB) is reached only at the start of the display-encoded stages. RAWs are decoded through `src/engine/RawDecode.h` everywhere.
+- **Colour:** the develop working space is linear Rec.2020 (sources store it with the sRGB curve). Every primaries-dependent constant lives in `src/engine/ColorSpace.h` (the shaders mirror it), and the output space (display sRGB, export sRGB / Adobe RGB) is reached only at the start of the display-encoded stages. RAWs are decoded through `src/engine/RawDecode.h` everywhere; caches of decode-derived data (AI denoise products, camera looks) carry `photon::raw::kDevelopDecodeVersion`, so bump it whenever the decode output changes.
 - **Communication:** Signals flow from QML to C++ slots; properties are synchronized via `Q_PROPERTY` with notification signals.

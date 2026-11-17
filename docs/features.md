@@ -207,12 +207,12 @@ Short entries for features that predate this document; details live in `TASKS.md
   3. Tiles of 512 cells with 64-cell overlap (cell-wise mirror padding keeps the CFA phase). Each tile's channel means are matched back to the input (gain clamped to 1e6 ± 15 %), then tiles are blended with smoothstep partition-of-unity weights.
   4. LibRaw `dcraw_process()` of the same file gives the plain linear image. A 3×3 least-squares fit maps the model's camera RGB onto LibRaw's linear output (white balance + colour matrix + scale in one step, on unclipped samples; analytic `rgb_cam × pre_mul` fallback).
   5. The fitted linear RGB is written back into LibRaw's buffer (clipped areas keep LibRaw's own values), then `dcraw_make_mem_image()` applies LibRaw's own output curve and orientation. The product is therefore pixel-aligned with, and in the same space as, the plain develop source.
-  6. Cached as `.PhotonData/denoise/<file>.ai-<key>.pdn` (12-bit samples, LOCO-I/MED predictor, byte-shuffled deflate strips of 64 rows).
-- Colour pass (after AI): the AI result gets Classic's chroma chain once per photo at full strength (`Denoiser::denoiseChroma`): chroma BM3D on Cb/Cr at 1/4 resolution (block matching guided by luma, σ = 10 on the 0..255 scale, stride 8, two passes), bilinear-upsampled to 1/2, multi-scale guided filter at 1/2 guided by the clean luma (radius 4, strength 100), upsampled to full size, luma untouched. Cached as `.aic-<key>.pdn`. CPU box filters are parallel. ~11 s per 24 MP.
+  6. Cached as `.PhotonData/denoise/<file>.ai-<key>.pdn` (lossless 16-bit samples since 2026-11-16, LOCO-I/MED predictor, byte-shuffled deflate strips of 64 rows; the key includes the develop decode version).
+- Colour pass (after AI): the AI result gets Classic's chroma chain once per photo at full strength (`Denoiser::denoiseChroma`): chroma BM3D on Cb/Cr at 1/4 resolution (block matching guided by luma, σ = 2 × the chroma noise measured on those planes since 2026-11-16, at the RAW base exposure; stride 8, two passes), bilinear-upsampled to 1/2, multi-scale guided filter at 1/2 guided by the clean luma (radius 4, strength 100), upsampled to full size, luma untouched. Cached as `.aic-<key>.pdn`. CPU box filters are parallel. ~11 s per 24 MP.
 - Use: `Y = lerp(Yplain, Yai, NR)`, `C = lerp(lerp(Cplain, Cai, NR), Ccolor, Color)` in a (Y, B−Y, R−Y) basis (`blendDenoised`), applied to the develop source before every stage, so preview, histogram, geometry bake, library previews (cache only) and export (computes if missing) all agree. Moving either slider re-blends and never re-runs anything. Edit stack keys: `denoiseAmount`, `denoiseColor` (older edits migrate from `denoiseChromaAmount`). A legacy per-photo `denoiseMode` key is ignored.
 - Classic fallback: Noise Reduction drives the BM3D luma strength, and Color drives both chroma stages (`chromaBm3d` and `chromaDenoise`). Search window, group size and chroma radius keep their stored or default values and are no longer shown.
 - Device: Settings ▸ Denoise ▸ AI denoise device = Auto (GPU only if it matches the CPU on a check tile and is faster), CPU, or a GPU by name; it applies from the next tile (`photon::ai::setDevicePreference`). A GPU initialisation that crashes leaves `ai-denoise-gpu-init.marker` in the app data folder, so the next session uses the CPU; choosing a device in Settings clears it.
-- Measured (i7-9750H + GTX 1650, 24 MP Sony ARW): 4.6 s per photo on the GPU (89 ms per tile), about 20 s on the CPU (540 ms per tile); cache reload 0.2 s; cache size ~45 MB; channel means within 0.5 % of LibRaw's plain render.
+- Measured (i7-9750H + GTX 1650, 24 MP Sony ARW): 4.6 s per photo on the GPU (89 ms per tile), about 20 s on the CPU (540 ms per tile); cache reload 0.2 s; cache size ~45 MB (12-bit; 62.6 MB in 16-bit since 2026-11-16); channel means within 0.5 % of LibRaw's plain render.
 - Files: `src/engine/AiDenoiser.{h,cpp}`, `src/engine/RawEngine.{h,cpp}`, `src/components/RawViewport.{h,cpp}`, `src/managers/ExportManager.cpp`, `src/managers/PreviewManager.cpp`, `src/main.cpp`, `content/views/DevelopView.qml`, `content/components/MetadataPanel.qml`, `content/components/SettingsSelectionDialog.qml`, `cmake/Ncnn.cmake`, `cmake/AiDenoiseModel.cmake`, `cmake/rawnind/*`, `CMakeLists.txt`, `tests/CMakeLists.txt`, `tests/auto/tst_RawEngine.cpp`.
 
 ---
@@ -330,4 +330,29 @@ Short entries for features that predate this document; details live in `TASKS.md
   - **Spatial, against Reference:** correlation 0.36–0.48; regression gain Reference/ours 0.68–1.06 (+100) and 0.83–1.25 (−100). Adding the old fine-scale detail on top made the correlation worse, so it was dropped.
   - **Binned fixture:** `testToneSlidersMatchReference` guards the per-tone means (error 2.43, was 2.53).
 - Files: `src/engine/ToneMath.h`, `src/components/Photon001Delta.frag`, `src/engine/ImageDeveloper.cpp`, `src/engine/RawEngine.cpp`, `tests/auto/tst_RawEngine.cpp`.
+
+## Denoise after the full-range / Rec.2020 decode (2026-11-16)
+
+- Purpose: after the decode changes, AI denoise brightened and saturated photos, AI + Color even more so, and Classic flattened detail into 8×8 blocks.
+- **AI: stale cache.** Products were keyed on model + file only, so products from the old auto-bright sRGB decode were blended into the new darker Rec.2020 source.
+  - `photon::raw::kDevelopDecodeVersion` (RawDecode.h, now 2) is part of the AI model fingerprint (`-v<algorithm>-d<decode>`).
+  - The camera-look cache stores it too (`"decode"`), so caches of decode-derived data are rebuilt whenever the decode changes.
+  - With a fresh product the AI result matches the plain image: mean RGB 55.6/64.3/83.0 against 55.4/64.2/83.1, and chroma goes down, not up.
+- **AI cache precision:** samples are now stored losslessly in 16 bit (`kCacheVersion` 4). The source is up to ~5 EV darker than before, so 12 bits posterised lifted shadows. Cost: 62.6 MB per 24 MP product, against ~45 MB before.
+- **Classic: noise-adaptive BM3D.** σ was `0.8 × amount` on the 0..255 scale (σ = 40 at amount 50), with λ up to 4.5 and patch-match tolerances up to 23 000 per-pixel MSE. That is far above real photo noise, so real detail was averaged into blocks. This was already the case before the decode changes (checked by rendering the old decode with the same denoiser).
+  - `Denoiser::estimateNoiseSigma`: Donoho's MAD on the finest Haar diagonal band, `median(|a − b − c + d| / 2) / 0.6745`, per image, for luma and (averaged) Cb/Cr. The sRGB curve keeps shot noise roughly level-independent, so one value describes the image.
+  - `sigmaForAmount`: `σ = measured × amount / 50`, so 50 removes the measured noise and 100 twice it. Same for Color on the chroma noise. The AI colour pass uses strength 1 = 2 × the chroma noise of its 1/4 planes.
+  - `Bm3dParams::forSigma`: reference constants (Lebrun, IPOL 2012): λ = 2.7, match tolerances 2500 / 400 (5000 / 3500 at σ ≥ 35).
+- **Denoise domain:** every pass works on `255 · encodeSrgb(decodeSrgb(v) · g)`, unclipped, with `g = exposureGain(baseExposure)`, the brightness its filters were tuned for. It returns to the 16-bit source encoding afterwards. Callers pass `DenoiseParams::exposureGain` (export `obj["baseExposure"]`, preview `m_baseExposure`, AI colour pass measured on the product). `Denoiser::searchLuma` gives GpuSearcher the same luma.
+- **Y'CbCr of the working space:** the denoisers and `blendDenoised` use the Rec.2020 luma weights (BT.2020 non-constant-luminance Y'CbCr) instead of BT.601 / Rec.709.
+- **Camera look everywhere:** `cameralook::applyToSettings` (load, or fit and save when missing, stale or purged) is used by export and, newly, by library previews, which previously ignored the look.
+- **Settings ▸ Maintenance ▸ Clear Cache** (`AppStateManager::clearCache`): deletes `.PhotonData/cache` (thumbnails, previews, camera looks) and `.PhotonData/denoise` (AI products), never edits or ratings. It reports the space freed in a toast.
+- UI: the Camera Look section moved above Light.
+- Validation:
+  - `testDenoiseNoiseAdaptive`: σ = 6 is estimated as 6.05; at amount 50 the residual is 1.2 RMS and a 60-level edge stays at 60.
+  - `testDenoiseAtBaseExposure`: the same scene stored 4 EV darker gives the same result with its gain.
+  - `testClearCacheKeepsUserData`.
+  - The cache round trip is lossless.
+  - Visual: 1:1 crops of 9111 at 0/25/50/100 show progressive noise removal with edges kept and no blocks.
+- Files: `src/engine/Denoiser.{h,cpp}`, `DenoiseChroma.h`, `AiDenoiser.{h,cpp}`, `RawDecode.h`, `ColorSpace.h`, `CameraLook.{h,cpp}`, `ImageDeveloper.cpp`, `RawEngine.cpp`, `src/managers/{AppStateManager,ExportManager,PreviewManager}`, `content/views/{DevelopView,SettingView,App}.qml`, tests.
 

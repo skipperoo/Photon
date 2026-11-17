@@ -28,6 +28,14 @@ bool saveCameraLook(const QString& sourcePath, const CameraLook& look);
 // pairs it with the camera JPEG; heavy, run it on a worker thread.
 CameraLook fitCameraLook(const QString& sourcePath);
 
+// The cached look, or a fresh fit (saved) when the cache is missing, stale or
+// purged. Blocking: for worker threads (export, library previews).
+CameraLook obtainCameraLook(const QString& sourcePath);
+
+// Sets settings["cameraLook"] for a RAW whose cameraLookAmount is > 0, so a
+// develop matches the interactive preview.
+void applyToSettings(const QString& sourcePath, QJsonObject& settings);
+
 QJsonObject toneCurveToJson(const CameraToneCurve& curve);
 CameraToneCurve toneCurveFromJson(const QJsonObject& obj);
 

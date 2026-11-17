@@ -19,6 +19,14 @@
 // recoverable with -Exposure / -Highlights / -Whites.
 namespace photon::raw {
 
+// Bumped whenever configureDevelopDecode's output changes (range, primaries,
+// curve). Caches of decode-derived data (AI denoise products, camera looks)
+// include it in their key/version, so they are rebuilt instead of mixing
+// pixels from two different decodes.
+//   1: auto-bright, sRGB primaries, BT.709 curve
+//   2: full range (baseExposure), Rec.2020 primaries, sRGB curve
+inline constexpr int kDevelopDecodeVersion = 2;
+
 inline void configureDevelopDecode(LibRaw& lr) {
   auto& p = lr.imgdata.params;
   p.output_bps = 16;

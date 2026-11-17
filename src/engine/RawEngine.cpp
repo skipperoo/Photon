@@ -1820,6 +1820,8 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   float amount = m_denoiseAmount;
   int stride = final ? 4 : 8;  // Faster search for previews
 
+  // The denoiser works at the RAW base exposure (Denoiser.h).
+  const float denoiseGain = photon::tone::exposureGain(m_baseExposure);
   std::vector<photon::GpuSearcher::SearchResult> gpuMatches;
   // Check if we can offload to GPU
   // Only offload for full image search (roi not valid) to keep logic simple for
@@ -1830,26 +1832,11 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
     }
     m_gpuSearcher->setWindow(m_window);
 
-    // Extract luma for GPU search
-    int w = img.width();
-    int h = img.height();
-    std::vector<float> luma(w * h);
-    if (img.format() == QImage::Format_RGBA64 ||
-        img.format() == QImage::Format_RGBX64) {
-      const QRgba64* bits = reinterpret_cast<const QRgba64*>(img.constBits());
-      for (int i = 0; i < w * h; ++i) {
-        luma[i] = (0.2126f * bits[i].red() + 0.7152f * bits[i].green() +
-                   0.0722f * bits[i].blue()) /
-                  257.0f;
-      }
-    } else {
-      QImage converted = img.convertToFormat(QImage::Format_RGB888);
-      const uchar* bits = converted.constBits();
-      for (int i = 0; i < w * h; ++i) {
-        luma[i] = 0.2126f * bits[i * 3] + 0.7152f * bits[i * 3 + 1] +
-                  0.0722f * bits[i * 3 + 2];
-      }
-    }
+    // Luma for the GPU search, as the BM3D luma pass sees it.
+    const int w = img.width();
+    const int h = img.height();
+    const std::vector<float> luma =
+        photon::Denoiser::searchLuma(img, denoiseGain);
 
     // Safety check: run on Render Thread via GpuSearcher's internal sync
     // to avoid RHI frame conflicts
@@ -1861,6 +1848,7 @@ void RawEngine::startAsyncDenoise(bool final, float zoom, const QRectF& roi) {
   std::atomic<bool>* abortPtr = &m_abortDenoise;
 
   photon::DenoiseParams dparams;
+  dparams.exposureGain = denoiseGain;
   dparams.searchWindow = m_denoiseSearchWindow;
   dparams.groupSize = m_denoiseGroupSize;
   dparams.chromaRadius = m_denoiseChromaRadius;

@@ -17,6 +17,7 @@
 
 #include "AiDenoiser.h"
 #include "ColorSpace.h"
+#include "Denoiser.h"
 #include "RawDecode.h"
 #include "ToneMask.h"
 #include "ToneMath.h"
@@ -100,6 +101,8 @@ class TestRawEngine : public QObject {
   void testExport16BitTiff();
   void testExportAdobeRgb();
   void testColorSpaceRec2020();
+  void testDenoiseAtBaseExposure();
+  void testDenoiseNoiseAdaptive();
   void testEditStackCurrentState();
   void testExportUsesHistorySelectedState();
 };
@@ -2184,7 +2187,7 @@ void TestRawEngine::testAiDenoiseCacheRoundTrip() {
   int maxDiff = 0;
   for (size_t i = 0; i < p.rgb.size(); ++i)
     maxDiff = std::max(maxDiff, std::abs(int(back.rgb[i]) - int(p.rgb[i])));
-  QVERIFY2(maxDiff <= 9, qPrintable(QString::number(maxDiff)));  // 12-bit
+  QVERIFY2(maxDiff == 0, qPrintable(QString::number(maxDiff)));  // lossless
 
   // A different model fingerprint is a different file; stale ones go away.
   const QString other = cachePath(photo, QStringLiteral("fp-other"));
@@ -2224,8 +2227,8 @@ void TestRawEngine::testAiDenoiseBlendAndResample() {
     const ushort a[3] = {26000, 21000, 14000};    // AI
     const ushort k[3] = {22000, 22000, 22000};    // AI + colour pass (grey)
     ushort o[3];
-    auto luma = [](const ushort* v) {
-      return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+    auto luma = [](const ushort* v) {  // working-space (Rec.2020) luma
+      return photon::colorspace::luma(v[0], v[1], v[2]);
     };
     blendDenoised(p, a, k, o, 1, 0.0f, 0.0f);
     for (int i = 0; i < 3; ++i) QVERIFY(std::abs(o[i] - p[i]) <= 1);
@@ -2397,6 +2400,8 @@ void TestRawEngine::testAiDenoiseEngineIntegration() {
   const QStringList cached =
       QDir(dir.filePath(".PhotonData/denoise")).entryList({"*.ai-*.pdn"}, QDir::Files);
   QCOMPARE(cached.size(), 1);
+  qInfo() << "cached product" << cached.first() << QFileInfo(dir.filePath(
+                 ".PhotonData/denoise/" + cached.first())).size() / 1e6 << "MB";
 
   // Colour pass: full Color has less chroma noise than none.
   auto chromaRoughness = [](const QImage& img) {
@@ -3251,6 +3256,140 @@ void TestRawEngine::testColorSpaceRec2020() {
   float ar = 0.0f, ag = 0.8f, ab = 0.0f;
   cs::toOutput(ar, ag, ab, true, false);
   QVERIFY(ag - std::max(ar, ab) > g - std::max(r, b) - 1e-4f);
+}
+
+// The denoisers work at the RAW base exposure: the same scene stored 4 EV
+// darker (the full-range decode) and denoised with its base gain must give
+// the same result as the bright source, instead of being over-smoothed into
+// 8x8 blocks by sigmas tuned for the bright image.
+void TestRawEngine::testDenoiseAtBaseExposure() {
+  namespace cs = photon::colorspace;
+  constexpr int w = 96, h = 96;
+  constexpr float kGain = 16.0f;  // 4 stops
+  // Linear scene at its display brightness: soft texture + colour + noise.
+  std::vector<float> scene(size_t(w) * h * 3);
+  uint32_t seed = 12345;
+  auto noise = [&seed]() {
+    seed = seed * 1664525u + 1013904223u;
+    return (float(seed >> 8) / 16777216.0f - 0.5f) * 0.06f;
+  };
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x) {
+      const float base = 0.18f + 0.12f * std::sin(x * 0.2f) * std::cos(y * 0.15f);
+      const float tint[3] = {1.1f, 1.0f, 0.85f};
+      for (int c = 0; c < 3; ++c)
+        scene[(size_t(y) * w + x) * 3 + c] =
+            std::max(0.0f, base * tint[c] * (1.0f + noise()));
+    }
+  auto source = [&](float scale) {
+    QImage img(w, h, QImage::Format_RGBX64);
+    for (int y = 0; y < h; ++y) {
+      QRgba64* line = reinterpret_cast<QRgba64*>(img.scanLine(y));
+      for (int x = 0; x < w; ++x) {
+        const float* p = &scene[(size_t(y) * w + x) * 3];
+        auto enc = [&](float v) {
+          return ushort(std::lround(cs::encodeSrgb(v * scale) * 65535.0f));
+        };
+        line[x] = QRgba64::fromRgba64(enc(p[0]), enc(p[1]), enc(p[2]), 65535);
+      }
+    }
+    return img;
+  };
+  // Mean absolute difference in display terms (sRGB-encoded, 0..255) after
+  // bringing `dark` up by kGain.
+  auto displayDiff = [&](const QImage& bright, const QImage& dark) {
+    double acc = 0.0;
+    for (int y = 0; y < h; ++y) {
+      const QRgba64* a = reinterpret_cast<const QRgba64*>(bright.constScanLine(y));
+      const QRgba64* b = reinterpret_cast<const QRgba64*>(dark.constScanLine(y));
+      for (int x = 0; x < w; ++x) {
+        const ushort av[3] = {a[x].red(), a[x].green(), a[x].blue()};
+        const ushort bv[3] = {b[x].red(), b[x].green(), b[x].blue()};
+        for (int c = 0; c < 3; ++c) {
+          const float ea = cs::encodeSrgb(cs::decodeSrgb(av[c] / 65535.0f));
+          const float eb = cs::encodeSrgb(cs::decodeSrgb(bv[c] / 65535.0f) * kGain);
+          acc += std::abs(ea - eb) * 255.0;
+        }
+      }
+    }
+    return acc / (double(w) * h * 3);
+  };
+  const QImage bright = source(1.0f);
+  const QImage dark = source(1.0f / kGain);
+
+  photon::DenoiseParams plain;
+  photon::DenoiseParams gained;
+  gained.exposureGain = kGain;
+  const QImage refOut = photon::Denoiser::denoise(bright, 60.0f, nullptr, true, 4, {}, plain);
+  const QImage darkOut = photon::Denoiser::denoise(dark, 60.0f, nullptr, true, 4, {}, gained);
+  const QImage darkOld = photon::Denoiser::denoise(dark, 60.0f, nullptr, true, 4, {}, plain);
+  const double invariant = displayDiff(refOut, darkOut);
+  const double old = displayDiff(refOut, darkOld);
+  qInfo() << "classic: with base gain" << invariant << "without" << old;
+  QVERIFY2(invariant < 0.5, qPrintable(QString::number(invariant)));
+  QVERIFY(old > 4.0 * invariant);  // the gain is what makes it match
+
+  const QImage chromaRef = photon::Denoiser::denoiseChroma(bright, 1.0f, nullptr, 1.0f);
+  const QImage chromaDark = photon::Denoiser::denoiseChroma(dark, 1.0f, nullptr, kGain);
+  const double chroma = displayDiff(chromaRef, chromaDark);
+  qInfo() << "colour: with base gain" << chroma;
+  QVERIFY2(chroma < 0.5, qPrintable(QString::number(chroma)));
+
+  // Gain 1 with no denoising work is a lossless round trip of the domain.
+  const QImage same = photon::Denoiser::denoiseChroma(bright, 0.0f, nullptr, kGain);
+  QCOMPARE(same.pixel(10, 10), bright.pixel(10, 10));
+}
+
+// Classic denoise works at the image's measured noise: the estimator finds a
+// known sigma, amount 50 removes the noise, and edges/texture survive (the
+// old fixed sigma of 0.8 x amount flattened real detail into 8x8 blocks).
+void TestRawEngine::testDenoiseNoiseAdaptive() {
+  constexpr int w = 128, h = 128;
+  uint32_t seed = 99;
+  auto gauss = [&seed]() {  // Box-Muller
+    auto u = [&seed]() {
+      seed = seed * 1664525u + 1013904223u;
+      return (float(seed >> 8) + 0.5f) / 16777216.0f;
+    };
+    const float a = u(), b = u();
+    return std::sqrt(-2.0f * std::log(a)) * std::cos(6.2831853f * b);
+  };
+  // Smooth gradient + vertical step edge at x = 64, plus sigma-6 noise.
+  std::vector<float> clean(size_t(w) * h), noisy(size_t(w) * h);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x) {
+      const size_t i = size_t(y) * w + x;
+      clean[i] = 80.0f + 0.3f * y + (x >= 64 ? 60.0f : 0.0f);
+      noisy[i] = clean[i] + 6.0f * gauss();
+    }
+  const float est = photon::Denoiser::estimateNoiseSigma(noisy, w, h);
+  QVERIFY2(std::abs(est - 6.0f) < 0.6f, qPrintable(QString::number(est)));
+  QVERIFY(photon::Denoiser::estimateNoiseSigma(clean, w, h) < 0.5f);
+
+  QImage img(w, h, QImage::Format_RGBX64);  // grey, values as 0..255 encoded
+  for (int y = 0; y < h; ++y) {
+    QRgba64* line = reinterpret_cast<QRgba64*>(img.scanLine(y));
+    for (int x = 0; x < w; ++x) {
+      const ushort v = ushort(std::lround(std::clamp(noisy[size_t(y) * w + x], 0.0f, 255.0f) * 257.0f));
+      line[x] = QRgba64::fromRgba64(v, v, v, 65535);
+    }
+  }
+  photon::DenoiseParams dp;  // gain 1: the 0..255 values are the domain
+  const QImage out = photon::Denoiser::denoise(img, 50.0f, nullptr, true, 4, {}, dp);
+  double err = 0.0, edgeOut = 0.0;
+  for (int y = 8; y < h - 8; ++y) {
+    const QRgba64* line = reinterpret_cast<const QRgba64*>(out.constScanLine(y));
+    for (int x = 8; x < w - 8; ++x) {
+      const double v = line[x].green() / 257.0;
+      if (std::abs(x - 64) > 4) err += (v - clean[size_t(y) * w + x]) * (v - clean[size_t(y) * w + x]);
+    }
+    edgeOut += line[66].green() / 257.0 - line[61].green() / 257.0;
+  }
+  const double rms = std::sqrt(err / ((h - 16.0) * (w - 16.0 - 9.0)));
+  edgeOut /= (h - 16.0);
+  qInfo() << "noise est" << est << "residual rms" << rms << "edge" << edgeOut;
+  QVERIFY2(rms < 2.0, qPrintable(QString::number(rms)));       // noise removed
+  QVERIFY2(edgeOut > 55.0, qPrintable(QString::number(edgeOut)));  // edge kept
 }
 
 QTEST_MAIN(TestRawEngine)

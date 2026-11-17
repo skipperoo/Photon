@@ -1397,17 +1397,14 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
               .arg(denoiseAmount, 0, 'f', 1)
               .arg((quintptr)rhi),
           PHOTON_INFO);
+      // The denoiser works at the RAW base exposure (Denoiser.h).
+      const float denoiseGain =
+          photon::tone::exposureGain(float(obj["baseExposure"].toDouble()));
       std::vector<GpuSearcher::SearchResult> gpuMatches;
       if (rhi) {
         const int w = work.width();
         const int h = work.height();
-        std::vector<float> luma(size_t(w) * size_t(h));
-        const QRgba64* bits = reinterpret_cast<const QRgba64*>(work.constBits());
-        for (size_t i = 0; i < luma.size(); ++i) {
-          luma[i] = (0.2126f * bits[i].red() + 0.7152f * bits[i].green() +
-                     0.0722f * bits[i].blue()) /
-                    257.0f;
-        }
+        const std::vector<float> luma = Denoiser::searchLuma(work, denoiseGain);
         // Runs on the render thread via GpuSearcher's internal sync to avoid
         // RHI frame conflicts.
         GpuSearcher searcher(rhi);
@@ -1422,6 +1419,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         }
       }
       photon::DenoiseParams dparams;
+      dparams.exposureGain = denoiseGain;
       dparams.searchWindow = denoiseSearchWindow;
       dparams.groupSize = denoiseGroupSize;
       dparams.chromaRadius = denoiseChromaRadius;

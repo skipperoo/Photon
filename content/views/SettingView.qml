@@ -92,14 +92,16 @@ Control {
                         Layout.fillWidth: true
                         Text { text: "Maintenance"; font: Theme.fontRegular; color: Theme.mutedFg }
                         PhotonButton {
-                            text: "Clear Thumbnail Cache"
+                            text: "Clear Cache"
                             variantOutline: true
                             enabled: AppState.currentFolder !== ""
-                            onClicked: AppState.clearThumbnailCache()
+                            onClicked: AppState.clearCache()
                             Layout.fillWidth: true
                         }
                         Text {
-                            text: AppState.currentFolder === "" ? "Open a workspace to enable cache clearing." : "Clears generated thumbnails for the current workspace."
+                            text: AppState.currentFolder === "" ? "Open a workspace to enable cache clearing." : "Deletes the workspace's generated data: thumbnails, previews, camera looks and AI denoise results. Edits and ratings are kept; everything is rebuilt when needed."
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
                             font: Theme.fontSmall
                             color: Theme.mutedFg
                         }

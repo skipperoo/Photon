@@ -26,7 +26,8 @@ namespace photon::ai {
 // Bumped whenever the product changes for the same model and photo.
 inline constexpr int kAlgorithmVersion = 1;
 // Bumped whenever the colour pass (chroma BM3D + guided filter) changes.
-inline constexpr int kColorVersion = 1;
+// 2: runs at the RAW base exposure with BT.2020 Y'CbCr.
+inline constexpr int kColorVersion = 2;
 
 // 16-bit RGB product, same layout/orientation as LibRaw's mem image.
 struct Product {

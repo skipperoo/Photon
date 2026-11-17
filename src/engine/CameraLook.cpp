@@ -2,6 +2,7 @@
 #include "ToneMath.h"
 #include "RawDecode.h"
 #include "CameraLook.h"
+#include "ImageDecoder.h"
 
 #include <QDir>
 #include <QFile>
@@ -113,7 +114,10 @@ CameraLook loadCameraLook(const QString& sourcePath) {
   QFile file(cameraLookCachePath(sourcePath));
   if (!file.open(QIODevice::ReadOnly)) return look;
   const QJsonObject obj = QJsonDocument::fromJson(file.readAll()).object();
-  if (obj.value("version").toInt() != kCameraLookVersion) return look;
+  // The fit is made against the develop decode: refit when it changed.
+  if (obj.value("version").toInt() != kCameraLookVersion ||
+      obj.value("decode").toInt() != photon::raw::kDevelopDecodeVersion)
+    return look;
   look.tone = toneCurveFromJson(obj);
   if (!look.tone.valid) return CameraLook();
   return look;
@@ -125,6 +129,7 @@ bool saveCameraLook(const QString& sourcePath, const CameraLook& look) {
   if (!QDir().mkpath(QFileInfo(path).absolutePath())) return false;
   QJsonObject obj = toneCurveToJson(look.tone);
   obj["version"] = kCameraLookVersion;
+  obj["decode"] = photon::raw::kDevelopDecodeVersion;
   QFile file(path);
   if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
   return file.write(QJsonDocument(obj).toJson(QJsonDocument::Compact)) > 0;
@@ -263,6 +268,22 @@ CameraLook fitCameraLook(const QString& sourcePath) {
           .arg(double(look.tone.knots[kToneKnots - 1][0])),
       PHOTON_DEBUG);
   return look;
+}
+
+CameraLook obtainCameraLook(const QString& sourcePath) {
+  CameraLook look = loadCameraLook(sourcePath);
+  if (look.tone.valid) return look;
+  look = fitCameraLook(sourcePath);
+  if (look.tone.valid) saveCameraLook(sourcePath, look);
+  return look;
+}
+
+void applyToSettings(const QString& sourcePath, QJsonObject& settings) {
+  if (ImageDecoder::isBitmap(sourcePath) ||
+      settings.value("cameraLookAmount").toDouble(0.0) <= 0.0)
+    return;
+  const CameraLook look = obtainCameraLook(sourcePath);
+  if (look.tone.valid) settings["cameraLook"] = toneCurveToJson(look.tone);
 }
 
 }  // namespace cameralook

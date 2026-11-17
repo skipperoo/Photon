@@ -17,6 +17,7 @@
 #include <QtConcurrent>
 
 #include "../engine/ImageDeveloper.h"
+#include "../engine/CameraLook.h"
 #include "../engine/ImageDecoder.h"
 #include "AppStateManager.h"
 #include "CrashReporter.h"
@@ -206,6 +207,9 @@ void PreviewManager::processItem(const QString& rawPath, bool skipGpu) {
       }
     }
   }
+
+  // Camera look, like the export.
+  photon::cameralook::applyToSettings(rawPath, lastState);
 
   // 2. Load pixels: LibRaw for RAW, ImageDecoder for JPEG/TIFF
   QImage result;

@@ -1,5 +1,7 @@
-#include "RawDecode.h"
 #include "AiDenoiser.h"
+#include "ColorSpace.h"
+#include "RawDecode.h"
+#include "ToneMath.h"
 
 #include <libraw/libraw.h>
 
@@ -306,10 +308,9 @@ void blendDenoised(const ushort* plain, const ushort* ai, const ushort* aiColor,
     blendRgb16(plain, ai, dst, pixelCount, a);
     return;
   }
-  // shortcut: Rec.709 weights on the Rec.2020 source only shift the Y/C
-  // blend split slightly; switch to photon::colorspace::kLuma* if the
-  // Noise Reduction / Color blend ever shows a colour shift.
-  constexpr float kR = 0.2126f, kG = 0.7152f, kB = 0.0722f;
+  // Luma of the working space (Rec.2020), as in the denoisers' Y'CbCr.
+  constexpr float kR = colorspace::kLumaR, kG = colorspace::kLumaG,
+                  kB = colorspace::kLumaB;
   constexpr size_t kChunk = 1 << 16;
   std::vector<size_t> chunks((pixelCount + kChunk - 1) / kChunk);
   std::iota(chunks.begin(), chunks.end(), 0);
@@ -346,7 +347,10 @@ void blendDenoised(const ushort* plain, const ushort* ai, const ushort* aiColor,
 
 namespace {
 constexpr quint32 kCacheMagic = 0x314E4450;  // "PDN1"
-constexpr quint32 kCacheVersion = 3;         // 3: 12-bit samples, MED predictor
+// 3: 12-bit samples, MED predictor. 4: full 16-bit samples (the full-range
+// source is up to ~5 EV darker than the old auto-bright one, so 12 bits
+// posterised lifted shadows).
+constexpr quint32 kCacheVersion = 4;
 constexpr int kStripRows = 64;
 
 // LOCO-I / JPEG-LS median predictor from the left (a), upper (b) and
@@ -359,21 +363,9 @@ inline int medPredict(int a, int b, int c) {
   return a + b - c;
 }
 
-// The product is stored with 12-bit precision (like LightCraft's half
-// floats): the 16-bit low bits are noise that does not compress, and 12 bits
-// of a gamma-encoded source are far below what an 8-bit output can show.
-inline ushort toStored(ushort v) {
-  return ushort((uint32_t(v) * 4095u + 32767u) / 65535u);
-}
-inline ushort fromStored(int q) {
-  return ushort((uint32_t(q) * 65535u + 2047u) / 4095u);
-}
-
-QByteArray encodeStrip(const ushort* rgb16, int width, int rows) {
+// The product is stored losslessly (16-bit samples).
+QByteArray encodeStrip(const ushort* rgb, int width, int rows) {
   const size_t n = size_t(width) * rows * 3;
-  std::vector<ushort> q(n);
-  for (size_t i = 0; i < n; ++i) q[i] = toStored(rgb16[i]);
-  const ushort* rgb = q.data();
   QByteArray raw(int(n * 2), Qt::Uninitialized);
   uchar* lo = reinterpret_cast<uchar*>(raw.data());
   uchar* hi = lo + n;
@@ -396,12 +388,10 @@ QByteArray encodeStrip(const ushort* rgb16, int width, int rows) {
   return qCompress(raw, 6);
 }
 
-bool decodeStrip(const QByteArray& packed, ushort* out16, int width, int rows) {
+bool decodeStrip(const QByteArray& packed, ushort* rgb, int width, int rows) {
   const QByteArray raw = qUncompress(packed);
   const size_t n = size_t(width) * rows * 3;
   if (size_t(raw.size()) != n * 2) return false;
-  std::vector<ushort> q(n);
-  ushort* rgb = q.data();
   const uchar* lo = reinterpret_cast<const uchar*>(raw.constData());
   const uchar* hi = lo + n;
   size_t k = 0;
@@ -419,7 +409,6 @@ bool decodeStrip(const QByteArray& packed, ushort* out16, int width, int rows) {
       }
     }
   }
-  for (size_t i = 0; i < n; ++i) out16[i] = fromStored(q[i]);
   return true;
 }
 }  // namespace
@@ -697,8 +686,11 @@ class Engine {
     QCryptographicHash h(QCryptographicHash::Sha256);
     h.addData(m_param);
     h.addData(m_bin);
+    // The product also depends on the develop decode (RawDecode.h).
     m_fingerprint = QString::fromLatin1(h.result().toHex().left(24)) +
-                    QStringLiteral("-v%1").arg(kAlgorithmVersion);
+                    QStringLiteral("-v%1-d%2")
+                        .arg(kAlgorithmVersion)
+                        .arg(photon::raw::kDevelopDecodeVersion);
 
     m_cpuNet = std::make_unique<ncnn::Net>();
     if (!loadNet(*m_cpuNet, false, -1)) {
@@ -1204,16 +1196,19 @@ bool computeColor(Product& p, std::atomic<bool>* abort) {
                                      p.rgb[i * 3 + 2], 65535);
     });
   }
-  const QImage out = photon::denoiseChromaOnly(img, 1.0f, abort);
+  // At the photo's RAW base exposure, like the Classic denoiser (Denoiser.h).
+  const float gain = photon::tone::exposureGain(
+      photon::raw::baseExposure(p.rgb.data(), p.width, p.height, 3));
+  const QImage out = photon::denoiseChromaOnly(img, 1.0f, abort, gain);
   if (out.isNull() || out.width() != p.width || out.height() != p.height)
     return false;
   p.rgbColor.resize(p.rgb.size());
   const QRgba64* src = reinterpret_cast<const QRgba64*>(out.constBits());
   QtConcurrent::blockingMap(rows, [&](int y) {
     for (size_t i = size_t(y) * p.width, e = i + p.width; i < e; ++i) {
-      p.rgbColor[i * 3] = fromStored(toStored(src[i].red()));
-      p.rgbColor[i * 3 + 1] = fromStored(toStored(src[i].green()));
-      p.rgbColor[i * 3 + 2] = fromStored(toStored(src[i].blue()));
+      p.rgbColor[i * 3] = src[i].red();
+      p.rgbColor[i * 3 + 1] = src[i].green();
+      p.rgbColor[i * 3 + 2] = src[i].blue();
     }
   });
   log(QStringLiteral("colour pass %1x%2 done in %3 ms")
@@ -1273,9 +1268,6 @@ Status obtainProduct(const QString& path, Product& out, bool computeIfMissing,
         },
         message);
     if (st != Status::Ok) return st;
-    // Same precision as a cache read, so this session and later ones (and
-    // exports) use identical pixels.
-    for (ushort& v : p.rgb) v = fromStored(toStored(v));
     if (!saveProduct(file, p)) {
       log(QStringLiteral("could not write the cache file %1").arg(file),
           PHOTON_WARNING);

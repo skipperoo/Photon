@@ -37,8 +37,10 @@ FolderDialog {
             Layout.fillWidth: true
             spacing: 15
 
-            // Format & Quality
-            RowLayout {
+            // One setting per line, each filling the panel width, so showing or
+            // hiding a setting never moves or resizes the others.
+            ColumnLayout {
+                Layout.fillWidth: true
                 spacing: 15
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -77,6 +79,7 @@ FolderDialog {
                     visible: formatCombo.currentText === "JPG"
                     Text { text: "Quality"; color: Theme.mutedFg; font: Theme.fontSmall }
                     RowLayout {
+                        Layout.fillWidth: true
                         PhotonSlider {
                             id: qualitySlider
                             from: 10; to: 100; value: 90
@@ -86,7 +89,7 @@ FolderDialog {
                             value: qualitySlider.value
                             from: 10
                             to: 100
-                            width: 30
+                            Layout.preferredWidth: 30
                             horizontalAlignment: Text.AlignRight
                             onValueEdited: (v) => qualitySlider.value = v
                         }

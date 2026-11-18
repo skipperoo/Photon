@@ -20,6 +20,7 @@
 #include <QNetworkInterface>
 #include <QPainter>
 #include <QPointer>
+#include <QStorageInfo>
 #include <QPointingDevice>
 #include <QQuickWindow>
 #include <QSettings>
@@ -40,6 +41,7 @@
 #include "LogManager.h"
 #include "RemoteCertificates.h"
 #include "RemoteSession.h"
+#include "../engine/ImageDecoder.h"
 
 namespace {
 
@@ -196,6 +198,16 @@ RemoteServer::RemoteServer(RemoteSession* session,
   connect(m_session, &RemoteSession::exportsRequested, this, [this]() {
     if (m_client)
       m_client->sendTextMessage(QStringLiteral("{\"type\":\"exports\"}"));
+  });
+  connect(m_session, &RemoteSession::uploadRequested, this, [this]() {
+    if (!m_client) return;
+    const QString folder = AppStateManager::instance()->currentFolder();
+    const QJsonObject msg{
+        {"type", "upload"},
+        {"folder", folder.isEmpty() ? QString() : QFileInfo(folder).fileName()},
+        {"extensions", QJsonArray::fromStringList(uploadExtensions())}};
+    m_client->sendTextMessage(
+        QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact)));
   });
   m_thumbnailer.setMaxThreadCount(2);
   m_mouse = new QPointingDevice(
@@ -413,9 +425,12 @@ void RemoteServer::onNewConnection() {
     }
     connect(socket, &QAbstractSocket::disconnected, socket,
             &QObject::deleteLater);
-    // Requests that never complete are dropped (WebSockets are exempt).
+    // Requests that never complete are dropped (WebSockets and uploads,
+    // which have their own idle timeout, are exempt).
     QTimer::singleShot(kRequestTimeoutMs, socket, [socket]() {
-      if (!socket->property("photonWebSocket").toBool()) socket->abort();
+      if (!socket->property("photonWebSocket").toBool() &&
+          !socket->property("photonUpload").toBool())
+        socket->abort();
     });
     // The first byte tells HTTPS (a TLS handshake record) from plain HTTP.
     connect(socket, &QIODevice::readyRead, this, [this, socket]() {
@@ -517,6 +532,13 @@ void RemoteServer::onEncryptedRequest(QSslSocket* socket) {
 
   socket->read(req.headerBytes);
   socket->setProperty("photonAnswered", true);
+  if (req.method == "POST" && req.path.split('?').first() == "/upload") {
+    const int q = req.path.indexOf('?');
+    beginUpload(socket,
+                QUrlQuery(q < 0 ? QString() : QString::fromUtf8(req.path.mid(q + 1))),
+                req.headers.value("content-length"));
+    return;
+  }
   if (req.method != "GET") {
     sendHttp(socket, 405, "text/plain", "Method not allowed");
     return;
@@ -1103,4 +1125,117 @@ void RemoteServer::sendFile(QSslSocket* socket, const QString& path,
   };
   connect(socket, &QSslSocket::encryptedBytesWritten, socket, pump);
   pump();
+}
+
+// --- Upload ---------------------------------------------------------------------------
+
+QStringList RemoteServer::uploadExtensions() {
+  return photon::ImageDecoder::rawExtensions() + photon::ImageDecoder::bitmapExtensions();
+}
+
+QString RemoteServer::sanitizeUploadName(const QString& name) {
+  // The last path component only (browsers send a bare name; never trust it).
+  QString n = name.mid(qMax(name.lastIndexOf(QLatin1Char('/')), name.lastIndexOf(QLatin1Char('\\'))) + 1);
+  QString clean;
+  for (const QChar c : n) {
+    if (c.unicode() < 0x20 || c.unicode() == 0x7f || QStringLiteral("<>:\"|?*").contains(c)) continue;
+    clean += c;
+  }
+  clean = clean.trimmed();
+  while (clean.startsWith(QLatin1Char('.'))) clean.remove(0, 1);
+  while (clean.endsWith(QLatin1Char('.')) || clean.endsWith(QLatin1Char(' '))) clean.chop(1);
+  const int dot = clean.lastIndexOf(QLatin1Char('.'));
+  if (dot <= 0) return QString();
+  const QString ext = clean.mid(dot + 1);
+  QString base = clean.left(dot).trimmed().left(180);
+  if (base.isEmpty() || !uploadExtensions().contains(ext.toLower())) return QString();
+  static const QStringList reserved = {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+                                       "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
+                                       "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"};
+  if (reserved.contains(base.toUpper())) base.prepend(QLatin1Char('_'));
+  return base + QLatin1Char('.') + ext;
+}
+
+void RemoteServer::beginUpload(QSslSocket* socket, const QUrlQuery& query,
+                               const QByteArray& contentLength) {
+  if (!validToken(query.queryItemValue("t").toUtf8())) {
+    sendHttp(socket, 403, "text/plain", "Forbidden");
+    return;
+  }
+  const QString folder = AppStateManager::instance()->currentFolder();
+  if (folder.isEmpty() || !QFileInfo(folder).isDir()) {
+    sendHttp(socket, 409, "text/plain", "Open a folder in Photon first");
+    return;
+  }
+  const QString name = sanitizeUploadName(query.queryItemValue("name", QUrl::FullyDecoded));
+  if (name.isEmpty()) {
+    sendHttp(socket, 415, "text/plain", "Not a photo Photon can open");
+    return;
+  }
+  bool ok = false;
+  const qint64 length = contentLength.toLongLong(&ok);
+  if (!ok || length <= 0) {
+    sendHttp(socket, 411, "text/plain", "Length required");
+    return;
+  }
+  if (length > kMaxUploadBytes) {
+    sendHttp(socket, 413, "text/plain", "Too large");
+    return;
+  }
+  if (QStorageInfo(folder).bytesAvailable() < length + 64LL * 1024 * 1024) {
+    sendHttp(socket, 507, "text/plain", "Not enough space on the computer");
+    return;
+  }
+  // Hidden while it arrives (the Library lists photo extensions only).
+  auto* file = new QTemporaryFile(QDir(folder).filePath(QStringLiteral(".photon-upload-XXXXXX.part")), socket);
+  if (!file->open()) {
+    sendHttp(socket, 500, "text/plain", "The file could not be created");
+    return;
+  }
+  socket->setProperty("photonUpload", true);
+  auto remaining = std::make_shared<qint64>(length);
+  auto* idle = new QTimer(socket);
+  idle->setSingleShot(true);
+  idle->setInterval(60000);
+  connect(idle, &QTimer::timeout, socket, [socket]() { socket->abort(); });
+  idle->start();
+
+  auto finish = [this, socket, file, folder, name]() {
+    file->close();
+    // A free name: never overwrite.
+    const QFileInfo fi(name);
+    QString finalName = name;
+    for (int i = 2; QFileInfo::exists(QDir(folder).filePath(finalName)); ++i)
+      finalName = QStringLiteral("%1 (%2).%3").arg(fi.completeBaseName()).arg(i).arg(fi.suffix());
+    const QString finalPath = QDir(folder).filePath(finalName);
+    if (!file->rename(finalPath)) {
+      sendHttp(socket, 500, "text/plain", "The file could not be saved");
+      return;
+    }
+    file->setAutoRemove(false);
+    log(QString("uploaded %1 (%2 bytes)").arg(finalPath).arg(QFileInfo(finalPath).size()));
+    emit m_session->photoUploaded(finalPath);
+    sendHttp(socket, 200, "application/json",
+             QJsonDocument(QJsonObject{{"name", finalName}}).toJson(QJsonDocument::Compact));
+  };
+  auto receive = [socket, file, remaining, idle, finish, this]() {
+    while (*remaining > 0 && socket->bytesAvailable() > 0) {
+      const QByteArray chunk = socket->read(qMin<qint64>(*remaining, 1 << 20));
+      if (file->write(chunk) != chunk.size()) {
+        *remaining = -1;
+        sendHttp(socket, 507, "text/plain", "The file could not be written");
+        return;
+      }
+      *remaining -= chunk.size();
+    }
+    idle->start();
+    if (*remaining == 0) {
+      *remaining = -1;  // done; later data is ignored
+      idle->stop();
+      finish();
+    }
+  };
+  connect(socket, &QIODevice::readyRead, file, receive);
+  // Body bytes that arrived with the headers.
+  if (socket->bytesAvailable() > 0) receive();
 }

@@ -117,6 +117,8 @@ void AppStateManager::loadSettings() {
   m_preferredGpu = m_settings.value(KEY_PREFERRED_GPU, "Auto").toString();
   m_cacheSizeGB = m_settings.value(KEY_CACHE_SIZE, 10).toInt();
   m_scanIntervalSeconds = m_settings.value(KEY_SCAN_INTERVAL, 10).toInt();
+  m_libraryColumns =
+      qBound(0, m_settings.value(KEY_LIBRARY_COLUMNS, 0).toInt(), kMaxLibraryColumns);
   m_isDarkMode = m_settings.value(KEY_DARK_MODE, true).toBool();
   m_accentColor = m_settings.value(KEY_ACCENT_COLOR, "#3b82f6").toString();
   m_previewDenoiseFull =
@@ -139,6 +141,7 @@ void AppStateManager::loadSettings() {
   emit accentColorChanged();
   emit cacheSizeGBChanged();
   emit scanIntervalSecondsChanged();
+  emit libraryColumnsChanged();
 }
 
 void AppStateManager::saveSettings() {
@@ -147,6 +150,7 @@ void AppStateManager::saveSettings() {
   m_settings.setValue(KEY_PREFERRED_GPU, m_preferredGpu);
   m_settings.setValue(KEY_CACHE_SIZE, m_cacheSizeGB);
   m_settings.setValue(KEY_SCAN_INTERVAL, m_scanIntervalSeconds);
+  m_settings.setValue(KEY_LIBRARY_COLUMNS, m_libraryColumns);
   m_settings.setValue(KEY_DARK_MODE, m_isDarkMode);
   m_settings.setValue(KEY_ACCENT_COLOR, m_accentColor);
   m_settings.setValue(KEY_PREVIEW_DENOISE_FULL, m_previewDenoiseFull);
@@ -633,6 +637,15 @@ void AppStateManager::setCacheSizeGB(int size) {
   if (m_cacheSizeGB != size) {
     m_cacheSizeGB = size;
     emit cacheSizeGBChanged();
+    saveSettings();
+  }
+}
+
+void AppStateManager::setLibraryColumns(int columns) {
+  columns = qBound(0, columns, kMaxLibraryColumns);
+  if (m_libraryColumns != columns) {
+    m_libraryColumns = columns;
+    emit libraryColumnsChanged();
     saveSettings();
   }
 }

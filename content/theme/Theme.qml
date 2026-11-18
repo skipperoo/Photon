@@ -19,6 +19,7 @@ QtObject {
     readonly property color accent:     AppState.accentColor
     readonly property color highlight:  isDark ? "#3f3f46" : "#f4f4f5"
     readonly property color destructive: "#DB2F01"
+    readonly property color ratingStar: "#eab308"  // ratings, favorite presets
     readonly property color ring:       isDark ? "#d4d4d8" : "#a1a1aa"
     readonly property color card:       isDark ? "#09090b" : "#ffffff"
 

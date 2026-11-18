@@ -58,6 +58,9 @@ class AppStateManager : public QObject {
                  cacheSizeGBChanged)
   Q_PROPERTY(int scanIntervalSeconds READ scanIntervalSeconds WRITE
                  setScanIntervalSeconds NOTIFY scanIntervalSecondsChanged)
+  // Library photos per row (0 = as many 440 px cells as fit).
+  Q_PROPERTY(int libraryColumns READ libraryColumns WRITE setLibraryColumns
+                 NOTIFY libraryColumnsChanged)
   Q_PROPERTY(QString version READ version CONSTANT)
 
  public:
@@ -96,6 +99,7 @@ class AppStateManager : public QObject {
   QString logLevel() const;
   int cacheSizeGB() const { return m_cacheSizeGB; }
   int scanIntervalSeconds() const { return m_scanIntervalSeconds; }
+  int libraryColumns() const { return m_libraryColumns; }
   QString version() const;
 
   // Settings operations
@@ -138,6 +142,7 @@ class AppStateManager : public QObject {
   void setLogLevel(const QString& level);
   void setCacheSizeGB(int size);
   void setScanIntervalSeconds(int seconds);
+  void setLibraryColumns(int columns);
 
  signals:
   void cacheCleared(const QVariantMap& result);  // {success, message}
@@ -160,6 +165,7 @@ class AppStateManager : public QObject {
   void logLevelChanged();
   void cacheSizeGBChanged();
   void scanIntervalSecondsChanged();
+  void libraryColumnsChanged();
 
  private:
   void detectGpus();
@@ -180,6 +186,7 @@ class AppStateManager : public QObject {
   QString m_aiDenoiseDevice = QStringLiteral("Auto");
   int m_cacheSizeGB = 10;
   int m_scanIntervalSeconds = 10;
+  int m_libraryColumns = 0;
 
   QSettings m_settings;
   mutable QMutex m_mutex;
@@ -195,4 +202,10 @@ class AppStateManager : public QObject {
       "performance/previewDenoiseFull";
   static constexpr const char* KEY_SCAN_INTERVAL =
       "library/scanIntervalSeconds";
+  static constexpr const char* KEY_LIBRARY_COLUMNS = "library/columns";
+
+ public:
+  static constexpr int kMaxLibraryColumns = 10;
+
+ private:
 };

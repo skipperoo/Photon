@@ -27,6 +27,10 @@ All notable changes to Photon. Each release's section is published as its GitHub
   - **Exports on the device:** an **Exports** button (top bar and Develop sidebar, only on the device) shows the folder's Export folder: view photos and videos, select several, **Share** (Save to Photos, AirDrop…) or **Download** (several as one zip).
   - **Secure:** HTTPS with Photon's own certificate (install it once on the device to remove the browser warning), a password with sign-in throttling, one device at a time. Add it to the Home Screen to run it full screen.
 - **Drag to scroll** the Develop adjustments and Settings with the mouse or a finger, like the Library.
+- **Upload from the device:** in remote mode, **Upload** (top bar and Develop sidebar, only on the device) adds photos from the iPad (Photos, Files, camera) to the open folder: RAW, JPEG and TIFF only, safe names, never overwriting (" (2)"). Each file shows its progress and can be cancelled; a green check or a red cross tells how it went; **Clear history** empties the list.
+- **Photos per row** in the Library: a slider next to Filter (or Ctrl + mouse wheel / touchpad scroll over the grid) sets how many photos fit in a row; the photos resize to fill it. Remembered.
+- **Crop Apply and Cancel buttons** at the bottom of the Crop panel, for tablets (Enter and Esc still work).
+- Favorite presets show a **yellow star**.
 
 ### Fixed
 

@@ -135,6 +135,18 @@ Control {
         root.cropConfirmed();
     }
 
+    // The Apply / Cancel buttons and the Enter / Esc shortcuts.
+    function confirm() {
+        if (!root.viewport) return;
+        applyCrop();
+        root.viewport.reloadWithGeometry();
+    }
+    function cancel() {
+        if (!root.viewport) return;
+        discardCrop();
+        root.viewport.exitCropMode();
+    }
+
     // Recompute crop rect when orientation changes so it fits the new effective dimensions
     Connections {
         target: root.viewport
@@ -423,6 +435,35 @@ Control {
                                 T.ToolTip.text: "Flip vertically"
                             }
                         }
+                    }
+                }
+
+                // Apply / Cancel (on a tablet there is no Enter or Esc)
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 16
+                    Layout.rightMargin: 16
+                    Layout.topMargin: 8
+                    Layout.bottomMargin: 16
+                    spacing: 8
+                    PhotonButton {
+                        text: "Cancel"
+                        variantOutline: true
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 36
+                        onClicked: root.cancel()
+                        T.ToolTip.visible: hovered
+                        T.ToolTip.delay: 500
+                        T.ToolTip.text: "Discard the changes (Esc)"
+                    }
+                    PhotonButton {
+                        text: "Apply"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 36
+                        onClicked: root.confirm()
+                        T.ToolTip.visible: hovered
+                        T.ToolTip.delay: 500
+                        T.ToolTip.text: "Apply the crop (Enter)"
                     }
                 }
 

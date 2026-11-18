@@ -42,6 +42,8 @@ add_executable(tst_RawEngine
     ../src/managers/CrashReporter.h
     ../src/managers/ExportManager.cpp
     ../src/managers/ExportManager.h
+    ../src/managers/ThumbnailProvider.cpp
+    ../src/managers/ThumbnailProvider.h
     ../src/managers/EditVideoSource.cpp
     ../src/managers/EditVideoSource.h
     ../src/managers/EditVideoController.cpp

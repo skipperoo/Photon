@@ -19,6 +19,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 - **Export progress** now advances while a video is being made, and the "export finished" event no longer repeats once more after each export.
 - **Exports to a folder picked with the folder button** now go to that folder. The picker's address was used as-is, as a file:// URL.
+- **Thumbnails for RAWs without a usable embedded preview** (panoramas made with earlier versions, some DNGs from other tools) are rendered from the photo itself instead of staying blank.
 - **Dropdown menus** no longer show an empty first row when the first option is selected (seen with the KDE Breeze style). All dropdowns, including Settings and Export, now share Photon's own style.
 
 ### Build

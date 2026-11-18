@@ -20,6 +20,7 @@
 #include "Denoiser.h"
 #include "EditVideo.h"
 #include "EditVideoController.h"
+#include "ThumbnailProvider.h"
 #include "VideoEncoder.h"
 #ifdef PHOTON_HAS_VIDEO_EXPORT
 extern "C" {
@@ -118,6 +119,7 @@ class TestRawEngine : public QObject {
   void testEditVideoComposer();
   void testEditVideoPlanAndPill();
   void testEditVideoController();
+  void testThumbnailWithoutUsablePreview();
   void testEditVideoEncode();
   void testDenoiseAtBaseExposure();
   void testDenoiseNoiseAdaptive();
@@ -3930,6 +3932,41 @@ void TestRawEngine::testEditVideoController() {
   QCOMPARE(ctl.frame(0).size(), QSize(540, 960));
   ctl.close();
   QVERIFY(!ctl.ready());
+}
+
+// A RAW whose embedded preview cannot be decoded (a panorama DNG written
+// before 2026-10 stores a TIFF-JPEG preview whose tables live in a separate
+// tag) still gets a thumbnail: rendered from the RAW itself.
+void TestRawEngine::testThumbnailWithoutUsablePreview() {
+  const QString sample = QCoreApplication::applicationDirPath() +
+                         QStringLiteral("/../../testphoton/_DSC7870.pano.dng");
+  if (!QFileInfo::exists(sample)) QSKIP("no sample panorama DNG available");
+  QVERIFY(RawEngine::extractThumbnail(sample).isNull());  // preview unusable
+  QTemporaryDir dir;
+  const QString path = dir.filePath(QStringLiteral("_DSC7870.pano.dng"));
+  QVERIFY(QFile::copy(sample, path));
+  ThumbnailProvider provider;
+  const QImage thumb = provider.getThumbnail(path);
+  QVERIFY(!thumb.isNull());
+  QVERIFY(std::max(thumb.width(), thumb.height()) <= 720);
+  // Upright like the panorama (portrait) and not a flat frame.
+  LibRaw lr;
+  QCOMPARE(lr.open_file(path.toLocal8Bit().constData()), 0);
+  QCOMPARE(thumb.width() < thumb.height(), lr.imgdata.sizes.width < lr.imgdata.sizes.height);
+  int minL = 255, maxL = 0;
+  for (int y = 0; y < thumb.height(); y += 8)
+    for (int x = 0; x < thumb.width(); x += 8) {
+      const int l = qGray(thumb.pixel(x, y));
+      minL = std::min(minL, l);
+      maxL = std::max(maxL, l);
+    }
+  QVERIFY2(maxL - minL > 60, qPrintable(QString("%1..%2").arg(minL).arg(maxL)));
+  // Cached like any thumbnail.
+  QVERIFY(QFileInfo::exists(provider.getThumbnailPath(path)));
+  // A RAW with a good embedded preview still uses it (no render).
+  const QString arw = QCoreApplication::applicationDirPath() +
+                      QStringLiteral("/../../testphoton/_DSC9111.ARW");
+  if (QFileInfo::exists(arw)) QVERIFY(!RawEngine::extractThumbnail(arw).isNull());
 }
 
 QTEST_MAIN(TestRawEngine)

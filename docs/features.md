@@ -505,3 +505,21 @@ Short entries for features that predate this document; details live in `TASKS.md
 
 - The Crop panel ends with **Cancel** and **Apply** (`CropPanel.cancel()` / `confirm()`), the same actions as Esc / Enter, for tablets without a keyboard.
 - Files: `content/components/CropPanel.qml`, `content/views/AppContent.qml`.
+
+## Camera look for the AgX profile (2026-11-19)
+
+- Purpose: the Camera Look did nothing with AgX (it was skipped: AgX is a tone map of its own, so the normal look would have added its contrast on top).
+- Fit (`fitCameraLook`): the same samples also go through the render's pre-AgX steps (base exposure gain and highlight roll-off with its desaturation, Rec.2020 → sRGB gamut map) and AgX (`photon::agx::tonemap`, now shared from `AgxToneMap.h` with the export); the AgX output's Rec.709 luminance is paired with the camera JPEG's and fitted with the same quantile matching and acceptance gates → `CameraLook::agxTone` (may be invalid when AgX alone is as close as the gates allow). Cache version 2 (`agx` object in the look file).
+- Use: `CameraLook::forProfile(agx)`; the preview's luminance LUT (`RawEngine::rebuildToneLut`, rebuilt on profile change), the histogram (same LUT) and the export (`cameraLookAgx` injected by `applyToSettings`, chosen in `ImageDeveloper` when AgX is on) agree.
+- Measured (`_DSC7864`): mid-grey under AgX 0.242 → 0.471 with the AgX look; the camera (normal look) puts it at 0.468.
+- Files: `src/engine/CameraLook.{h,cpp}`, `AgxToneMap.h`, `ImageDeveloper.cpp`, `RawEngine.cpp`, `EditVideo.cpp`, `tests/auto/tst_RawEngine.cpp` (`testCameraLookAgxFit`).
+
+## Remote mode H.264 stream (2026-11-19)
+
+- Purpose: remote mode on slow links (cellular): JPEG frames of 100–400 KB each with one frame in flight gave ~0.5 s of lag and 5–6 fps.
+- Encoder (`photon::video::StreamEncoder`, FFmpeg): tries h264_nvenc (p2, ull, VBR cq 24, zerolatency), h264_amf (ultralowlatency), h264_qsv (veryfast, async_depth 1), h264_videotoolbox (realtime), libx264 (superfast, zerolatency, CRF 23), libopenh264; no B-frames, low-delay flag, GOP 600 with forced IDR on request, millisecond timestamps (frames come on change), RGBA → BT.709 limited 4:2:0 (swscale), tagged BT.709 / sRGB curve, Annex B with SPS/PPS in-band; odd sizes padded to even. The WebCodecs codec string comes from the first SPS.
+- Server: a client that can decode (hello `video: true`) gets `{"type":"video", codec, encoder}` before each new configuration's keyframe, then video frames (header `kind: video`, `id`, `key`), at most two unacknowledged; 250 ms after the last frame a JPEG still (q92) of the settled screen (video is soft and 4:2:0). Encoder failure → JPEG frames for the session; `video-failed` from the client → JPEG; `keyframe` from the client → next frame is an IDR.
+- Client: `VideoDecoder` (optimizeForLatency, prefer-hardware) configured from the server's message; frames decoded, drawn (visible part) and acknowledged; a decoder error rebuilds it and asks for a keyframe; frames are drawn only when newer than the last drawn (a late still never covers a newer video frame). The ⓘ readout shows H.264 (encoder) or JPEG.
+- Measured: 2360×1640 with NVENC 14–17 ms per frame, P-frames 1–9 KB (JPEG 180–345 KB); iPad on cellular 5–6 → 25–30 fps.
+- Also: the home-screen icon is embedded in the page as a data URL (iOS fetches a linked icon without the certificate exception accepted in Safari); photos per row capped so cells stay ≥ 200 px.
+- Files: `src/engine/StreamEncoder.{h,cpp}`, `src/managers/RemoteServer.{h,cpp}`, `assets/remote/index.html`, `CMakeLists.txt` (`PHOTON_HAS_REMOTE_VIDEO` when FFmpeg is on), `content/views/LibraryView.qml`.

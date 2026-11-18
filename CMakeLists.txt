@@ -407,6 +407,14 @@ if(PHOTON_ENABLE_REMOTE)
     )
     target_link_libraries(Photon PRIVATE Qt6::WebSockets Qt6::Network OpenSSL::Crypto)
     target_compile_definitions(Photon PRIVATE PHOTON_HAS_REMOTE=1)
+    # The H.264 stream needs FFmpeg (the edit video's); JPEG frames otherwise.
+    if(PHOTON_ENABLE_VIDEO_EXPORT)
+        target_sources(Photon PRIVATE
+            src/engine/StreamEncoder.cpp
+            src/engine/StreamEncoder.h
+        )
+        target_compile_definitions(Photon PRIVATE PHOTON_HAS_REMOTE_VIDEO=1)
+    endif()
 endif()
 
 if(PHOTON_ENABLE_VIDEO_EXPORT)

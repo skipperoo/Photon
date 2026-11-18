@@ -1,3 +1,4 @@
+#include "AgxToneMap.h"
 #include "ColorSpace.h"
 #include "ToneMath.h"
 #include "RawDecode.h"
@@ -120,6 +121,7 @@ CameraLook loadCameraLook(const QString& sourcePath) {
     return look;
   look.tone = toneCurveFromJson(obj);
   if (!look.tone.valid) return CameraLook();
+  look.agxTone = toneCurveFromJson(obj.value("agx").toObject());
   return look;
 }
 
@@ -128,6 +130,7 @@ bool saveCameraLook(const QString& sourcePath, const CameraLook& look) {
   const QString path = cameraLookCachePath(sourcePath);
   if (!QDir().mkpath(QFileInfo(path).absolutePath())) return false;
   QJsonObject obj = toneCurveToJson(look.tone);
+  if (look.agxTone.valid) obj["agx"] = toneCurveToJson(look.agxTone);
   obj["version"] = kCameraLookVersion;
   obj["decode"] = photon::raw::kDevelopDecodeVersion;
   QFile file(path);
@@ -196,6 +199,10 @@ CameraLook fitCameraLook(const QString& sourcePath) {
       photon::raw::baseExposure(data, sensorWidth, sensorHeight, 3);
   std::vector<std::pair<float, float>> pairs;
   pairs.reserve(std::size_t(proxyWidth) * std::size_t(proxyHeight));
+  // The same samples through the AgX profile (its look maps AgX's output).
+  std::vector<std::pair<float, float>> agxPairs;
+  agxPairs.reserve(pairs.capacity());
+  const float baseGain = photon::tone::exposureGain(baseEv);
   for (int py = 0; py < proxyHeight; ++py) {
     const int y0 = py * sensorHeight / proxyHeight;
     const int y1 = std::max(y0 + 1, (py + 1) * sensorHeight / proxyHeight);
@@ -237,6 +244,30 @@ CameraLook fitCameraLook(const QString& sourcePath) {
           photon::tone::exposureLuma(
               photon::colorspace::luma(sceneR, sceneG, sceneB), baseEv);  // working space
       pairs.emplace_back(scene, target);
+
+      // As the render does before AgX: exposure (gain, highlight roll-off
+      // with its desaturation), working space -> sRGB primaries, AgX.
+      float r = sceneR * baseGain, g = sceneG * baseGain, b = sceneB * baseGain;
+      if (baseEv > 0.0f) {
+        const float gained = photon::colorspace::luma(r, g, b);
+        const float rolled = photon::tone::exposureLuma(gained / baseGain, baseEv);
+        if (rolled < gained && gained > 1e-6f) {
+          const float k = rolled / gained;
+          r *= k;
+          g *= k;
+          b *= k;
+          const float s = photon::tone::exposureDesaturation(gained, rolled);
+          r += (rolled - r) * s;
+          g += (rolled - g) * s;
+          b += (rolled - b) * s;
+        }
+      }
+      const float y = photon::colorspace::luma(r, g, b);
+      photon::colorspace::rec2020ToSrgb(r, g, b);
+      photon::colorspace::gamutMapToPositive(r, g, b, y);
+      photon::agx::tonemap(r, g, b);
+      const float agxLuma = luma709(std::max(r, 0.0f), std::max(g, 0.0f), std::max(b, 0.0f));
+      if (agxLuma > 0.0f) agxPairs.emplace_back(agxLuma, target);
     }
   }
 
@@ -250,6 +281,7 @@ CameraLook fitCameraLook(const QString& sourcePath) {
     return look;
   }
   look.tone = fitCameraToneCurve(pairs);
+  look.agxTone = fitCameraToneCurve(agxPairs);
   if (!look.tone.valid) {
     LogManager::instance()->log(
         QString("[ CameraLook.cpp ] - %1: fit did not pass the acceptance "
@@ -261,11 +293,12 @@ CameraLook fitCameraLook(const QString& sourcePath) {
   }
   LogManager::instance()->log(
       QString("[ CameraLook.cpp ] - fitted camera tone curve from %1 samples "
-              "for %2 (scene %3..%4)")
+              "for %2 (scene %3..%4), AgX curve %5")
           .arg(pairs.size())
           .arg(QFileInfo(sourcePath).fileName())
           .arg(double(look.tone.knots[0][0]))
-          .arg(double(look.tone.knots[kToneKnots - 1][0])),
+          .arg(double(look.tone.knots[kToneKnots - 1][0]))
+          .arg(look.agxTone.valid ? "fitted" : "not needed"),
       PHOTON_DEBUG);
   return look;
 }
@@ -284,6 +317,7 @@ void applyToSettings(const QString& sourcePath, QJsonObject& settings) {
     return;
   const CameraLook look = obtainCameraLook(sourcePath);
   if (look.tone.valid) settings["cameraLook"] = toneCurveToJson(look.tone);
+  if (look.agxTone.valid) settings["cameraLookAgx"] = toneCurveToJson(look.agxTone);
 }
 
 }  // namespace cameralook

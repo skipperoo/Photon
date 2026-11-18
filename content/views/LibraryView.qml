@@ -222,7 +222,7 @@ Control {
                     id: columnsSlider
                     Layout.preferredWidth: 140
                     from: 1
-                    to: 10
+                    to: Math.max(2, grid.maxColumns)
                     stepSize: 1
                     snapMode: Slider.SnapAlways
                     showNeutralTick: false
@@ -372,8 +372,11 @@ Control {
             // Photos per row: the setting, or as many 440 px cells as fit. Cells
             // keep the 440:400 proportions. Sized from the parent's width (the
             // grid's own width follows preferredWidth).
+            // At most as many as leave cells 200 px wide (smaller cards have no
+            // room for the photo next to their text).
+            readonly property int maxColumns: Math.max(1, Math.min(10, Math.floor(parent.width / 200)))
             readonly property int columns: AppState.libraryColumns > 0
-                                           ? AppState.libraryColumns
+                                           ? Math.min(AppState.libraryColumns, maxColumns)
                                            : Math.max(1, Math.floor(parent.width / 440))
             cellWidth: Math.max(1, Math.floor(parent.width / columns))
             cellHeight: Math.round(cellWidth * 400 / 440)
@@ -394,7 +397,7 @@ Control {
                     }
                     while (accumulated <= -120) {
                         accumulated += 120
-                        AppState.libraryColumns = Math.min(10, grid.columns + 1)
+                        AppState.libraryColumns = Math.min(grid.maxColumns, grid.columns + 1)
                     }
                 }
             }

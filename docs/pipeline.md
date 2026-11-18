@@ -94,7 +94,7 @@ Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or 
 | Process version + history (40.5) | edit-stack JSON (`processVersion`, `__step`/`__delta`/`__index` metadata) | DONE (`2fbdc2c`) |
 | Lensfun (40.6) | real-time GPU (`lensShader` uniforms, baked-image space) + CPU export before geometry | DONE (`9f1df25`) |
 | HDR merge (40.7) | tool before the develop pipeline: merged linear DNG enters the library as a normal RAW file | DONE (`d538d7f`) |
-| Camera look (40.8) | display-domain tone LUT (luminance pre-curve, per-photo amount); skipped for AgX | DONE (`8531c59`) |
+| Camera look (40.8) | display-domain tone LUT (luminance pre-curve, per-photo amount); AgX uses its own curve fitted on AgX's output (40.22) | DONE (`8531c59`) |
 | RAW Kelvin WB (post-release) | white-balance gains in the final shader + Photon001 log pass, CPU export and histogram (per photo, 2000–50000 K since 2026-11-15) | DONE (`7bc48f4`) |
 | Editable slider values (post-release) | UI only (click-to-edit number labels) | DONE (`7bc48f4`) |
 | Export parity (post-release) | export: scene white, pre-edit denoise, linear lens vignetting, geometry before the pipeline, + Sharpness/Structure/Dehaze/Centrè/Grain/Vignette | DONE (`8d9156e`) |
@@ -145,3 +145,4 @@ Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or 
 | 2026-11-18 | Preset library: folders, favorites, project presets, .json/.zip import/export (presets apply through `RawEngine::applySettings`; no pipeline change) | organized, shareable presets | branch `feature/presets` |
 | 2026-11-18 | Remote mode: the UI (and its GPU preview chain) rendered offscreen at the device's size and streamed to a browser; no pipeline change | edit from an iPad | branch `feature/remote-ui` |
 | 2026-11-18 | Remote QoL: upload from the device, Library photos per row, Crop Apply/Cancel buttons; no pipeline change | tablet workflow | branch `feature/remote-qol` |
+| 2026-11-19 | Camera look for AgX: a second fitted curve (AgX rendering → camera luminance) composed into the tone LUT when the profile is AgX (preview, export, histogram); remote mode streams H.264 | Camera Look works with AgX; fast remote | branch `feature/remote-h264` |

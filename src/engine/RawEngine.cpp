@@ -2476,7 +2476,9 @@ void RawEngine::rebuildToneLut() {
   // through it before the per-channel curves).
   if (cameraLookUsable())
     photon::cameralook::prependToneCurveToLut(
-        lutL, m_cameraLook.tone, m_cameraLookAmount / 100.0f);
+        lutL,
+        m_cameraLook.forProfile(m_profile == QLatin1String(develop::kProfileAgx)),
+        m_cameraLookAmount / 100.0f);
 
   // Check if any LUT deviates from identity after quantization to 16-bit.
   // This keeps toneCurveActive stable for near-identity curves while still
@@ -2530,11 +2532,11 @@ void RawEngine::rebuildToneLut() {
 }
 
 bool RawEngine::cameraLookUsable() const {
-  if (!m_cameraLook.tone.valid || m_cameraLookAmount <= 0.0f) return false;
-  // AgX is a full tone map of its own; the camera look would run on its
-  // output. It still applies to the normal and black & white profiles (for
-  // the latter it becomes the tone curve of the converted image).
-  return m_profile != QLatin1String(develop::kProfileAgx);
+  // AgX has its own curve, fitted on AgX's output (AgX is a tone map of its
+  // own); the normal and black & white profiles share the scene curve (for
+  // black & white it becomes the tone curve of the converted image).
+  return m_cameraLookAmount > 0.0f &&
+         m_cameraLook.forProfile(m_profile == QLatin1String(develop::kProfileAgx)).valid;
 }
 
 void RawEngine::loadCameraLookForSource() {

@@ -4,6 +4,23 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 ## [Unreleased]
 
+## [v0.6.1] - 2026-11-19
+
+### Highlights
+
+- **Remote mode is an order of magnitude faster on slow connections.** The screen now streams as H.264 video, encoded on the graphics card where available, instead of a JPEG per change: frames during scrolling and slider drags shrink from hundreds of KB to a few KB, and the frame rate on cellular goes from 5–6 to 25–30 fps. A sharp still follows a moment after you stop, so edits are judged at full quality.
+- **Camera Look works with the AgX profile.**
+
+### Changed
+
+- **Remote mode streams video:** H.264 through FFmpeg (NVIDIA NVENC, AMD AMF, Intel Quick Sync or Apple VideoToolbox when present, otherwise x264), decoded in hardware by the browser (WebCodecs; iPadOS 16.4 or later), two frames in flight, a sharp JPEG still 250 ms after the screen settles. Browsers without H.264 decoding keep JPEG frames. The ⓘ readout shows which is in use.
+
+### Fixed
+
+- **Camera Look with AgX:** it did nothing with the AgX profile. AgX now has its own look, fitted on AgX's rendering, so at 100% both profiles land on the camera's rendering (cached looks are refitted once).
+- **Home-screen icon** in remote mode: adding Photon to the iPad's Home Screen showed a screenshot instead of the logo when the certificate warning had been accepted rather than the certificate installed.
+- **Photos per row** no longer goes past what fits (cells at least 200 px wide): very small cards lost their photo.
+
 ## [v0.6.0] - 2026-11-18
 
 ### Highlights

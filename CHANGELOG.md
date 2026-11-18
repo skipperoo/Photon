@@ -4,7 +4,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 ## [Unreleased]
 
-## [v0.5.2] - 2026-11-18
+## [v0.6.0] - 2026-11-18
 
 ### Highlights
 

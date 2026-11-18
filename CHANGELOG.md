@@ -4,6 +4,15 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 ## [Unreleased]
 
+## [v0.5.2] - 2026-11-18
+
+### Highlights
+
+- **Edit from your iPad.** Remote mode streams the real Photon (running on your computer, with its GPU, AI denoise and folders) to a browser on another device: turn it on in Settings › Remote Access, open the address on the iPad, and edit with touch. Upload photos from the iPad straight into the open folder, and get exports back onto it (Save to Photos, AirDrop, Files).
+- **Edit videos.** Export a short MP4 that plays your edit step by step, with a before/after slider at the end, ready for social media (Original, 4:5, 9:16, 16:9 and more, Full HD or 4K).
+- **A real preset library.** Folders, favorites, presets that stay with one folder of photos, and import/export as `.json` or `.zip`.
+- **Library photos per row** with a slider or Ctrl + scroll, and drag-to-scroll in the Develop panel and Settings.
+
 ### Added
 
 - **Edit video:** with one photo selected, Export ▸ Format ▸ **Edit video (MP4)** ▸ Start Export opens a dialog with a playable preview of the clip.

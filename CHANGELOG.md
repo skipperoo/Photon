@@ -2,6 +2,31 @@
 
 All notable changes to Photon. Each release's section is published as its GitHub release notes.
 
+## [Unreleased]
+
+### Added
+
+- **Edit video:** with one photo selected, Export ▸ Format ▸ **Edit video (MP4)** ▸ Start Export opens a dialog with a playable preview of the clip.
+  - **The clip:** it opens on the unedited photo, then applies each Develop group you used (Camera Look, Light, Tone Curve, …) one at a time. Each effect fades in while a label shows the group's name.
+  - **Choose which edits appear one by one:** unchecked ones are applied together as **Tweaks** at the end.
+  - **Ending:** a slow before/after slider across the photo. The line rests on the right, sweeps back to the left (the original) twice as fast, and after a second sweeps to the right again on the finished edit, which then holds for 3 seconds. The slider line can be hidden; the sweep stays.
+  - **Label:** frosted glass, liquid glass, white or black; rounded rectangle or capsule; top, center or bottom; set in Instrument Sans.
+  - **Aspect ratio:** Original, 4:5, 5:4, 16:9 or 9:16. Space around the photo is filled with a soft blurred extension of it, like on the iPhone.
+  - **Resolution:** Full HD (1080p) or 4K. Crop, rotation and lens corrections apply from the first frame.
+  - Videos are H.264 MP4 at near-lossless quality with standard colour tags, ready to share anywhere.
+
+### Fixed
+
+- **Export progress** now advances while a video is being made, and the "export finished" event no longer repeats once more after each export.
+- **Exports to a folder picked with the folder button** now go to that folder. The picker's address was used as-is, as a file:// URL.
+- **Thumbnails for RAWs without a usable embedded preview** (panoramas made with earlier versions, some DNGs from other tools) are rendered from the photo itself instead of staying blank.
+- **Dropdown menus** no longer show an empty first row when the first option is selected (seen with the KDE Breeze style). All dropdowns, including Settings and Export, now share Photon's own style.
+
+### Build
+
+- New dependency: **FFmpeg** (libavcodec, libavformat, libavutil, libswscale; with libx264 for the best quality). Fedora: `ffmpeg-devel` from RPM Fusion; Ubuntu: `libavcodec-dev libavformat-dev libavutil-dev libswscale-dev`; Windows: vcpkg `ffmpeg[x264]`. `-DPHOTON_ENABLE_VIDEO_EXPORT=OFF` builds without the edit video.
+- The Instrument Sans typeface (SemiBold, SIL Open Font License) is bundled for the video's labels.
+
 ## [v0.5.1] - 2026-11-18
 
 v0.5.1 is the first published release of this feature set: v0.5.0 was tagged but never released, because its Windows build failed.

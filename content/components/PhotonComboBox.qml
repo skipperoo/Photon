@@ -1,9 +1,13 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
+import QtQuick.Templates as T
 import Main
 
-ComboBox {
+// Built on the style-free templates: every visual part is defined here, so
+// the platform style (e.g. KDE Breeze, whose ComboBox drew the selected row
+// of the open list empty) cannot change it.
+T.ComboBox {
     id: control
 
     implicitWidth: 180
@@ -34,10 +38,12 @@ ComboBox {
         border.width: 1
     }
 
-    delegate: ItemDelegate {
+    delegate: T.ItemDelegate {
         id: optionItem
         width: ListView.view ? ListView.view.width : control.width
         implicitHeight: 32
+        leftPadding: 8
+        rightPadding: 8
         highlighted: control.highlightedIndex === index
         text: control.textRole
               ? (typeof modelData === "object" ? modelData[control.textRole] : modelData)
@@ -57,7 +63,7 @@ ComboBox {
         }
     }
 
-    popup: Popup {
+    popup: T.Popup {
         y: control.height + 8
         width: control.width
         // Cap the popup so long lists scroll instead of running off screen.

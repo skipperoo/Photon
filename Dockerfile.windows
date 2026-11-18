@@ -40,7 +40,7 @@ COPY . .
 RUN @' \
 $env:PATH = \"C:\Qt\6.10.1\msvc2022_64\bin;C:\Program Files\CMake\bin;C:\Program Files\Git\cmd;C:\vcpkg;\" + $env:PATH; \
 # Install dependencies via vcpkg \
-vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows; \
+vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows libjpeg-turbo:x64-windows lcms:x64-windows \"ffmpeg[core,avcodec,avformat,swscale,gpl,x264]:x64-windows\"; \
 # Configure and Build \
 mkdir build_win; cd build_win; \
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake; \

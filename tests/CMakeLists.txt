@@ -13,6 +13,10 @@ add_executable(tst_RawEngine
     ../src/engine/RawEngine.h
     ../src/engine/CameraLook.cpp
     ../src/engine/CameraLook.h
+    ../src/engine/EditVideo.cpp
+    ../src/engine/EditVideo.h
+    ../src/engine/VideoEncoder.cpp
+    ../src/engine/VideoEncoder.h
     ../src/engine/CameraLookMath.h
     ../src/engine/Denoiser.cpp
     ../src/engine/Denoiser.h
@@ -38,6 +42,12 @@ add_executable(tst_RawEngine
     ../src/managers/CrashReporter.h
     ../src/managers/ExportManager.cpp
     ../src/managers/ExportManager.h
+    ../src/managers/ThumbnailProvider.cpp
+    ../src/managers/ThumbnailProvider.h
+    ../src/managers/EditVideoSource.cpp
+    ../src/managers/EditVideoSource.h
+    ../src/managers/EditVideoController.cpp
+    ../src/managers/EditVideoController.h
     ../src/managers/FileScanner.cpp
     ../src/managers/FileScanner.h
     ../src/managers/LogManager.cpp
@@ -66,6 +76,20 @@ else()
         PRIVATE Vulkan::Vulkan
     )
 endif()
+# Edit video: the pill font at the app's resource path (:/Main/assets/...).
+qt_add_resources(tst_RawEngine "editvideo_fonts"
+    PREFIX "/Main"
+    BASE ".."
+    FILES ../assets/fonts/InstrumentSans-SemiBold.ttf)
+
+# Edit video: link FFmpeg when the app builds the video export.
+if(PHOTON_ENABLE_VIDEO_EXPORT)
+    target_include_directories(tst_RawEngine PRIVATE ${PHOTON_FFMPEG_INCLUDE_DIRS})
+    target_link_directories(tst_RawEngine PRIVATE ${PHOTON_FFMPEG_LIBRARY_DIRS})
+    target_link_libraries(tst_RawEngine PRIVATE ${PHOTON_FFMPEG_LIBRARIES})
+    target_compile_definitions(tst_RawEngine PRIVATE PHOTON_HAS_VIDEO_EXPORT=1)
+endif()
+
 # AI denoise: link ncnn when the app builds it, so the engine integration
 # test can run the real model (it skips without the model or sample RAW).
 if(TARGET ncnn)

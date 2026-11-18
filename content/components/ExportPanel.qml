@@ -6,6 +6,20 @@ import Main
 
 Control {
     id: root
+
+    // The edit video is made for one photo at a time (previewed in a dialog).
+    readonly property bool videoSupported: ExportManager.videoExportAvailable()
+    readonly property bool videoAvailable: videoSupported && AppState.selectionCount === 1
+    readonly property bool video: formatCombo.currentText === "Edit video (MP4)"
+
+    onVideoAvailableChanged: {
+        if (!videoAvailable && formatCombo.currentIndex > 1)
+            formatCombo.currentIndex = 0
+    }
+
+    EditVideoDialog {
+        id: videoDialog
+    }
     
     background: Rectangle {
         color: Theme.background
@@ -46,17 +60,26 @@ FolderDialog {
                     Layout.fillWidth: true
                     spacing: 5
                     Text { text: "Format"; color: Theme.mutedFg; font: Theme.fontSmall }
-                    ComboBox {
+                    PhotonComboBox {
                         id: formatCombo
-                        model: ["JPG", "TIFF"]
+                        model: root.videoAvailable ? ["JPG", "TIFF", "Edit video (MP4)"] : ["JPG", "TIFF"]
+                        Layout.fillWidth: true
+                    }
+                    Text {
+                        visible: root.videoSupported && AppState.selectionCount > 1
+                        text: "Select a single photo to export an edit video."
+                        color: Theme.mutedFg
+                        font: Theme.fontSmall
+                        wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 5
+                    visible: !root.video
                     Text { text: "Color space"; color: Theme.mutedFg; font: Theme.fontSmall }
-                    ComboBox {
+                    PhotonComboBox {
                         id: colorSpaceCombo
                         model: ["sRGB", "Adobe RGB"]
                         Layout.fillWidth: true
@@ -67,7 +90,7 @@ FolderDialog {
                     spacing: 5
                     visible: formatCombo.currentText === "TIFF"
                     Text { text: "Bit depth"; color: Theme.mutedFg; font: Theme.fontSmall }
-                    ComboBox {
+                    PhotonComboBox {
                         id: bitDepthCombo
                         model: ["8-bit", "16-bit"]
                         Layout.fillWidth: true
@@ -201,7 +224,13 @@ FolderDialog {
                 text: "Start Export"
                 enabled: !ExportManager.isExporting && AppState.selectionCount > 0
                 onClicked: {
-                    ExportManager.startExport(AppState.selectedImages, folderInput.text, formatCombo.currentText, Math.round(qualitySlider.value), bitDepthCombo.currentIndex === 1 ? 16 : 8, colorSpaceCombo.currentIndex === 1 ? "adobergb" : "srgb")
+                    if (root.video) {
+                        // Preview and options first; the dialog starts the export.
+                        videoDialog.photoPath = AppState.selectedImages[0]
+                        videoDialog.outputFolder = folderInput.text
+                        videoDialog.open()
+                    } else
+                        ExportManager.startExport(AppState.selectedImages, folderInput.text, formatCombo.currentText, Math.round(qualitySlider.value), bitDepthCombo.currentIndex === 1 ? 16 : 8, colorSpaceCombo.currentIndex === 1 ? "adobergb" : "srgb")
                 }
             }
         }

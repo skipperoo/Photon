@@ -15,8 +15,8 @@ jobs:
   build:
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # A cold vcpkg cache (Windows) rebuilds OpenCV & co. from source.
-    timeout-minutes: 150
+    # A cold vcpkg cache (Windows) rebuilds OpenCV, FFmpeg & co. from source.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +63,8 @@ jobs:
             libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 \
             libwayland-client0 libwayland-cursor0 libwayland-egl1 libxkbcommon-x11-0 \
             libwayland-dev wayland-protocols libwayland-server0 libopencv-dev \
-            imagemagick libtiff-dev liblcms2-dev libjpeg-turbo8-dev
+            imagemagick libtiff-dev liblcms2-dev libjpeg-turbo8-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
@@ -71,7 +72,7 @@ jobs:
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows libjpeg-turbo:x64-windows lcms:x64-windows
+          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows libjpeg-turbo:x64-windows lcms:x64-windows "ffmpeg[core,avcodec,avformat,swscale,gpl,x264]:x64-windows"
 
       - name: Configure CMake
         shell: bash
@@ -130,6 +131,7 @@ jobs:
           # looks for it in <executable dir>/models; linuxdeploy only copies
           # the executable.
           test -f build_dir/models/rawnind_bayer.ncnn.param
+          test -f build_dir/models/rawnind_linear.ncnn.param
           mkdir -p AppDir/usr/bin/models
           cp build_dir/models/* AppDir/usr/bin/models/
 

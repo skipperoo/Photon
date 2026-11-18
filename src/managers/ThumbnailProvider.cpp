@@ -11,9 +11,65 @@
 #include <QThread>
 #include <QtConcurrent>
 
+#include <libraw/libraw.h>
+
+#include <QJsonObject>
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
 #include "CrashReporter.h"
+#include "LogManager.h"
 #include "RawEngine.h"
+#include "../engine/AiDenoiser.h"
 #include "../engine/ImageDecoder.h"
+#include "../engine/ImageDeveloper.h"
+#include "../engine/RawDecode.h"
+
+namespace {
+// A thumbnail rendered from the RAW itself, for files whose embedded preview
+// is missing or cannot be decoded (e.g. DNGs with a TIFF-JPEG preview whose
+// tables live in a separate tag, as Photon's panoramas had before
+// 2026-10): a fast half-size decode, downscaled, developed with the default
+// settings at the RAW base exposure (the photo as Develop shows it unedited).
+QImage renderRawThumbnail(const QString& path) {
+  constexpr int kMaxEdge = 720;  // twice the 360 px the cache stores
+  LibRaw lr;
+  photon::raw::configureDevelopDecode(lr);
+  lr.imgdata.params.half_size = 1;
+  if (lr.open_file(path.toLocal8Bit().constData()) != LIBRAW_SUCCESS ||
+      lr.unpack() != LIBRAW_SUCCESS || lr.dcraw_process() != LIBRAW_SUCCESS)
+    return QImage();
+  int ret = 0;
+  libraw_processed_image_t* mem = lr.dcraw_make_mem_image(&ret);
+  if (!mem || mem->type != LIBRAW_IMAGE_BITMAP || mem->colors != 3 ||
+      mem->bits != 16) {
+    if (mem) LibRaw::dcraw_clear_mem(mem);
+    return QImage();
+  }
+  const ushort* rgb = reinterpret_cast<const ushort*>(mem->data);
+  int w = mem->width;
+  int h = mem->height;
+  QJsonObject settings;
+  settings["baseExposure"] = photon::raw::baseExposure(rgb, w, h, 3);
+  settings["outputBits"] = 8;
+  std::vector<ushort> pixels;
+  const double scale = double(kMaxEdge) / std::max(w, h);
+  if (scale < 1.0) {
+    const int sw = std::max(1, int(std::lround(w * scale)));
+    const int sh = std::max(1, int(std::lround(h * scale)));
+    pixels.resize(size_t(sw) * sh * 3);
+    photon::ai::resampleRgb16(rgb, w, h, pixels.data(), sw, sh);
+    w = sw;
+    h = sh;
+  } else {
+    pixels.assign(rgb, rgb + size_t(w) * h * 3);
+  }
+  LibRaw::dcraw_clear_mem(mem);
+  // LibRaw's develop output is already upright.
+  return photon::ImageDeveloper::develop(pixels.data(), w, h, settings);
+}
+}  // namespace
 
 ThumbnailProvider::ThumbnailProvider(QObject* parent)
     : QObject(parent), m_threadPool(new QThreadPool(this)) {
@@ -86,7 +142,14 @@ QImage ThumbnailProvider::generateThumbnail(const QString& imagePath) const {
   if (photon::ImageDecoder::isBitmap(imagePath)) {
     return photon::ImageDecoder::extractThumbnail(imagePath);
   }
-  return RawEngine::extractThumbnail(imagePath);
+  QImage embedded = RawEngine::extractThumbnail(imagePath);
+  if (!embedded.isNull()) return embedded;
+  photon::LogManager::instance()->log(
+      QString("[ ThumbnailProvider.cpp ] - no usable embedded preview in %1; "
+              "rendering the thumbnail")
+          .arg(imagePath),
+      photon::PHOTON_DEBUG);
+  return renderRawThumbnail(imagePath);
 }
 
 QImage ThumbnailProvider::getThumbnail(const QString& imagePath) {

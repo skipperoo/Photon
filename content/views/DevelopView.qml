@@ -200,14 +200,21 @@ Control {
             }
         }
 
-        ScrollView {
+        // A plain Flickable: drag (mouse or touch) on empty space or across the
+        // panel scrolls, like the Library; sliders and headers keep their own
+        // presses and horizontal drags.
+        Flickable {
+            id: adjustmentsScroll
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            contentWidth: availableWidth
+            contentWidth: width
+            contentHeight: adjustmentsColumn.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: PhotonScrollBar {}
 
             ColumnLayout {
+                id: adjustmentsColumn
                 width: parent.width
                 spacing: 0
 

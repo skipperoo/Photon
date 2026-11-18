@@ -27,7 +27,7 @@ jobs:
         with:
           version: ${{ matrix.qt_ver }}
           arch: ${{ matrix.qt_arch }}
-          modules: "qtshadertools"
+          modules: "qtshadertools qtwebsockets"
           cache: true
 
       - name: Install Dependencies (Linux)
@@ -36,7 +36,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libraw-dev libvulkan-dev libgl1-mesa-dev \
             libopencv-dev libtiff-dev liblcms2-dev libjpeg-turbo8-dev \
-            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libssl-dev
 
       - name: Cache vcpkg packages (Windows)
         if: runner.os == 'Windows'
@@ -52,7 +52,7 @@ jobs:
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows libjpeg-turbo:x64-windows lcms:x64-windows "ffmpeg[core,avcodec,avformat,swscale,gpl,x264]:x64-windows"
+          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows libjpeg-turbo:x64-windows lcms:x64-windows "ffmpeg[core,avcodec,avformat,swscale,gpl,x264]:x64-windows" openssl:x64-windows
 
       - name: Configure (ASan)
         shell: bash

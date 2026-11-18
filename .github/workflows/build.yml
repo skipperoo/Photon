@@ -39,7 +39,7 @@ jobs:
         with:
           version: ${{ matrix.qt_ver }}
           arch: ${{ matrix.qt_arch }}
-          modules: "qtshadertools"
+          modules: "qtshadertools qtwebsockets"
           cache: true
 
       - name: Cache vcpkg packages (Windows)
@@ -64,7 +64,7 @@ jobs:
             libwayland-client0 libwayland-cursor0 libwayland-egl1 libxkbcommon-x11-0 \
             libwayland-dev wayland-protocols libwayland-server0 libopencv-dev \
             imagemagick libtiff-dev liblcms2-dev libjpeg-turbo8-dev \
-            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libssl-dev
           wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
@@ -72,7 +72,7 @@ jobs:
       - name: Install Dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows libjpeg-turbo:x64-windows lcms:x64-windows "ffmpeg[core,avcodec,avformat,swscale,gpl,x264]:x64-windows"
+          vcpkg install libraw:x64-windows vulkan:x64-windows opencv4:x64-windows tiff:x64-windows libjpeg-turbo:x64-windows lcms:x64-windows "ffmpeg[core,avcodec,avformat,swscale,gpl,x264]:x64-windows" openssl:x64-windows
 
       - name: Configure CMake
         shell: bash
@@ -125,7 +125,7 @@ jobs:
           # Tell the Qt plugin where to find QML files to scan for dependencies
           export QML_SOURCES_PATHS="${{ github.workspace }}/content"
           # Explicitly request extra platform plugins for better compatibility
-          export EXTRA_QT_PLUGINS="platforms,wayland-graphics-integration-client,wayland-shell-integration,imageformats,styles,controls,quickcontrols2"
+          export EXTRA_QT_PLUGINS="platforms,wayland-graphics-integration-client,wayland-shell-integration,imageformats,styles,controls,quickcontrols2,tls"
 
           # AI denoise model (staged by cmake/AiDenoiseModel.cmake): the app
           # looks for it in <executable dir>/models; linuxdeploy only copies
@@ -135,11 +135,13 @@ jobs:
           mkdir -p AppDir/usr/bin/models
           cp build_dir/models/* AppDir/usr/bin/models/
 
+          # libcrypto also comes from the host: Qt's TLS backend loads the host's
+          # libssl, which needs its own matching libcrypto (remote mode).
           # Run linuxdeploy. The Vulkan loader must come from the host (it has
           # to match the installed GPU drivers; an old bundled loader crashed
           # AI denoise GPU initialisation).
           ./linuxdeploy-x86_64.AppImage --appdir AppDir -e build_dir/Photon -d Photon.desktop -i assets/icons/photon.png \
-            --exclude-library "libvulkan.so*" --plugin qt --output appimage
+            --exclude-library "libvulkan.so*" --exclude-library "libcrypto.so*" --plugin qt --output appimage
 
           # Find the generated AppImage and ensure it's named Photon-x86_64.AppImage
           GENERATED_APPIMAGE=$(ls Photon-*.AppImage | grep -v "linuxdeploy" | head -n 1)

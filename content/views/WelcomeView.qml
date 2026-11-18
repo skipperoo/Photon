@@ -113,6 +113,10 @@ Item {
     }
 
 FolderDialog {
+
+    // Drawn inside the UI when non-native (a remote session), not as a desktop window.
+
+    popupType: Popup.Item
     id: folderDialog
     title: "Select a folder containing RAW images"
     onAccepted: {

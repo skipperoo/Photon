@@ -80,6 +80,22 @@ if(PHOTON_ENABLE_VIDEO_EXPORT)
     endif()
 endif()
 
+# Remote mode: Photon's UI streamed to a browser (e.g. an iPad) over HTTPS
+# with a password. Needs Qt WebSockets and OpenSSL (libcrypto, for the local
+# certificate authority).
+option(PHOTON_ENABLE_REMOTE "Build remote mode (needs Qt WebSockets and OpenSSL)" ON)
+if(PHOTON_ENABLE_REMOTE)
+    find_package(Qt6 COMPONENTS WebSockets Network)
+    find_package(OpenSSL COMPONENTS Crypto)
+    if(NOT Qt6WebSockets_FOUND OR NOT OPENSSL_FOUND)
+        message(FATAL_ERROR "[ CMakeLists.txt ] - Remote mode needs Qt WebSockets and OpenSSL "
+                            "(Fedora: qt6-qtwebsockets-devel openssl-devel; Ubuntu: the Qt "
+                            "WebSockets module and libssl-dev; Windows: the qtwebsockets Qt "
+                            "module and vcpkg openssl). Use -DPHOTON_ENABLE_REMOTE=OFF to build "
+                            "without it.")
+    endif()
+endif()
+
 qt_standard_project_setup(REQUIRES 6.10)
 
 if(PHOTON_ENABLE_AI_DENOISE)
@@ -247,10 +263,13 @@ qt_add_qml_module(Photon
         src/managers/EditVideoController.h
         src/managers/PreviewManager.cpp
         src/managers/PreviewManager.h
+        src/managers/RemoteSession.cpp
+        src/managers/RemoteSession.h
         src/managers/CrashReporter.cpp
         src/managers/CrashReporter.h
     QML_FILES
         content/views/App.qml
+        content/views/AppContent.qml
         content/views/WelcomeView.qml
         content/views/LibraryView.qml
         content/views/DevelopView.qml
@@ -286,6 +305,7 @@ qt_add_qml_module(Photon
         content/theme/Theme.qml
     RESOURCES
         assets/fonts/InstrumentSans-SemiBold.ttf
+        assets/remote/index.html
         assets/icons/photon.png
         assets/icons/search.svg
         assets/icons/hand.svg
@@ -374,6 +394,17 @@ else()
         PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
+endif()
+
+if(PHOTON_ENABLE_REMOTE)
+    target_sources(Photon PRIVATE
+        src/managers/RemoteServer.cpp
+        src/managers/RemoteServer.h
+        src/managers/RemoteCertificates.cpp
+        src/managers/RemoteCertificates.h
+    )
+    target_link_libraries(Photon PRIVATE Qt6::WebSockets Qt6::Network OpenSSL::Crypto)
+    target_compile_definitions(Photon PRIVATE PHOTON_HAS_REMOTE=1)
 endif()
 
 if(PHOTON_ENABLE_VIDEO_EXPORT)

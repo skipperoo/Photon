@@ -216,16 +216,16 @@ void TestRawEngine::testProperties() {
 }
 
 void TestRawEngine::testPhoton001MultipassUsesFloatTargets() {
-  QString appQmlPath = QFINDTESTDATA("../../content/views/App.qml");
+  QString appQmlPath = QFINDTESTDATA("../../content/views/AppContent.qml");
   if (appQmlPath.isEmpty()) {
     appQmlPath = QDir::cleanPath(
-        QCoreApplication::applicationDirPath() + "/../../content/views/App.qml");
+        QCoreApplication::applicationDirPath() + "/../../content/views/AppContent.qml");
   }
-  QVERIFY2(!appQmlPath.isEmpty(), "Could not locate content/views/App.qml");
+  QVERIFY2(!appQmlPath.isEmpty(), "Could not locate content/views/AppContent.qml");
 
   QFile qmlFile(appQmlPath);
   QVERIFY2(qmlFile.open(QIODevice::ReadOnly | QIODevice::Text),
-           "Failed to open content/views/App.qml");
+           "Failed to open content/views/AppContent.qml");
   const QString qml = QString::fromUtf8(qmlFile.readAll());
 
   auto verifySourceUsesFloatTarget = [&](const QString& sourceItem) {

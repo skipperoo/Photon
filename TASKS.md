@@ -733,7 +733,14 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.16 | Denoise after the decode change (AI cache key + 16-bit, noise-adaptive Classic BM3D, base-exposure domain, Rec.2020 Y'CbCr), camera look in library previews, Camera Look above Light, Settings ▸ Clear Cache | DONE | `887324a` |
 | 40.17 | AI denoise for non-Bayer RAWs (RawNIND linear model: X-Trans, Foveon, linear DNGs); shorter AI status text | DONE | `7fe9e38` |
 | 40.18 | Edit video export (MP4): preview dialog (playable; aspect, resolution, label style/shape/position, slider line on/off, edits shown one by one, the rest as Tweaks); before/after slider ending (rest right, eased sweeps back left and right at twice the speed); house dropdowns style-free; 5 aspect ratios with blurred extension; FFmpeg/libx264 | DONE | `e0f75cb` |
-| 40.19 | Preset library: one-level folders (menu + drag), favorites (pinned section + favorites-only filter), project presets in `<folder>/.PhotonData/presets`, import/export (.json / .zip) | DONE | (this commit) |
+| 40.19 | Preset library: one-level folders (menu + drag), favorites (pinned section + favorites-only filter), project presets in `<folder>/.PhotonData/presets`, import/export (.json / .zip) | DONE | `0c5d843` |
+| 40.20 | Remote mode: the UI rendered offscreen (QQuickRenderControl, a fresh AppContent per window) and streamed to a browser over HTTPS + WebSocket (JPEG frames, newest wins), input back as QPA events; local CA certificates, PBKDF2 password + tokens; in-scene dialogs; Exports view (share/download, multi-select, zip); drag-to-scroll in Develop and Settings | DONE | (this commit) |
+
+## 40.20 Remote mode — DONE
+
+> Implemented 2026-11-18, confirmed on an iPad (Safari and home-screen web app). `App.qml` is now a thin window around `AppContent.qml` (the whole UI). `RemoteSession` creates a fresh `AppContent` in an offscreen `QQuickWindow` driven by `QQuickRenderControl` (moving the live item failed: ShaderEffectSource layers stay on the desktop window's QRhi); the desktop unloads its copy meanwhile. `RemoteServer`: one HTTPS port (plain HTTP redirected), the client page (`assets/remote/index.html`), WebSocket upgrade only from its own origin, PBKDF2 password + session tokens, throttling, JPEG frames acked by the client, input through `QWindowSystemInterface` from a registered "Photon remote mouse", the Exports endpoints (list/thumb/file with byte ranges/zip). `RemoteCertificates`: local CA + server certificate (OpenSSL). Non-native, in-scene dialogs during a session (`AA_DontUseNativeDialogs` + `popupType: Popup.Item`). Develop adjustments and Settings use a plain Flickable (drag to scroll). Measured: 2360×1640 frames ≈ 90 KB, render 10–40 ms, encode 11–15 ms, input → frame 60–80 ms on localhost.
+>
+> Open: Breeze-styled non-native dialogs (proposal: fix the base Quick Controls style to Basic); H.264 instead of JPEG if Wi-Fi bandwidth needs it; pinch-to-zoom; touch-sized targets.
 
 ## 40.19 Preset library — DONE
 

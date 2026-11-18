@@ -14,6 +14,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QStandardPaths>
 #include <QSettings>
 #include <QSysInfo>
 #include <QVulkanFunctions>
@@ -30,6 +31,10 @@
 #include "managers/LogManager.h"
 #include "managers/KeyTracker.h"
 #include "managers/PresetManager.h"
+#include "managers/RemoteSession.h"
+#ifdef PHOTON_HAS_REMOTE
+#include "managers/RemoteServer.h"
+#endif
 #include "managers/PreviewManager.h"
 #include "managers/ThumbnailImageProvider.h"
 #include "managers/ThumbnailProvider.h"
@@ -289,6 +294,16 @@ int main(int argc, char* argv[]) {
   qmlRegisterType<EditVideoPreview>("Main", 1, 0, "EditVideoPreview");
   engine.rootContext()->setContextProperty("thumbnailProvider", thumbProvider);
   qmlRegisterType<FileScanner>("Main", 1, 0, "FileScanner");
+
+  auto* remote = new RemoteSession(&engine, &vulkanInstance, &app);
+  qmlRegisterSingletonInstance("Main", 1, 0, "RemoteSession", remote);
+#ifdef PHOTON_HAS_REMOTE
+  auto* remoteServer = new RemoteServer(
+      remote,
+      QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/remote",
+      &app);
+  qmlRegisterSingletonInstance("Main", 1, 0, "RemoteServer", remoteServer);
+#endif
 
   const QUrl url(QStringLiteral("qrc:/Main/content/views/App.qml"));
 

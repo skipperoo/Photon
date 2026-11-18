@@ -246,6 +246,12 @@ int main(int argc, char* argv[]) {
 
   auto* appState = AppStateManager::instance();
   appState->setParent(&app);
+  // Project presets live in the open folder.
+  presetManager->setProjectFolder(appState->currentFolder());
+  QObject::connect(appState, &AppStateManager::currentFolderChanged, presetManager,
+                   [appState, presetManager]() {
+                     presetManager->setProjectFolder(appState->currentFolder());
+                   });
   auto* logManager = photon::LogManager::instance();
   logManager->setParent(&app);
 

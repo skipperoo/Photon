@@ -444,3 +444,23 @@ Short entries for features that predate this document; details live in `TASKS.md
   - `testEditVideoController`: real photo; only effective groups listed; hiding groups folds them into Tweaks; label and aspect recompose without renders.
   - `testEditVideoEncode`: H.264 yuv420p with the colour tags, frame count, colours within 4 levels.
 - Files: `src/engine/EditVideo.{h,cpp}`, `src/engine/VideoEncoder.{h,cpp}`, `src/managers/EditVideoSource.{h,cpp}`, `src/managers/EditVideoController.{h,cpp}`, `src/components/EditVideoPreview.{h,cpp}`, `src/managers/ExportManager.{h,cpp}`, `src/main.cpp`, `content/components/{ExportPanel,EditVideoDialog}.qml`, `assets/fonts/`, CMake, CI workflows, Dockerfiles, tests.
+
+## Preset library (2026-11-18)
+
+- Purpose: keep presets organized, shareable and per project.
+- Libraries (`PresetManager`, scopes `"global"` / `"project"`):
+  - **global:** `QStandardPaths::AppLocalDataLocation/presets`, available everywhere;
+  - **project:** `<open folder>/.PhotonData/presets`. It exists only while that folder is open; `main.cpp` forwards `AppStateManager::currentFolderChanged` to `setProjectFolder`. The presets travel with the photos.
+- Layout: a preset is `<root>[/<folder>]/<name>.json`, holding the Develop settings that were picked when saving. Folders are one level of sub-directories. Names are sanitized for file systems: `/\:*?"<>|` become `_`, leading dots are dropped, and names are capped at 120 characters. Lists are sorted naturally and case-insensitively (`QCollator`).
+- Favorites (global only): keys `folder/name` (just `name` when unfiled) are stored with `favoritesOnly` in `<global>/.presets-state`. The file has no `.json` extension, so it is never listed as a preset. Stars follow renames and moves within global presets and are dropped when a preset is deleted or leaves the global library.
+- Move vs copy: a move fails when the destination name is taken; a copy (also used for import) picks a free name, `Name (2)`, `Name (3)`, and so on.
+- Import / export:
+  - **Export:** one preset as `.json`; a folder, a whole library or the favorites as `.zip` with entries `<folder>/<name>.json` (`QZipWriter`).
+  - **Import:** `.json` files go to the chosen library. Zip entries keep their parent directory as the folder; `__MACOSX` and hidden entries are ignored.
+  - **Limits:** each preset is at most 1 MB and must be a non-empty JSON object; a zip holds at most 2000 entries. The result `{imported, skipped, message}` is shown as a toast.
+- Live updates: a `QFileSystemWatcher` on each root and folder refreshes the panel when files change outside the app.
+- UI (`PresetPanel.qml`):
+  - **Sections:** Favorites (with each preset's folder), This folder (`<name>`) and All presets. Folder headers collapse and are drop targets; section titles are drop targets that move a preset out of its folder.
+  - **Rows:** click applies the preset (one "Preset" history step). Hovering shows a star (global presets) and "⋯".
+  - **Header:** favorites-only toggle, new folder, import/export menu, save (+). The save dialog asks for the name, the library (All presets / This folder) and the folder.
+- Files: `src/managers/PresetManager.{h,cpp}`, `src/main.cpp`, `content/components/PresetPanel.qml`, `content/views/App.qml` (toast), `tests/auto/tst_PresetManager.cpp`.

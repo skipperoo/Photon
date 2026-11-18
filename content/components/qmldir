@@ -16,3 +16,4 @@ ExportPanel 1.0 ExportPanel.qml
 PhotonScrollBar 1.0 PhotonScrollBar.qml
 CropPanel 1.0 CropPanel.qml
 CropOverlay 1.0 CropOverlay.qml
+EditVideoDialog 1.0 EditVideoDialog.qml

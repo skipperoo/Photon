@@ -18,6 +18,16 @@
 #include "AiDenoiser.h"
 #include "ColorSpace.h"
 #include "Denoiser.h"
+#include "EditVideo.h"
+#include "EditVideoController.h"
+#include "VideoEncoder.h"
+#ifdef PHOTON_HAS_VIDEO_EXPORT
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
+}
+#endif
 #include "RawDecode.h"
 #include "ToneMask.h"
 #include "ToneMath.h"
@@ -103,6 +113,12 @@ class TestRawEngine : public QObject {
   void testExport16BitTiff();
   void testExportAdobeRgb();
   void testColorSpaceRec2020();
+  void testEditVideoGroups();
+  void testEditVideoCanvas();
+  void testEditVideoComposer();
+  void testEditVideoPlanAndPill();
+  void testEditVideoController();
+  void testEditVideoEncode();
   void testDenoiseAtBaseExposure();
   void testDenoiseNoiseAdaptive();
   void testEditStackCurrentState();
@@ -3523,6 +3539,397 @@ void TestRawEngine::testAiDenoiseLinearIntegration() {
                .size(),
            1);
   app->setDenoiseEngine(savedEngine);
+}
+
+// Every key an edit stores (and every key the exporter injects) belongs to
+// exactly one Develop group or is deliberately applied from the first frame.
+void TestRawEngine::testEditVideoGroups() {
+  namespace ev = photon::editvideo;
+  RawEngine engine;
+  QStringList keys = engine.currentSettings().keys();
+  keys << "cameraLook" << "wbGainR" << "wbGainG" << "wbGainB" << "exifMake"
+       << "exifModel" << "exifLens" << "exifFocal" << "exifAperture"
+       << "baseExposure" << "sceneWhite" << "denoiseMode" << "denoiseSecondPass"
+       << "outputBits" << "outputColorSpace";
+  for (const QString& key : keys) {
+    const bool grouped = ev::groupOfKey(key) >= 0;
+    const bool baseline = ev::baselineKeys().contains(key);
+    QVERIFY2(grouped != baseline, qPrintable(key + (grouped ? " is in a group and the baseline"
+                                                             : " is in no group")));
+  }
+  // Panel order, starting from the top of the Develop panel.
+  QCOMPARE(ev::editGroups().front().name, QStringLiteral("Profile"));
+  QCOMPARE(ev::groupOfKey("cameraLookAmount"), 1);
+  QCOMPARE(ev::groupOfKey("wbGainG"), ev::groupOfKey("exposure"));
+  QCOMPARE(ev::groupOfKey("hslRedHue"), ev::groupOfKey("hslBlueLuminance"));
+
+  QJsonObject full;
+  for (const QString& key : keys) full[key] = 1.0;
+  const QJsonObject first = ev::stepSettings(full, 0);
+  for (auto it = first.begin(); it != first.end(); ++it)
+    QVERIFY2(ev::baselineKeys().contains(it.key()), qPrintable(it.key()));
+  QCOMPARE(ev::stepSettings(full, ev::allGroups()), full);
+  const ev::GroupMask upToLight = ev::groupBit(0) | ev::groupBit(1) | ev::groupBit(2);
+  QCOMPARE(ev::groupOfKey("exposure"), 2);
+  const QJsonObject light = ev::stepSettings(full, upToLight);
+  QVERIFY(light.contains("exposure") && light.contains("cameraLookAmount"));
+  QVERIFY(!light.contains("saturation") && light.contains("cropRect"));
+}
+
+void TestRawEngine::testEditVideoCanvas() {
+  namespace ev = photon::editvideo;
+  const QSize landscape(6000, 4000), portrait(4000, 6000);
+  QCOMPARE(ev::canvasSize(ev::Aspect::Portrait4x5, landscape, 1080), QSize(1080, 1350));
+  QCOMPARE(ev::canvasSize(ev::Aspect::Landscape5x4, landscape, 1080), QSize(1350, 1080));
+  QCOMPARE(ev::canvasSize(ev::Aspect::Landscape16x9, portrait, 1080), QSize(1920, 1080));
+  QCOMPARE(ev::canvasSize(ev::Aspect::Portrait9x16, landscape, 1080), QSize(1080, 1920));
+  QCOMPARE(ev::canvasSize(ev::Aspect::Original, landscape, 1080), QSize(1620, 1080));
+  QCOMPARE(ev::canvasSize(ev::Aspect::Original, portrait, 1080), QSize(1080, 1620));
+  QCOMPARE(ev::canvasSize(ev::Aspect::Landscape16x9, landscape, 2160), QSize(3840, 2160));
+  const QSize odd = ev::canvasSize(ev::Aspect::Original, QSize(4001, 2999), 1080);
+  QVERIFY(odd.width() % 2 == 0 && odd.height() % 2 == 0);
+  QCOMPARE(int(ev::aspectFromString("9:16")), int(ev::Aspect::Portrait9x16));
+  QCOMPARE(int(ev::aspectFromString("bogus")), int(ev::Aspect::Original));
+}
+
+void TestRawEngine::testEditVideoComposer() {
+  namespace ev = photon::editvideo;
+  auto solid = [](QColor c) {
+    QImage img(300, 200, QImage::Format_RGB32);
+    img.fill(c);
+    return img;
+  };
+  std::vector<ev::Step> steps = {{QString(), solid(QColor(128, 128, 128))},
+                                 {QStringLiteral("Light"), solid(QColor(200, 40, 40))},
+                                 {QStringLiteral("Presence"), solid(QColor(40, 40, 200))}};
+  ev::Timing tm;
+  const QSize canvas(216, 270);  // 4:5 around a 3:2 photo: extension above/below
+  ev::Composer composer(steps, canvas, tm);
+  // The bundled font loads from the resource path the app uses.
+  QVERIFY2(composer.fontFamily() == QStringLiteral("Instrument Sans"),
+           qPrintable(composer.fontFamily()));
+  const double perStep = tm.fade + tm.pillHold + tm.pillOut + tm.stepRest;
+  const double total = tm.intro + 2 * perStep + tm.outroHold + tm.toOriginal +
+                       tm.originalHold + tm.sweep + tm.sweepHold + tm.sweep / 2 +
+                       tm.leftHold + tm.sweep / 2 + tm.endHold;
+  QCOMPARE(composer.frameCount(), int(std::lround(total * tm.fps)));
+  auto px = [](const QImage& f, int x, int y) { return QColor(f.pixel(x, y)); };
+  const int photoY = 270 / 2 + 50;  // inside the photo, below the pill
+  // Intro: the original.
+  QImage f = composer.frame(0);
+  QCOMPARE(f.size(), canvas);
+  QCOMPARE(px(f, 20, photoY).red(), 128);
+  // The extension above the photo is the blurred photo, darkened (not black).
+  QVERIFY(px(f, 108, 5).red() > 60 && px(f, 108, 5).red() < 128);
+  // Halfway through the first fade: between grey and red.
+  f = composer.frame(int((tm.intro + tm.fade / 2) * tm.fps));
+  QVERIFY(px(f, 20, photoY).red() > 135 && px(f, 20, photoY).red() < 195);
+  // The pill is drawn at the centre while the group fades in: dark glass
+  // beside the (white) text, darker than the photo around it.
+  int darkest = 255;
+  for (int x = 70; x <= 146; ++x) darkest = std::min(darkest, px(f, x, 135).red());
+  QVERIFY(darkest < px(f, 20, photoY).red() - 30);
+  // After both groups: the finished edit (blue), no pill.
+  f = composer.frame(int((tm.intro + 2 * perStep + tm.outroHold / 2) * tm.fps));
+  QCOMPARE(px(f, 108, 135).blue(), 200);
+  // Halfway through the sweep: after on the left, before on the right.
+  const double sweepStart = tm.intro + 2 * perStep + tm.outroHold + tm.toOriginal + tm.originalHold;
+  f = composer.frame(int((sweepStart + tm.sweep / 2) * tm.fps));
+  QCOMPARE(px(f, 20, photoY).blue(), 200);
+  QCOMPARE(px(f, 196, photoY).red(), 128);
+  auto isLine = [&](const QImage& im, int x) { return px(im, x, photoY).lightness() > 220; };
+  // The line rests on the right: the whole frame is after, line at the edge.
+  f = composer.frame(int((sweepStart + tm.sweep + tm.sweepHold / 2) * tm.fps));
+  QCOMPARE(px(f, 20, photoY).blue(), 200);
+  QCOMPARE(px(f, 150, photoY).blue(), 200);
+  QVERIFY(isLine(f, 215));
+  // Sweeping back to the left at twice the speed, eased: halfway through
+  // it the line is mid-photo again (after left, before right).
+  const double fast = tm.sweep / 2;
+  const double backStart = sweepStart + tm.sweep + tm.sweepHold;
+  f = composer.frame(int(std::lround((backStart + fast / 2) * tm.fps)));
+  QCOMPARE(px(f, 20, photoY).blue(), 200);
+  QCOMPARE(px(f, 196, photoY).red(), 128);
+  // Easing: a quarter of the way in, the line has moved less than a quarter.
+  f = composer.frame(int(std::lround((backStart + fast / 4) * tm.fps)));
+  QCOMPARE(px(f, 170, photoY).blue(), 200);
+  // Resting on the left: the original, the line at the left edge.
+  const double snapStart = backStart + fast;
+  f = composer.frame(int((snapStart + tm.leftHold / 2) * tm.fps));
+  QCOMPARE(px(f, 150, photoY).red(), 128);
+  QVERIFY(isLine(f, 0));
+  QVERIFY(!isLine(f, 215));
+  // Sweeping to the right again at twice the speed (mid-way: line mid-photo).
+  const double forwardStart = snapStart + tm.leftHold;
+  f = composer.frame(int(std::lround((forwardStart + fast / 2) * tm.fps)));
+  QCOMPARE(px(f, 20, photoY).blue(), 200);
+  QCOMPARE(px(f, 196, photoY).red(), 128);
+  // Back on the right: the finished edit, the line fading out...
+  const double endStart = forwardStart + fast;
+  f = composer.frame(int((endStart + 1.0 / tm.fps) * tm.fps));
+  QCOMPARE(px(f, 150, photoY).blue(), 200);
+  QVERIFY(isLine(f, 215));
+  // ...then the finished edit alone for the end hold.
+  QVERIFY(tm.endHold >= 2.5);
+  f = composer.frame(composer.frameCount() - 1);
+  QCOMPARE(px(f, 20, photoY).blue(), 200);
+  QVERIFY(!isLine(f, 215));
+  // Without the line the sweep and snaps stay, the line is never drawn.
+  ev::Composer noLine(steps, canvas, tm, ev::PillOptions(), false);
+  f = noLine.frame(int((sweepStart + tm.sweep + tm.sweepHold / 2) * tm.fps));
+  QVERIFY(!isLine(f, 215));
+  QCOMPARE(px(f, 150, photoY).blue(), 200);
+  f = noLine.frame(int((snapStart + tm.leftHold / 2) * tm.fps));
+  QVERIFY(!isLine(f, 0));
+  QCOMPARE(px(f, 150, photoY).red(), 128);
+  // A portrait photo on a wide canvas: the line travels across the photo
+  // (resting on its right edge, not the canvas edge) and the blurred
+  // surroundings show the side being revealed.
+  auto tall = [](QColor c) {
+    QImage img(200, 300, QImage::Format_RGB32);
+    img.fill(c);
+    return img;
+  };
+  std::vector<ev::Step> portrait = {{QString(), tall(QColor(128, 128, 128))},
+                                    {QStringLiteral("Light"), tall(QColor(40, 40, 200))}};
+  ev::Composer wide(portrait, QSize(480, 270), tm);
+  const QRect photo = wide.photoRect();
+  QVERIFY(photo.left() > 100 && photo.right() < 380);
+  const double wideSweep = tm.intro + perStep + tm.outroHold + tm.toOriginal + tm.originalHold;
+  f = wide.frame(int((wideSweep + tm.sweep + tm.sweepHold / 2) * tm.fps));
+  QVERIFY(px(f, photo.right(), 135).lightness() > 220);  // line on the photo's edge
+  QCOMPARE(px(f, photo.right() - 20, 135).blue(), 200);  // after
+  QVERIFY(px(f, 20, 135).blue() > px(f, 20, 135).red() + 40);  // surroundings: after
+  f = wide.frame(int((wideSweep + tm.sweep + tm.sweepHold + tm.sweep / 2 + tm.leftHold / 2) * tm.fps));
+  QVERIFY(px(f, photo.left(), 135).lightness() > 220);  // line on the photo's left edge
+  QCOMPARE(px(f, photo.left() + 20, 135).red(), 128);   // before
+  QVERIFY(std::abs(px(f, 20, 135).blue() - px(f, 20, 135).red()) < 10);  // surroundings: before
+}
+
+// Steps for the shown groups, the rest as "Tweaks"; pill styles, shapes and
+// positions.
+void TestRawEngine::testEditVideoPlanAndPill() {
+  namespace ev = photon::editvideo;
+  // Plan: original, the shown groups cumulatively, then Tweaks = everything.
+  auto plan = ev::planSteps({5, 2}, true);
+  QCOMPARE(int(plan.size()), 4);
+  QCOMPARE(plan[0].groups, ev::GroupMask(0));
+  QCOMPARE(plan[1].name, QStringLiteral("Light"));
+  QCOMPARE(plan[1].groups, ev::groupBit(2));
+  QCOMPARE(plan[2].name, QStringLiteral("HSL"));
+  QCOMPARE(plan[2].groups, ev::groupBit(2) | ev::groupBit(5));
+  QCOMPARE(plan[3].name, QStringLiteral("Tweaks"));
+  QCOMPARE(plan[3].groups, ev::allGroups());
+  plan = ev::planSteps({}, true);  // nothing shown one by one
+  QCOMPARE(int(plan.size()), 2);
+  QCOMPARE(plan[1].name, QStringLiteral("Tweaks"));
+  QCOMPARE(int(ev::planSteps({1}, false).size()), 2);  // no Tweaks step
+
+  // Pill: a mid-grey photo filling a 3:2 canvas.
+  QImage grey(300, 200, QImage::Format_RGB32);
+  grey.fill(QColor(128, 128, 128));
+  QImage edited = grey;
+  edited.fill(QColor(120, 130, 140));
+  ev::Timing tm;
+  const QSize canvas(1200, 800);
+  const int pillFrame = int((tm.intro + tm.fade + 0.2) * tm.fps);  // pill fully shown
+  auto render = [&](ev::PillOptions o) {
+    ev::Composer c({{QString(), grey}, {QStringLiteral("Light"), edited}}, canvas, tm, o);
+    return std::make_pair(c.frame(pillFrame), c.pillRect(QStringLiteral("Light")));
+  };
+  // Positions: top / centre / bottom of the photo.
+  ev::PillOptions o;
+  o.position = ev::PillPosition::Top;
+  const QRectF top = render(o).second;
+  o.position = ev::PillPosition::Center;
+  const QRectF centre = render(o).second;
+  o.position = ev::PillPosition::Bottom;
+  const QRectF bottom = render(o).second;
+  QVERIFY(top.center().y() < centre.center().y() && centre.center().y() < bottom.center().y());
+  QVERIFY(top.top() > 0 && bottom.bottom() < canvas.height());
+  QCOMPARE(centre.center().y(), canvas.height() / 2.0);
+  // Styles: sample the glass beside the text (left padding of the pill).
+  o.position = ev::PillPosition::Center;
+  const QPoint glass(int(centre.left() + centre.height() * 0.45), int(centre.center().y()));
+  auto lum = [](QRgb c) { return 0.2126 * qRed(c) + 0.7152 * qGreen(c) + 0.0722 * qBlue(c); };
+  o.style = ev::PillStyle::White;
+  QVERIFY(lum(render(o).first.pixel(glass)) > 230);
+  o.style = ev::PillStyle::Black;
+  QVERIFY(lum(render(o).first.pixel(glass)) < 30);
+  o.style = ev::PillStyle::FrostedGlass;
+  const double frosted = lum(render(o).first.pixel(glass));
+  QVERIFY(frosted < 110 && frosted > 50);  // dark translucent glass over grey
+  o.style = ev::PillStyle::LiquidGlass;
+  const double liquid = lum(render(o).first.pixel(glass));
+  QVERIFY2(liquid > frosted + 25, qPrintable(QString::number(liquid)));  // clear glass
+  // Shapes: the rounded rectangle fills more of the corner than the capsule.
+  o.style = ev::PillStyle::White;
+  // Inside the rounded rectangle's corner arc (radius 0.28 h), outside the
+  // capsule's (radius h / 2).
+  const QPoint corner(int(centre.left() + centre.height() * 0.12),
+                      int(centre.top() + centre.height() * 0.12));
+  o.shape = ev::PillShape::RoundedRect;
+  QVERIFY(lum(render(o).first.pixel(corner)) > 200);
+  o.shape = ev::PillShape::Capsule;
+  QVERIFY(lum(render(o).first.pixel(corner)) < 160);
+  QCOMPARE(int(ev::pillStyleFromString("liquid")), int(ev::PillStyle::LiquidGlass));
+  QCOMPARE(int(ev::pillShapeFromString("capsule")), int(ev::PillShape::Capsule));
+  QCOMPARE(int(ev::pillPositionFromString("bottom")), int(ev::PillPosition::Bottom));
+}
+
+// The edit video encodes to an H.264 MP4 that decodes back with the right
+// size, frame count, colour tags and colours.
+void TestRawEngine::testEditVideoEncode() {
+#ifndef PHOTON_HAS_VIDEO_EXPORT
+  QVERIFY(!photon::video::isAvailable());
+  QSKIP("video export not part of this build");
+#else
+  namespace ev = photon::editvideo;
+  QVERIFY(photon::video::isAvailable());
+  auto solid = [](QColor c) {
+    QImage img(300, 200, QImage::Format_RGB32);
+    img.fill(c);
+    return img;
+  };
+  std::vector<ev::Step> steps = {{QString(), solid(QColor(128, 128, 128))},
+                                 {QStringLiteral("Light"), solid(QColor(40, 40, 200))}};
+  ev::Timing tm;
+  tm.intro = 0.2; tm.fade = 0.2; tm.pillIn = 0.1; tm.pillHold = 0.1; tm.pillOut = 0.1;
+  tm.stepRest = 0.1; tm.outroHold = 0.1; tm.toOriginal = 0.1; tm.originalHold = 0.1;
+  tm.sweep = 0.2; tm.sweepHold = 0.1; tm.leftHold = 0.1; tm.endHold = 0.2; tm.lineFade = 0.1;
+  const QSize canvas = ev::canvasSize(ev::Aspect::Portrait4x5, QSize(300, 200), 240);
+  const ev::Composer composer(steps, canvas, tm);
+  QTemporaryDir dir;
+  const QString path = dir.filePath("edit.mp4");
+  photon::video::Encoder encoder;
+  QString error;
+  QVERIFY2(encoder.open(path, canvas, tm.fps, &error), qPrintable(error));
+  qInfo() << "encoder" << encoder.encoderName();
+  for (int i = 0; i < composer.frameCount(); ++i)
+    QVERIFY2(encoder.write(composer.frame(i), &error), qPrintable(error));
+  QVERIFY2(encoder.finish(&error), qPrintable(error));
+  QVERIFY(QFileInfo(path).size() > 1000);
+
+  // Decode it back.
+  AVFormatContext* fmt = nullptr;
+  QCOMPARE(avformat_open_input(&fmt, QFile::encodeName(path).constData(), nullptr, nullptr), 0);
+  QVERIFY(avformat_find_stream_info(fmt, nullptr) >= 0);
+  const int si = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+  QVERIFY(si >= 0);
+  const AVCodecParameters* par = fmt->streams[si]->codecpar;
+  QCOMPARE(int(par->codec_id), int(AV_CODEC_ID_H264));
+  QCOMPARE(par->width, canvas.width());
+  QCOMPARE(par->height, canvas.height());
+  QCOMPARE(int(par->format), int(AV_PIX_FMT_YUV420P));
+  QCOMPARE(int(par->color_primaries), int(AVCOL_PRI_BT709));
+  QCOMPARE(int(par->color_space), int(AVCOL_SPC_BT709));
+  QCOMPARE(int(par->color_trc), int(AVCOL_TRC_IEC61966_2_1));
+  QCOMPARE(int(par->color_range), int(AVCOL_RANGE_MPEG));
+  const AVCodec* dec = avcodec_find_decoder(par->codec_id);
+  QVERIFY(dec);
+  AVCodecContext* ctx = avcodec_alloc_context3(dec);
+  avcodec_parameters_to_context(ctx, par);
+  QCOMPARE(avcodec_open2(ctx, dec, nullptr), 0);
+  AVPacket* pkt = av_packet_alloc();
+  AVFrame* frm = av_frame_alloc();
+  std::vector<QColor> centres;  // centre colour of each decoded frame
+  SwsContext* sws = nullptr;
+  auto take = [&]() {
+    while (avcodec_receive_frame(ctx, frm) == 0) {
+      if (!sws) {
+        sws = sws_getContext(frm->width, frm->height, AVPixelFormat(frm->format),
+                             frm->width, frm->height, AV_PIX_FMT_BGRA, SWS_BICUBIC,
+                             nullptr, nullptr, nullptr);
+        const int* bt709 = sws_getCoefficients(SWS_CS_ITU709);
+        sws_setColorspaceDetails(sws, bt709, 0, bt709, 1, 0, 1 << 16, 1 << 16);
+      }
+      QImage rgb(frm->width, frm->height, QImage::Format_RGB32);
+      uint8_t* dst[1] = {rgb.bits()};
+      const int dstStride[1] = {int(rgb.bytesPerLine())};
+      sws_scale(sws, frm->data, frm->linesize, 0, frm->height, dst, dstStride);
+      centres.push_back(QColor(rgb.pixel(rgb.width() / 4, rgb.height() / 2 + rgb.height() / 6)));
+    }
+  };
+  while (av_read_frame(fmt, pkt) >= 0) {
+    if (pkt->stream_index == si) {
+      avcodec_send_packet(ctx, pkt);
+      take();
+    }
+    av_packet_unref(pkt);
+  }
+  avcodec_send_packet(ctx, nullptr);
+  take();
+  sws_freeContext(sws);
+  av_frame_free(&frm);
+  av_packet_free(&pkt);
+  avcodec_free_context(&ctx);
+  avformat_close_input(&fmt);
+
+  QCOMPARE(int(centres.size()), composer.frameCount());
+  // Colours survive the round trip (BT.709 limited range, 4:2:0).
+  auto matches = [](const QColor& a, int r, int g, int b) {
+    return std::abs(a.red() - r) <= 4 && std::abs(a.green() - g) <= 4 && std::abs(a.blue() - b) <= 4;
+  };
+  QVERIFY2(matches(centres.front(), 128, 128, 128), qPrintable(centres.front().name()));
+  QVERIFY2(matches(centres.back(), 40, 40, 200), qPrintable(centres.back().name()));
+#endif
+}
+
+// The dialog's model on a real photo: only groups that change the photo are
+// listed, hiding groups folds them into "Tweaks", and pill / aspect changes
+// recompose the preview without new renders.
+void TestRawEngine::testEditVideoController() {
+  const QString sample =
+      QCoreApplication::applicationDirPath() + QStringLiteral("/../../testphoton/_DSC9111.ARW");
+  if (!QFileInfo::exists(sample)) QSKIP("no sample RAW available");
+  QTemporaryDir dir;
+  const QString path = dir.filePath(QStringLiteral("_DSC9111.ARW"));
+  QVERIFY(QFile::copy(sample, path));
+  QJsonObject state;
+  state["exposure"] = 0.4;        // Light
+  state["vibrance"] = 25.0;       // Presence
+  state["vignetteAmount"] = -25.0;  // Creative
+  state["clarity"] = 30.0;        // Effects
+  state["bwMixRed"] = 20.0;       // B&W mix on a colour photo: no effect
+  QVERIFY(QDir().mkpath(dir.filePath(".PhotonData/edits")));
+  QFile f(dir.filePath(".PhotonData/edits/_DSC9111.ARW.json"));
+  QVERIFY(f.open(QIODevice::WriteOnly));
+  f.write(QJsonDocument(QJsonArray{state}).toJson());
+  f.close();
+
+  photon::EditVideoController ctl(nullptr);
+  ctl.open(path);
+  QTRY_VERIFY_WITH_TIMEOUT(ctl.ready(), 600000);
+  QStringList names;
+  for (const QVariant& v : ctl.groups()) names << v.toMap().value("name").toString();
+  QCOMPARE(names, (QStringList{"Light", "Presence", "Creative", "Effects"}));
+  const int allShown = ctl.frameCount();
+  QVERIFY(allShown > 0);
+  QVERIFY(!ctl.frame(0).isNull());
+
+  // Hide two groups: they become one "Tweaks" step (one step fewer).
+  const photon::editvideo::Timing tm;
+  const double perStep = (tm.fade + tm.pillHold + tm.pillOut + tm.stepRest) * tm.fps;
+  ctl.setGroupShown(photon::editvideo::groupOfKey("vibrance"), false);
+  ctl.setGroupShown(photon::editvideo::groupOfKey("clarity"), false);
+  QTRY_VERIFY_WITH_TIMEOUT(ctl.ready(), 600000);
+  // One step fewer (totals round to whole frames: +-1).
+  QVERIFY2(std::abs(ctl.frameCount() - (allShown - perStep)) <= 1.0,
+           qPrintable(QString("%1 vs %2").arg(ctl.frameCount()).arg(allShown - perStep)));
+  int hidden = 0;
+  for (const QVariant& v : ctl.groups()) hidden += v.toMap().value("shown").toBool() ? 0 : 1;
+  QCOMPARE(hidden, 2);
+
+  // Style and aspect recompose immediately (no render job).
+  const int version = ctl.previewVersion();
+  ctl.setPillStyle(QStringLiteral("liquid"));
+  QVERIFY(!ctl.loading());
+  QVERIFY(ctl.previewVersion() > version);
+  ctl.setAspect(QStringLiteral("9:16"));
+  QVERIFY(!ctl.loading());
+  QCOMPARE(ctl.frame(0).size(), QSize(540, 960));
+  ctl.close();
+  QVERIFY(!ctl.ready());
 }
 
 QTEST_MAIN(TestRawEngine)

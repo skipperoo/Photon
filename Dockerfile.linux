@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y \
     wayland-protocols \
     libwayland-server0 \
     libopencv-dev \
+    libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
     imagemagick \
     libtiff-dev \
     file \

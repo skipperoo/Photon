@@ -23,6 +23,8 @@
 #include "components/RawViewport.h"
 #include "managers/AppStateManager.h"
 #include "managers/CrashReporter.h"
+#include "managers/EditVideoController.h"
+#include "components/EditVideoPreview.h"
 #include "managers/ExportManager.h"
 #include "managers/FileScanner.h"
 #include "managers/LogManager.h"
@@ -240,6 +242,7 @@ int main(int argc, char* argv[]) {
   PresetManager* presetManager = new PresetManager(&app);
   photon::PreviewManager* previewManager = new photon::PreviewManager(&app);
   photon::ExportManager* exportManager = new photon::ExportManager(&app);
+  auto* editVideo = new photon::EditVideoController(exportManager, &app);
 
   auto* appState = AppStateManager::instance();
   appState->setParent(&app);
@@ -273,9 +276,11 @@ int main(int argc, char* argv[]) {
   qmlRegisterSingletonInstance("Main", 1, 0, "PresetManager", presetManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "PreviewManager", previewManager);
   qmlRegisterSingletonInstance("Main", 1, 0, "ExportManager", exportManager);
+  qmlRegisterSingletonInstance("Main", 1, 0, "EditVideo", editVideo);
   qmlRegisterSingletonInstance("Main", 1, 0, "Panorama", panorama);
   qmlRegisterSingletonInstance("Main", 1, 0, "HdrMerge", hdrMerge);
   qmlRegisterType<RawViewport>("Main", 1, 0, "RawViewport");
+  qmlRegisterType<EditVideoPreview>("Main", 1, 0, "EditVideoPreview");
   engine.rootContext()->setContextProperty("thumbnailProvider", thumbProvider);
   qmlRegisterType<FileScanner>("Main", 1, 0, "FileScanner");
 

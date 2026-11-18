@@ -386,3 +386,61 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Tests: `testAiDenoiseLinearMock` checks the signed gain, seams, abort and failure paths. `testAiDenoiseLinearIntegration` runs the RAF through the engine: Linear model chosen, the ARW gets Bayer, roughness drops, mean is kept, the status fits, the product is cached.
 - Files: `cmake/AiDenoiseModel.cmake`, `cmake/rawnind/NOTICE.md`, `build_internal.sh`, `src/engine/AiDenoiser.{h,cpp}`, `src/engine/RawEngine.cpp`, `tests/auto/tst_RawEngine.cpp`.
 
+## Edit video (2026-11-18)
+
+- Purpose: a short shareable clip of a photo's edit.
+  - It starts on the unedited photo, then applies the chosen Develop groups one at a time in panel order, each fading in under a label with the group's name.
+  - The groups left unchecked are applied together as **Tweaks** at the end.
+  - It closes with: back to the original, then a slow before/after slider across the photo. The line rests on the right, sweeps back to the left (the original) at twice the speed, waits a second, sweeps to the right again (the finished edit) at twice the speed, fades out, and the edit holds.
+- UI:
+  - With exactly one photo selected, Export ▸ Format ▸ **Edit video (MP4)** (listed only when the build can encode) ▸ Start Export opens `EditVideoDialog.qml`.
+  - The dialog shows a playable preview (Play/Pause, scrubber, time) next to: Aspect ratio (Original, 4:5, 5:4, 16:9, 9:16), Resolution (1080p / 4K), Label style (Frosted glass, Liquid glass, White, Black), Label shape (Rounded rectangle, Capsule), Label position (Top, Center, Bottom), Show slider line, and the edits shown one by one (checkboxes).
+  - With several photos selected, the panel says to select one.
+- Groups (`EditVideo.cpp`, `editGroups()`), in panel order: Profile, Camera Look, Light (including white balance and the export's Kelvin gains), Presence, Tone Curve, HSL, Black & White Mix, Color Grading, Detail (sharpening, denoise), Creative (grain, vignette), Effects (Clarity, Dehaze, Structure, Centrè), Calibration.
+  - Geometry (crop, rotation, flips), lens corrections and the render keys are in every frame (`baselineKeys()`).
+  - `testEditVideoGroups` checks that every stored and injected key belongs to exactly one group or to the baseline.
+- Steps: `planSteps(shown, tweaks)` gives the original (no group), one step per shown group (cumulative group mask), then Tweaks (all groups) when some edited groups are hidden.
+  - `stepSettings(full, mask)` is the edit without the keys of the groups outside the mask, so `ImageDeveloper` uses its own defaults for them.
+  - `EditVideoSource` develops a mask exactly like the export (`loadDevelopSource`), at full resolution for the export or downscaled to a 1600 px long edge for the preview. AI denoise switches on in steps whose mask includes Detail.
+- Preview (`EditVideoController`, QML singleton `EditVideo`):
+  - **Opening:** it loads the photo once and applies the edited groups cumulatively; a group whose render does not change the image (e.g. B&W mix on a colour photo) is left out of the list.
+  - **Recomposing:** toggling an edit renders only the missing masks on a worker thread (latest choice wins); label options and aspect only recompose, with no renders.
+  - **Display:** frames are composed at a 540 px short side and shown by `EditVideoPreview` (a `QQuickItem` with a texture node, registered in `main.cpp` like `RawViewport`).
+  - **Export:** the dialog's Export passes exactly these choices to `ExportManager::startVideoExport(path, folder, VideoExportOptions)`.
+  - Measured (Release, 24 MP ARW): preview ready in 7 s; export 70 s.
+- Canvas (`canvasSize`): even dimensions, e.g. 1080×1350 (4:5), 1080×1920 (9:16). The photo fits the canvas; free space shows the same frame cover-scaled, blurred (three box passes at 1/8 scale ≈ Gaussian) and dimmed by 11 %, like the iPhone's blurred extension.
+- Timeline (`Timing`, 30 fps):
+  - intro 1.2 s;
+  - per step: crossfade 1.0 s (cubic ease in-out), label in 0.35 s, hold 0.5 s after the fade, out 0.35 s, rest 0.2 s;
+  - closing: hold 0.8 s, to the original 0.6 s, hold 0.6 s, slow slider 3.0 s, line resting on the right 0.6 s, sweep back to the left 1.5 s, resting on the left 1.0 s, sweep to the right 1.5 s, then the line fading out over 0.5 s within a 3.0 s end hold. All sweeps use the cubic ease in-out; the two return sweeps take half the first one's time.
+  - Slider (`Composer::split`): the line travels across the photo, not the canvas, with after on its left. At the edges it stays fully on the photo. The blurred surroundings crossfade with the sweep position, so they match the side being revealed. `showLine = false` keeps the sweeps without the line.
+  - Effects crossfade between rendered steps; interpolating slider values would need a full render per frame and looks practically the same.
+- Label (`Composer::drawPill`):
+  - **Type and size:** Instrument Sans SemiBold (bundled, SIL OFL) at 4.2 % of the short side, letter spacing 101 %. Height is 2.3× the type size, grows from 94 % to 100 % as it fades in, and has a soft shadow.
+  - **Shape:** rounded rectangle (radius 0.28 h, default) or capsule (h / 2).
+  - **Position:** centered horizontally; top or bottom sit 7 % of the short side inside the photo (not the extension).
+  - **Frosted glass:** the frame behind blurred at 1/4 scale, a dark tint (rgb 16,16,18 at 40 %), a top sheen; no border.
+  - **Liquid glass:** clear glass from a signed-distance-field rounded box.
+    - Near the rim (0.34 h) the scene is sampled outwards along the edge normal, up to 0.15 h, so it bends like a thick lens; the scene inside is lifted 5 %.
+    - Light from the upper left: a specular rim highlight, a thin light rim all around (it defines the shape on any scene) and a soft shade on the far side.
+    - An 8 % tint and a soft text shadow keep white text readable.
+  - **White:** white at 93 % with near-black text. **Black:** near-black at 89 % with white text.
+- Encoder (`VideoEncoder.cpp`): FFmpeg libavcodec/libavformat.
+  - **libx264:** CRF 16, preset slow, High profile, 2 B-frames, keyframe every 2 s.
+  - **Fallbacks:** OpenH264, Media Foundation or NVENC (CQ 18) at a high bit rate (24 Mbit/s at 1080p, scaled with the pixel count).
+  - **Colour:** BGRA → yuv420p with swscale (bicubic, accurate rounding, full chroma interpolation), BT.709 coefficients, full → limited range. Tagged BT.709 primaries and matrix with the sRGB transfer, limited range.
+  - **File:** MP4 with `+faststart`; a failed or cancelled export leaves no file.
+  - Written against the API common to FFmpeg 4.4 and 8.x.
+- Build: `PHOTON_ENABLE_VIDEO_EXPORT` (ON) needs FFmpeg's development files: pkg-config on Linux, vcpkg `ffmpeg[x264]` on Windows. CI and the Docker builds install them; the AppImage and the installer bundle the libraries.
+- Fixed on the way:
+  - The export's "finished" handler was connected on every export; it is connected once now.
+  - Dropdowns: under KDE Breeze, the open list drew the selected first row empty. `PhotonComboBox` is now built on the style-free templates (`T.ComboBox`, `T.ItemDelegate`, `T.Popup`). The plain `ComboBox`es in Settings and Export use it too. Checked by rendering the open list offscreen under Breeze, Basic and Fusion.
+  - The folder field's `file://` URL (from the folder picker) was used as a path; it is converted to a local path for all exports.
+- Tests:
+  - `testEditVideoGroups`: key coverage, masks.
+  - `testEditVideoCanvas`.
+  - `testEditVideoComposer`: intro, fade, extension, the slider (sweep, resting on the right, eased half-length sweep back left, resting left, sweep right, line fading), hidden line, and a portrait photo on a wide canvas (line on the photo's edges, surroundings following); font loaded from the app's resource path.
+  - `testEditVideoPlanAndPill`: plans with and without Tweaks; positions; the four styles; shapes.
+  - `testEditVideoController`: real photo; only effective groups listed; hiding groups folds them into Tweaks; label and aspect recompose without renders.
+  - `testEditVideoEncode`: H.264 yuv420p with the colour tags, frame count, colours within 4 levels.
+- Files: `src/engine/EditVideo.{h,cpp}`, `src/engine/VideoEncoder.{h,cpp}`, `src/managers/EditVideoSource.{h,cpp}`, `src/managers/EditVideoController.{h,cpp}`, `src/components/EditVideoPreview.{h,cpp}`, `src/managers/ExportManager.{h,cpp}`, `src/main.cpp`, `content/components/{ExportPanel,EditVideoDialog}.qml`, `assets/fonts/`, CMake, CI workflows, Dockerfiles, tests.

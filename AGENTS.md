@@ -15,7 +15,9 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 
 - **Language:** C++17
 - **Framework:** Qt 6.8+ (Quick, ShaderTools, Gui, RHI)
-- **Libraries:** LibRaw (RAW decoding), Vulkan, OpenCV, ncnn (AI denoise; fetched from a pinned source release at configure time)
+- **Libraries:** LibRaw (RAW decoding), Vulkan, OpenCV, ncnn (AI denoise; fetched from a pinned source release at configure time), FFmpeg (edit video: libavcodec/libavformat/libavutil/libswscale, libx264 preferred)
+- **Bundled font:** Instrument Sans SemiBold (`assets/fonts`, SIL OFL; licence file next to it) for the edit video's labels
+- **QML types from C++:** register them in `main.cpp` (`qmlRegisterType<…>("Main", 1, 0, …)`) like `RawViewport`; the generated module registration does not take effect for this app
 - **AI models:** RawNIND UtNet2 (GPL-3.0 weights), Bayer and Linear variants (Linear for X-Trans, Foveon, linear DNGs) — downloaded, SHA-256-verified and converted to ncnn with pnnx at configure time by `cmake/AiDenoiseModel.cmake`, staged in `build/models` and installed to `bin/models`; never committed to git
 - **Build System:** CMake 3.16+
 
@@ -33,6 +35,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 
 - **Run Application:** `./build/Photon`
 - **AI denoise build options:** the first configure needs network access (ncnn source + model). `-DPHOTON_ENABLE_AI_DENOISE=OFF` builds without ncnn (Classic denoise only); `-DPHOTON_BUNDLE_AI_MODEL=OFF` skips the model download; `-DPHOTON_AI_MODEL_SOURCE_DIR=<dir>` uses prebuilt `rawnind_{bayer,linear}.ncnn.{param,bin}`; `-DFETCHCONTENT_SOURCE_DIR_NCNN=<dir>` builds ncnn from a local source tree. Runtime overrides: `PHOTON_AI_MODEL_DIR`, `PHOTON_AI_DENOISE_DEVICE=cpu|gpu`.
+- **Edit video build option:** needs the FFmpeg development files (Fedora: `ffmpeg-devel` from RPM Fusion; Ubuntu: `libavcodec-dev libavformat-dev libavutil-dev libswscale-dev`; Windows: vcpkg `ffmpeg[x264]`). `-DPHOTON_ENABLE_VIDEO_EXPORT=OFF` builds without it.
 
 ### Testing
 

@@ -34,6 +34,7 @@ Features:
 - [x] EXIF Metadata & Orientation
 - [x] Hybrid Denoising (BM3D + GPU NLM)
 - [x] Image Export (JPEG/TIFF)
+- [x] Edit Video Export (MP4: the edit applied group by group)
 - [x] Theme Customization (Light/Dark/Accents)
 - [x] Crop & Transform Tools
 - [x] Tone Curve (Spline UI)
@@ -52,6 +53,7 @@ I will soon provide binaries for both Windows and Linux, but for now, please clo
 - CMake 3.16+
 - Qt 6.8+ (with ShaderTools and RHI)
 - LibRaw
+- FFmpeg development files (edit video; optional with `-DPHOTON_ENABLE_VIDEO_EXPORT=OFF`)
 - A Vulkan-capable GPU
 
 ### Build

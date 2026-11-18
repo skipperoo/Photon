@@ -46,7 +46,7 @@ Control {
                         spacing: 8
                         Layout.fillWidth: true
                         Text { text: "Preferred GPU"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        ComboBox {
+                        PhotonComboBox {
                             id: gpuCombo
                             Layout.fillWidth: true
                             model: AppState.availableGpus
@@ -123,7 +123,7 @@ Control {
                         spacing: 8
                         Layout.fillWidth: true
                         Text { text: "Engine"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        ComboBox {
+                        PhotonComboBox {
                             id: denoiseEngineCombo
                             readonly property var values: ["ai", "classic"]
                             Layout.fillWidth: true
@@ -154,7 +154,7 @@ Control {
                         Layout.fillWidth: true
                         visible: AppState.aiDenoiseAvailable
                         Text { text: "AI denoise device"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        ComboBox {
+                        PhotonComboBox {
                             id: aiDeviceCombo
                             Layout.fillWidth: true
                             model: AppState.aiDenoiseDevices
@@ -290,7 +290,7 @@ Control {
                         spacing: 8
                         Layout.fillWidth: true
                         Text { text: "Log Level"; font: Theme.fontRegular; color: Theme.mutedFg }
-                        ComboBox {
+                        PhotonComboBox {
                             Layout.fillWidth: true
                             model: ["DEBUG", "INFO", "WARNING", "ERROR"]
                             currentIndex: model.indexOf(AppState.logLevel)

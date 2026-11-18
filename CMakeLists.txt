@@ -57,6 +57,29 @@ else()
     set(PHOTON_LCMS2_LIBRARIES ${LCMS2_LIBRARIES})
 endif()
 
+# Edit video export: H.264/MP4 through FFmpeg (libavcodec, libavformat,
+# libavutil, libswscale). libx264 in FFmpeg gives the best quality; other
+# H.264 encoders are used when it is missing.
+option(PHOTON_ENABLE_VIDEO_EXPORT "Build the edit video export (needs FFmpeg)" ON)
+if(PHOTON_ENABLE_VIDEO_EXPORT)
+    if(WIN32)
+        find_package(FFMPEG)  # vcpkg: ffmpeg[x264]
+        set(PHOTON_FFMPEG_INCLUDE_DIRS ${FFMPEG_INCLUDE_DIRS})
+        set(PHOTON_FFMPEG_LIBRARY_DIRS ${FFMPEG_LIBRARY_DIRS})
+        set(PHOTON_FFMPEG_LIBRARIES ${FFMPEG_LIBRARIES})
+    else()
+        pkg_check_modules(FFMPEG IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
+        set(PHOTON_FFMPEG_LIBRARIES PkgConfig::FFMPEG)
+    endif()
+    if(NOT FFMPEG_FOUND)
+        message(FATAL_ERROR "[ CMakeLists.txt ] - FFmpeg development files not found "
+                            "(Fedora: ffmpeg-devel from RPM Fusion; Ubuntu: libavcodec-dev "
+                            "libavformat-dev libavutil-dev libswscale-dev; Windows: vcpkg "
+                            "ffmpeg[x264]). Use -DPHOTON_ENABLE_VIDEO_EXPORT=OFF to build "
+                            "without the edit video.")
+    endif()
+endif()
+
 qt_standard_project_setup(REQUIRES 6.10)
 
 if(PHOTON_ENABLE_AI_DENOISE)
@@ -87,6 +110,10 @@ qt_add_executable(Photon
     src/engine/CameraLook.cpp
     src/engine/CameraLook.h
     src/engine/CameraLookMath.h
+    src/engine/EditVideo.cpp
+    src/engine/EditVideo.h
+    src/engine/VideoEncoder.cpp
+    src/engine/VideoEncoder.h
     src/engine/DevelopProfile.h
     src/engine/SceneWhite.h
     src/engine/ToneMath.h
@@ -100,6 +127,8 @@ qt_add_executable(Photon
     src/engine/Panorama.cpp
     src/engine/Panorama.h
     src/components/RawViewport.cpp
+    src/components/EditVideoPreview.cpp
+    src/components/EditVideoPreview.h
     src/components/RawViewport.h
     src/components/ToneLutProvider.h
     src/managers/AppStateManager.cpp
@@ -118,6 +147,10 @@ qt_add_executable(Photon
     src/managers/LogManager.h
     src/managers/ExportManager.cpp
     src/managers/ExportManager.h
+    src/managers/EditVideoSource.cpp
+    src/managers/EditVideoSource.h
+    src/managers/EditVideoController.cpp
+    src/managers/EditVideoController.h
     src/managers/PreviewManager.cpp
     src/managers/PreviewManager.h
     src/managers/CrashReporter.cpp
@@ -169,6 +202,8 @@ qt_add_qml_module(Photon
     RESOURCE_PREFIX "/"
     SOURCES
         src/components/RawViewport.cpp
+        src/components/EditVideoPreview.cpp
+        src/components/EditVideoPreview.h
         src/components/RawViewport.h
         src/components/ToneLutProvider.h
         src/engine/RawEngine.cpp
@@ -206,6 +241,10 @@ qt_add_qml_module(Photon
         src/managers/LogManager.h
         src/managers/ExportManager.cpp
         src/managers/ExportManager.h
+        src/managers/EditVideoSource.cpp
+        src/managers/EditVideoSource.h
+        src/managers/EditVideoController.cpp
+        src/managers/EditVideoController.h
         src/managers/PreviewManager.cpp
         src/managers/PreviewManager.h
         src/managers/CrashReporter.cpp
@@ -240,11 +279,13 @@ qt_add_qml_module(Photon
         content/components/HistoryPanel.qml
         content/components/LensPanel.qml
         content/components/HdrDialog.qml
+        content/components/EditVideoDialog.qml
         content/components/PhotoContextMenu.qml
         content/components/MetadataPanel.qml
         content/components/ExportPanel.qml
         content/theme/Theme.qml
     RESOURCES
+        assets/fonts/InstrumentSans-SemiBold.ttf
         assets/icons/photon.png
         assets/icons/search.svg
         assets/icons/hand.svg
@@ -333,6 +374,13 @@ else()
         PRIVATE ${PHOTON_LCMS2_LIBRARIES}
         PRIVATE Vulkan::Vulkan
     )
+endif()
+
+if(PHOTON_ENABLE_VIDEO_EXPORT)
+    target_include_directories(Photon PRIVATE ${PHOTON_FFMPEG_INCLUDE_DIRS})
+    target_link_directories(Photon PRIVATE ${PHOTON_FFMPEG_LIBRARY_DIRS})
+    target_link_libraries(Photon PRIVATE ${PHOTON_FFMPEG_LIBRARIES})
+    target_compile_definitions(Photon PRIVATE PHOTON_HAS_VIDEO_EXPORT=1)
 endif()
 
 # Performance Optimizations

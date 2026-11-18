@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Photon">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon.png">
+<title>Photon</title>
+<style>
+  :root { --bg: #09090b; --panel: #18181b; --border: #27272a; --fg: #fafafa; --muted: #a1a1aa; --accent: #8b5cf6; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); overflow: hidden;
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none; overscroll-behavior: none; }
+  /* The stage is the visible area inside the safe areas (not 100vh, which on
+     iPad Safari includes the space under the toolbar). The server renders at
+     exactly its size; the canvas fills it. */
+  #stage { position: fixed; top: calc(env(safe-area-inset-top) + 15px); right: env(safe-area-inset-right);
+    bottom: env(safe-area-inset-bottom); left: env(safe-area-inset-left); display: none; }
+  #screen { display: block; width: 100%; height: 100%; touch-action: none; }
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .card { width: min(360px, 100%); background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; box-sizing: border-box; }
+  .card h1 { margin: 0 0 4px; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+  .card h1 img { width: 28px; height: 28px; border-radius: 6px; }
+  .card p { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+  input[type=password] { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; font-size: 16px;
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border); outline: none; -webkit-user-select: text; user-select: text; }
+  input[type=password]:focus { border-color: var(--accent); }
+  button { font: inherit; }
+  .primary { width: 100%; margin-top: 12px; padding: 10px; border: 0; border-radius: 8px; background: var(--fg);
+    color: var(--bg); font-weight: 600; }
+  .primary:disabled { opacity: .5; }
+  #error { color: #f87171; font-size: 13px; min-height: 18px; margin-top: 10px; }
+  .hint { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  .hint a { color: var(--fg); }
+  #status { color: var(--muted); }
+  #tools { position: fixed; right: 12px; bottom: 12px; display: none; gap: 6px; z-index: 2; }
+  #tools button { width: 40px; height: 40px; border-radius: 20px; border: 1px solid var(--border);
+    background: rgba(24,24,27,.85); color: var(--fg); font-size: 18px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  #stats { position: fixed; left: 8px; bottom: 8px; padding: 4px 8px; border-radius: 6px; background: rgba(0,0,0,.7);
+    font: 11px/1.4 ui-monospace, monospace; color: #d4d4d8; display: none; z-index: 2; pointer-events: none; white-space: pre; }
+  #keys { position: fixed; left: -1000px; top: 0; width: 10px; height: 10px; opacity: 0; }
+
+  /* Exports: the project's Export folder, to view, share and save on this device. */
+  .sheet { position: fixed; inset: 0; z-index: 3; background: var(--bg); display: flex; flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 15px) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .sheet[hidden], #viewer[hidden] { display: none; }
+  .sheet header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .sheet header .titles { flex: 1; min-width: 0; }
+  .sheet .title { font-size: 17px; font-weight: 600; }
+  .sheet .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .icon-button { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
+    color: var(--fg); font-size: 16px; }
+  .grid { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); align-content: start; }
+  .tile { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--fg); text-align: left; font: inherit; }
+  .tile .thumb { aspect-ratio: 4 / 3; border-radius: 6px; background: #000 center / contain no-repeat; display: flex;
+    align-items: center; justify-content: center; color: var(--muted); font-size: 28px; overflow: hidden; }
+  .tile .thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .tile .name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .meta { font-size: 11px; color: var(--muted); }
+  .empty { padding: 48px 16px; text-align: center; color: var(--muted); }
+  .tile { position: relative; }
+  .tile .check { position: absolute; top: 14px; right: 14px; width: 24px; height: 24px; border-radius: 12px;
+    border: 2px solid #fff; background: rgba(0,0,0,.35); display: none; align-items: center; justify-content: center;
+    color: #fff; font-size: 14px; font-weight: 700; }
+  .selecting .tile .check { display: flex; }
+  .tile.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .tile.selected .check { background: var(--accent); border-color: var(--accent); }
+  .text-button { padding: 0 12px; height: 36px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--fg); font: inherit; font-size: 14px; }
+  #selectionBar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border);
+    background: var(--panel); }
+  #selectionBar[hidden] { display: none; }
+  #selectionCount { flex: 1; font-size: 14px; color: var(--muted); }
+  #viewer { position: fixed; inset: 0; z-index: 4; background: #000; display: flex; flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 15px) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  #viewerMedia { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  /* Long-press on the image offers iOS's own Save to Photos / Share menu. */
+  #viewerMedia img, #viewerMedia video { max-width: 100%; max-height: 100%; -webkit-touch-callout: default; }
+  #viewer footer { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--panel);
+    border-top: 1px solid var(--border); }
+  #viewer footer .titles { flex: 1; min-width: 0; }
+  .pill { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+    font: inherit; font-size: 14px; text-decoration: none; }
+  .pill.primary-pill { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 600; }
+  .pill:disabled { opacity: .5; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="screen"></canvas></div>
+<textarea id="keys" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+
+<div class="overlay" id="login" style="display:none">
+  <form class="card" id="loginForm">
+    <h1><img src="/icon.png" alt="">Photon</h1>
+    <p>Enter the remote access password set in Photon's Settings.</p>
+    <input type="password" id="password" autocomplete="current-password" placeholder="Password" required>
+    <button class="primary" id="loginButton" type="submit">Connect</button>
+    <div id="error"></div>
+    <div class="hint">Certificate warning? Install <a href="/photon-remote-ca.crt">Photon's certificate</a> on this
+      device and trust it (iPad: Settings › General › VPN &amp; Device Management, then
+      About › Certificate Trust Settings).</div>
+  </form>
+</div>
+<div class="overlay" id="connecting"><div id="status">Connecting…</div></div>
+
+<div id="tools">
+  <button id="keyboardButton" title="Keyboard" aria-label="Keyboard">⌨</button>
+  <button id="statsButton" title="Connection info" aria-label="Connection info">ⓘ</button>
+</div>
+<div id="stats"></div>
+
+<div id="exports" class="sheet" hidden>
+  <header>
+    <div class="titles"><div class="title">Exports</div><div class="sub" id="exportsFolder"></div></div>
+    <button class="text-button" id="exportsSelect">Select</button>
+    <button class="icon-button" id="exportsRefresh" title="Refresh" aria-label="Refresh">↻</button>
+    <button class="icon-button" id="exportsClose" title="Close" aria-label="Close">✕</button>
+  </header>
+  <div class="grid" id="exportsGrid"></div>
+  <div class="empty" id="exportsEmpty" hidden></div>
+  <div id="selectionBar" hidden>
+    <span id="selectionCount">Tap photos to select them</span>
+    <button class="pill" id="selectAll">Select All</button>
+    <button class="pill primary-pill" id="selectionShare" disabled>Share</button>
+    <button class="pill" id="selectionDownload" disabled>Download</button>
+  </div>
+</div>
+<div id="viewer" hidden>
+  <div id="viewerMedia"></div>
+  <footer>
+    <div class="titles"><div class="title" id="viewerName"></div><div class="sub" id="viewerMeta"></div></div>
+    <button class="pill primary-pill" id="viewerShare">Share</button>
+    <a class="pill" id="viewerDownload" download>Download</a>
+    <button class="pill" id="viewerClose">Close</button>
+  </footer>
+</div>
+
+<script>
+"use strict";
+const stage = document.getElementById("stage");
+const canvas = document.getElementById("screen");
+const ctx = canvas.getContext("2d");
+const loginView = document.getElementById("login");
+const connectingView = document.getElementById("connecting");
+const statusText = document.getElementById("status");
+const errorText = document.getElementById("error");
+const passwordInput = document.getElementById("password");
+const loginButton = document.getElementById("loginButton");
+const tools = document.getElementById("tools");
+const statsView = document.getElementById("stats");
+const keys = document.getElementById("keys");
+
+const TOKEN_KEY = "photon-remote-token";
+// Filled in by Photon; a newer Photon reloads this page (home-screen apps keep
+// an old page running).
+const PAGE_VERSION = "__PHOTON_PAGE_VERSION__";
+let socket = null;
+let connected = false;
+let retryDelay = 1000;
+let retryTimer = null;
+let seq = 0;
+const sentAt = new Map();          // input seq -> send time
+const stats = { frames: 0, bytes: 0, latency: 0, render: 0, encode: 0, since: performance.now(), fps: 0, kbps: 0 };
+
+// The session token, also kept in memory when storage is unavailable.
+let currentToken = "";
+function storedToken() {
+  if (currentToken) return currentToken;
+  try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
+}
+function storeToken(t) {
+  currentToken = t || "";
+  try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+}
+
+function show(view) {
+  loginView.style.display = view === "login" ? "flex" : "none";
+  connectingView.style.display = view === "connecting" ? "flex" : "none";
+  stage.style.display = view === "screen" ? "block" : "none";
+  tools.style.display = view === "screen" ? "flex" : "none";
+  if (view === "login") setTimeout(() => passwordInput.focus(), 0);
+}
+
+// The size the server renders at: the stage's size (measured even while it
+// is hidden behind the login view).
+function screenSize() {
+  const shown = stage.style.display === "block";
+  if (!shown) { stage.style.visibility = "hidden"; stage.style.display = "block"; }
+  const r = stage.getBoundingClientRect();
+  if (!shown) { stage.style.display = "none"; stage.style.visibility = ""; }
+  return { width: Math.round(r.width), height: Math.round(r.height),
+           dpr: Math.min(3, Math.max(1, window.devicePixelRatio || 1)) };
+}
+// The logical size of the frame on screen (pointer coordinates map to it).
+let frameLogical = null;
+
+function send(msg) {
+  if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
+}
+
+function connect(password) {
+  clearTimeout(retryTimer);
+  if (socket) { socket.onclose = null; socket.close(); }
+  const token = password ? "" : storedToken();
+  if (!password && !token) { show("login"); return; }
+  show(connected ? "connecting" : (password ? "login" : "connecting"));
+  statusText.textContent = "Connecting…";
+  socket = new WebSocket("wss://" + location.host + "/");
+  socket.binaryType = "arraybuffer";
+  socket.onopen = () => send(Object.assign({ type: "hello", password: password || "", token }, screenSize()));
+  socket.onmessage = (e) => (typeof e.data === "string" ? onText(JSON.parse(e.data)) : onFrame(e.data));
+  socket.onclose = () => {
+    loginButton.disabled = false;
+    if (!connected && !storedToken()) { show("login"); return; }
+    connected = false;
+    show("connecting");
+    statusText.textContent = "Reconnecting…";
+    retryTimer = setTimeout(() => connect(""), retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 10000);
+  };
+}
+
+function onText(msg) {
+  if (msg.type === "welcome") {
+    storeToken(msg.token);
+    if (msg.version && msg.version !== PAGE_VERSION) { location.reload(); return; }
+    connected = true;
+    retryDelay = 1000;
+    passwordInput.value = "";
+    errorText.textContent = "";
+  } else if (msg.type === "denied") {
+    storeToken("");
+    connected = false;
+    socket.onclose = null;
+    loginButton.disabled = false;
+    errorText.textContent = msg.reason === "Session expired" ? "" : msg.reason;
+    show("login");
+  } else if (msg.type === "exports") {
+    openExports();
+  } else if (msg.type === "bye") {
+    connected = false;
+    socket.onclose = null;
+    statusText.textContent = msg.reason + ". ";
+    const again = document.createElement("a");
+    again.href = "#"; again.textContent = "Reconnect"; again.style.color = "var(--fg)";
+    again.onclick = (e) => { e.preventDefault(); connect(""); };
+    statusText.appendChild(again);
+    show("connecting");
+  }
+}
+
+async function onFrame(buffer) {
+  const view = new DataView(buffer);
+  const headerLength = view.getUint32(0);
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, headerLength)));
+  const jpeg = new Blob([new Uint8Array(buffer, 4 + headerLength)], { type: "image/jpeg" });
+  let bitmap;
+  try { bitmap = await createImageBitmap(jpeg); } catch (e) { send({ type: "ack" }); return; }
+  if (canvas.width !== header.width || canvas.height !== header.height) {
+    canvas.width = header.width;
+    canvas.height = header.height;
+  }
+  frameLogical = { width: header.width / header.dpr, height: header.height / header.dpr };
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close && bitmap.close();
+  send({ type: "ack" });
+  if (stage.style.display !== "block") show("screen");
+
+  const now = performance.now();
+  if (sentAt.has(header.seq)) {
+    stats.latency = now - sentAt.get(header.seq);
+    for (const k of sentAt.keys()) if (k <= header.seq) sentAt.delete(k);
+  }
+  stats.frames++; stats.bytes += buffer.byteLength;
+  stats.render = header.renderMs; stats.encode = header.encodeMs;
+  if (now - stats.since >= 1000) {
+    stats.fps = stats.frames * 1000 / (now - stats.since);
+    stats.kbps = stats.bytes * 8 / (now - stats.since);
+    stats.frames = 0; stats.bytes = 0; stats.since = now;
+  }
+  statsView.textContent =
+    `${header.width}×${header.height}  ${stats.fps.toFixed(1)} fps  ${(stats.kbps / 1000).toFixed(1)} Mbit/s\n` +
+    `input→frame ${stats.latency.toFixed(0)} ms  render ${stats.render} ms  encode ${stats.encode} ms  ` +
+    `${(buffer.byteLength / 1024).toFixed(0)} KB`;
+}
+
+// --- Input ------------------------------------------------------------------
+
+function modifiers(e) {
+  return (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+}
+
+function sendInput(msg) {
+  if (!connected) return;
+  msg.seq = ++seq;
+  sentAt.set(seq, performance.now());
+  if (sentAt.size > 200) sentAt.delete(sentAt.keys().next().value);
+  send(msg);
+}
+
+// Pointer position in the frame's logical pixels: what is under the finger,
+// also while a frame of the previous size is still shown stretched.
+function point(e) {
+  const r = canvas.getBoundingClientRect();
+  const size = frameLogical || { width: r.width, height: r.height };
+  return { x: (e.clientX - r.left) * size.width / r.width, y: (e.clientY - r.top) * size.height / r.height };
+}
+
+// Mouse and pen map straight to mouse events; moves are coalesced per frame.
+let pendingMove = null;
+function flushMove() {
+  if (pendingMove) { sendInput(pendingMove); pendingMove = null; }
+}
+function queueMove(msg) {
+  if (!pendingMove) requestAnimationFrame(flushMove);
+  pendingMove = msg;
+}
+
+// Touch: a tap clicks, a drag drags (after a few pixels), a long press is a
+// right click, two fingers scroll.
+const touches = new Map();
+let touchState = null;  // { id, start, last, mode: "pending"|"drag"|"done", timer }
+const LONG_PRESS_MS = 500, DRAG_SLOP = 8;
+
+function pointerMsg(kind, p, button, buttons, e) {
+  return { type: "pointer", kind, x: p.x, y: p.y, button, buttons, mods: e ? modifiers(e) : 0 };
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  canvas.setPointerCapture(e.pointerId);
+  const p = point(e);
+  if (e.pointerType !== "touch") {
+    flushMove();
+    sendInput(pointerMsg("down", p, e.button, e.buttons, e));
+    return;
+  }
+  touches.set(e.pointerId, p);
+  if (touches.size === 1) {
+    touchState = { id: e.pointerId, start: p, last: p, mode: "pending",
+      timer: setTimeout(() => {
+        if (!touchState || touchState.mode !== "pending") return;
+        touchState.mode = "done";
+        sendInput(pointerMsg("move", touchState.start, -1, 0));
+        sendInput(pointerMsg("down", touchState.start, 2, 2));
+        sendInput(pointerMsg("up", touchState.start, 2, 0));
+      }, LONG_PRESS_MS) };
+  } else if (touches.size === 2 && touchState) {
+    clearTimeout(touchState.timer);
+    if (touchState.mode === "drag") sendInput(pointerMsg("up", touchState.last, 0, 0));
+    touchState.mode = "done";
+  }
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  const p = point(e);
+  if (e.pointerType !== "touch") {
+    queueMove(pointerMsg("move", p, -1, e.buttons, e));
+    return;
+  }
+  if (!touches.has(e.pointerId)) return;
+  if (touches.size === 2) {
+    // Two-finger scroll: the midpoint's movement becomes wheel deltas.
+    const before = [...touches.values()];
+    const midBefore = { x: (before[0].x + before[1].x) / 2, y: (before[0].y + before[1].y) / 2 };
+    touches.set(e.pointerId, p);
+    const after = [...touches.values()];
+    const midAfter = { x: (after[0].x + after[1].x) / 2, y: (after[0].y + after[1].y) / 2 };
+    sendInput({ type: "wheel", x: midAfter.x, y: midAfter.y, dx: midBefore.x - midAfter.x,
+                dy: midBefore.y - midAfter.y, mods: 0 });
+    return;
+  }
+  touches.set(e.pointerId, p);
+  if (!touchState || touchState.id !== e.pointerId) return;
+  if (touchState.mode === "pending" &&
+      Math.hypot(p.x - touchState.start.x, p.y - touchState.start.y) > DRAG_SLOP) {
+    clearTimeout(touchState.timer);
+    touchState.mode = "drag";
+    sendInput(pointerMsg("move", touchState.start, -1, 0));
+    sendInput(pointerMsg("down", touchState.start, 0, 1));
+  }
+  if (touchState.mode === "drag") queueMove(pointerMsg("move", p, -1, 1));
+  touchState.last = p;
+});
+
+function pointerEnd(e) {
+  const p = point(e);
+  if (e.pointerType !== "touch") {
+    flushMove();
+    sendInput(pointerMsg("up", p, e.button, e.buttons, e));
+    return;
+  }
+  touches.delete(e.pointerId);
+  if (!touchState || touchState.id !== e.pointerId) return;
+  clearTimeout(touchState.timer);
+  if (touchState.mode === "pending" && e.type === "pointerup") {
+    sendInput(pointerMsg("move", touchState.start, -1, 0));
+    sendInput(pointerMsg("down", touchState.start, 0, 1));
+    sendInput(pointerMsg("up", touchState.start, 0, 0));
+  } else if (touchState.mode === "drag") {
+    flushMove();
+    sendInput(pointerMsg("up", p, 0, 0));
+  }
+  touchState = null;
+}
+canvas.addEventListener("pointerup", pointerEnd);
+canvas.addEventListener("pointercancel", pointerEnd);
+canvas.addEventListener("pointerleave", (e) => {
+  if (e.pointerType === "mouse" && !e.buttons) sendInput({ type: "pointer", kind: "leave" });
+});
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
+  const p = point(e);
+  sendInput({ type: "wheel", x: p.x, y: p.y, dx: e.deltaX * scale, dy: e.deltaY * scale, mods: modifiers(e) });
+}, { passive: false });
+
+// Keys: a hardware keyboard sends key events; the on-screen keyboard types
+// into a hidden text area whose input is forwarded.
+const BROWSER_KEYS = new Set(["Tab", "Backspace", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp",
+  "ArrowDown", "Home", "End", "PageUp", "PageDown", " ", "Delete"]);
+function keyEvent(kind, e) {
+  if (!viewer.hidden || !exportsView.hidden) {
+    if (kind === "down" && e.key === "Escape") viewer.hidden ? closeExports() : closeViewer();
+    return;
+  }
+  if (!connected || loginView.style.display === "flex") return;
+  if (kind === "down" && (BROWSER_KEYS.has(e.key) || e.metaKey || e.ctrlKey)) e.preventDefault();
+  if (e.isComposing || e.key === "Unidentified" || e.key === "Process") return;
+  const text = e.key.length === 1 ? e.key : (e.key === "Enter" ? "\r" : "");
+  sendInput({ type: "key", kind, key: e.key, text: kind === "down" ? text : "", mods: modifiers(e), repeat: e.repeat });
+  if (document.activeElement === keys) e.preventDefault();
+}
+window.addEventListener("keydown", (e) => keyEvent("down", e));
+window.addEventListener("keyup", (e) => keyEvent("up", e));
+keys.addEventListener("input", (e) => {
+  if (e.inputType === "deleteContentBackward") {
+    sendInput({ type: "key", kind: "down", key: "Backspace", text: "", mods: 0 });
+    sendInput({ type: "key", kind: "up", key: "Backspace", text: "", mods: 0 });
+  } else if (e.data) {
+    for (const ch of e.data) {
+      sendInput({ type: "key", kind: "down", key: ch, text: ch, mods: 0 });
+      sendInput({ type: "key", kind: "up", key: ch, text: "", mods: 0 });
+    }
+  }
+  keys.value = "";
+});
+document.getElementById("keyboardButton").addEventListener("click", () => {
+  if (document.activeElement === keys) keys.blur(); else keys.focus();
+});
+document.getElementById("statsButton").addEventListener("click", () => {
+  statsView.style.display = statsView.style.display === "block" ? "none" : "block";
+});
+
+// The remote screen follows the stage: rotation, Safari's toolbar, Split View.
+let resizeTimer = null;
+new ResizeObserver(() => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => connected && send(Object.assign({ type: "resize" }, screenSize())), 200);
+}).observe(stage);
+
+// Keep-alive (some networks drop idle connections).
+setInterval(() => connected && send({ type: "ping", t: Date.now() }), 20000);
+
+document.getElementById("loginForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!passwordInput.value) return;
+  loginButton.disabled = true;
+  errorText.textContent = "";
+  connect(passwordInput.value);
+});
+
+// --- Exports ----------------------------------------------------------------
+
+const exportsView = document.getElementById("exports");
+const exportsGrid = document.getElementById("exportsGrid");
+const exportsEmpty = document.getElementById("exportsEmpty");
+const viewer = document.getElementById("viewer");
+const viewerMedia = document.getElementById("viewerMedia");
+const viewerShare = document.getElementById("viewerShare");
+const viewerDownload = document.getElementById("viewerDownload");
+const SHARE_MAX_BYTES = 80 * 1024 * 1024;  // larger files: Download instead
+let shareFile = null;
+let exportFiles = [];              // the listed files
+let selecting = false;
+const selected = new Set();        // names
+const prepared = new Set();        // names being fetched for the share sheet
+const readyFiles = new Map();      // name -> File, once fetched
+const SHARE_TOTAL_MAX = 300 * 1024 * 1024;
+
+function exportsUrl(kind, name, extra) {
+  return `/exports/${kind}?t=${encodeURIComponent(storedToken())}` +
+         (name ? `&name=${encodeURIComponent(name)}` : "") + (extra || "");
+}
+function formatSize(bytes) {
+  return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
+}
+function formatDate(ms) {
+  return new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+async function openExports() {
+  exportsView.hidden = false;
+  exportsGrid.replaceChildren();
+  exportsEmpty.hidden = true;
+  exportFiles = [];
+  prepared.clear();
+  readyFiles.clear();
+  setSelecting(false);
+  let list;
+  try {
+    const response = await fetch(exportsUrl("list"), { cache: "no-store" });
+    if (!response.ok) throw new Error(response.status);
+    list = await response.json();
+  } catch (e) {
+    exportsEmpty.textContent = "The exports could not be loaded.";
+    exportsEmpty.hidden = false;
+    return;
+  }
+  document.getElementById("exportsFolder").textContent = list.folder ? list.folder + " › Export" : "";
+  if (!list.folder || !list.exists || list.files.length === 0) {
+    exportsEmpty.textContent = !list.folder ? "Open a folder in Photon to see its exports."
+      : "No exports yet. Photos exported to the folder's Export folder appear here.";
+    exportsEmpty.hidden = false;
+    return;
+  }
+  exportFiles = list.files;
+  for (const file of list.files) {
+    const tile = document.createElement("button");
+    tile.className = "tile";
+    tile.dataset.name = file.name;
+    const check = document.createElement("div");
+    check.className = "check";
+    check.textContent = "✓";
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    if (file.video) {
+      thumb.textContent = "▶";
+    } else {
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = "";
+      img.src = exportsUrl("thumb", file.name);
+      img.onerror = () => { img.remove(); thumb.textContent = "🖼"; };
+      thumb.appendChild(img);
+    }
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = file.name;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = formatSize(file.size) + " · " + formatDate(file.modified);
+    tile.append(thumb, name, meta, check);
+    tile.addEventListener("click", () => (selecting ? toggleSelected(file, tile) : openViewer(file)));
+    exportsGrid.appendChild(tile);
+  }
+}
+
+function closeExports() { closeViewer(); setSelecting(false); exportsView.hidden = true; }
+
+// --- Selection: share several files at once, or download them as one zip.
+
+function setSelecting(on) {
+  selecting = on;
+  selected.clear();
+  exportsView.classList.toggle("selecting", on);
+  document.getElementById("exportsSelect").textContent = on ? "Cancel" : "Select";
+  document.getElementById("selectionBar").hidden = !on;
+  for (const tile of exportsGrid.children) tile.classList.remove("selected");
+  updateSelection();
+}
+
+function canShareFiles() { return !!(navigator.canShare && navigator.share); }
+
+// The share sheet must open right on the tap, so selected files are fetched
+// as they are selected.
+function prepare(file) {
+  if (!canShareFiles() || file.size > SHARE_MAX_BYTES || prepared.has(file.name)) return;
+  prepared.add(file.name);
+  fetch(exportsUrl("file", file.name))
+    .then((r) => (r.ok ? r.blob() : null))
+    .then((blob) => { if (blob) readyFiles.set(file.name, new File([blob], file.name, { type: blob.type })); })
+    .catch(() => {})
+    .then(updateSelection);
+}
+
+function toggleSelected(file, tile) {
+  if (selected.has(file.name)) selected.delete(file.name); else { selected.add(file.name); prepare(file); }
+  tile.classList.toggle("selected", selected.has(file.name));
+  updateSelection();
+}
+
+function updateSelection() {
+  const count = selected.size;
+  document.getElementById("selectionCount").textContent =
+    count === 0 ? "Tap photos to select them" : count === 1 ? "1 selected" : count + " selected";
+  document.getElementById("selectAll").textContent =
+    count > 0 && count === exportFiles.length ? "Deselect All" : "Select All";
+  document.getElementById("selectionDownload").disabled = count === 0;
+  const share = document.getElementById("selectionShare");
+  share.hidden = !canShareFiles();
+  const files = exportFiles.filter((f) => selected.has(f.name));
+  const total = files.reduce((sum, f) => sum + f.size, 0);
+  const shareable = files.length > 0 && total <= SHARE_TOTAL_MAX && files.every((f) => f.size <= SHARE_MAX_BYTES);
+  const ready = shareable && files.every((f) => readyFiles.has(f.name));
+  share.disabled = !ready;
+  share.textContent = shareable && !ready ? "Preparing…" : "Share";
+}
+
+document.getElementById("exportsSelect").addEventListener("click", () => setSelecting(!selecting));
+document.getElementById("selectAll").addEventListener("click", () => {
+  const all = selected.size !== exportFiles.length;
+  selected.clear();
+  for (const tile of exportsGrid.children) {
+    const file = exportFiles.find((f) => f.name === tile.dataset.name);
+    if (all && file) { selected.add(file.name); prepare(file); }
+    tile.classList.toggle("selected", all);
+  }
+  updateSelection();
+});
+document.getElementById("selectionShare").addEventListener("click", () => {
+  const files = exportFiles.filter((f) => selected.has(f.name)).map((f) => readyFiles.get(f.name)).filter(Boolean);
+  if (files.length && navigator.canShare({ files })) navigator.share({ files }).catch(() => {});
+});
+document.getElementById("selectionDownload").addEventListener("click", () => {
+  const names = exportFiles.filter((f) => selected.has(f.name)).map((f) => f.name);
+  if (names.length === 0) return;
+  // One file downloads as is; several as one zip (iOS saves one file per download).
+  const a = document.createElement("a");
+  a.href = names.length === 1 ? exportsUrl("file", names[0], "&download=1")
+    : exportsUrl("zip") + names.map((n) => "&name=" + encodeURIComponent(n)).join("");
+  a.download = names.length === 1 ? names[0] : "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+});
+
+function openViewer(file) {
+  const url = exportsUrl("file", file.name);
+  viewerMedia.replaceChildren();
+  const media = document.createElement(file.video ? "video" : "img");
+  media.src = url;
+  if (file.video) { media.controls = true; media.playsInline = true; } else { media.alt = file.name; }
+  viewerMedia.appendChild(media);
+  document.getElementById("viewerName").textContent = file.name;
+  document.getElementById("viewerMeta").textContent = formatSize(file.size) + " · " + formatDate(file.modified);
+  viewerDownload.href = exportsUrl("file", file.name, "&download=1");
+  viewerDownload.download = file.name;
+  // The share sheet must open right on the tap, so the file is fetched now.
+  shareFile = null;
+  const canShareFiles = !!(navigator.canShare && navigator.share) && file.size <= SHARE_MAX_BYTES;
+  viewerShare.hidden = !canShareFiles;
+  viewerShare.disabled = true;
+  if (canShareFiles) {
+    const name = file.name;
+    fetch(url).then((r) => r.blob()).then((blob) => {
+      if (document.getElementById("viewerName").textContent !== name) return;
+      const candidate = new File([blob], name, { type: blob.type });
+      if (navigator.canShare({ files: [candidate] })) { shareFile = candidate; viewerShare.disabled = false; }
+      else viewerShare.hidden = true;
+    }).catch(() => { viewerShare.hidden = true; });
+  }
+  viewer.hidden = false;
+}
+
+function closeViewer() {
+  viewer.hidden = true;
+  viewerMedia.replaceChildren();
+  shareFile = null;
+}
+
+viewerShare.addEventListener("click", () => {
+  if (shareFile) navigator.share({ files: [shareFile], title: shareFile.name }).catch(() => {});
+});
+document.getElementById("viewerClose").addEventListener("click", closeViewer);
+document.getElementById("exportsClose").addEventListener("click", closeExports);
+document.getElementById("exportsRefresh").addEventListener("click", openExports);
+
+connect("");
+</script>
+</body>
+</html>

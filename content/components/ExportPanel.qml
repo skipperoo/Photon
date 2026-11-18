@@ -28,6 +28,10 @@ Control {
     }
 
 FolderDialog {
+
+    // Drawn inside the UI when non-native (a remote session), not as a desktop window.
+
+    popupType: Popup.Item
     id: folderDialog
     title: "Select Export Folder"
     currentFolder: AppState.currentFolder

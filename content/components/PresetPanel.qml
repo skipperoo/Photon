@@ -758,6 +758,10 @@ Rectangle {
     // ─── Dialogs ──────────────────────────────────────────────────────────────
 
     FileDialog {
+
+        // Drawn inside the UI when non-native (a remote session), not as a desktop window.
+
+        popupType: T.Popup.Item
         id: importDialog
         property string scope: "global"
         title: scope === "project" ? "Import Presets into This Folder" : "Import Presets"
@@ -773,6 +777,10 @@ Rectangle {
     }
 
     FileDialog {
+
+        // Drawn inside the UI when non-native (a remote session), not as a desktop window.
+
+        popupType: T.Popup.Item
         id: exportDialog
         property string kind: "preset"
         property string scope: "global"
@@ -790,6 +798,10 @@ Rectangle {
     }
 
     MessageDialog {
+
+        // Drawn inside the UI when non-native (a remote session), not as a desktop window.
+
+        popupType: T.Popup.Item
         id: confirmDialog
         property var callback: null
         buttons: MessageDialog.Yes | MessageDialog.No

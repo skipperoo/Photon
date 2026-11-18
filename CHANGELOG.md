@@ -20,6 +20,14 @@ All notable changes to Photon. Each release's section is published as its GitHub
   - **Presets for this folder:** save a preset to *This folder* to keep it with the photos (in `.PhotonData/presets`). It only appears while that folder is open, so it does not clutter other projects. It can be copied or moved to all presets later.
   - **Import / export:** import `.json` presets or `.zip` collections, into all presets or into this folder. Export one preset as `.json`, or a folder, your favorites, all presets or this folder's presets as `.zip` with the folders kept. Names already in use get " (2)"; invalid files are skipped and counted.
 
+- **Remote mode: use Photon from an iPad (or any browser):**
+  - **Turn it on** in Settings › Remote Access: set a password, switch it on, and open one of the listed addresses on the device. Photon keeps running on the computer; its window shows that it is in use, with a **Use Photon here** button.
+  - **The real Photon, streamed:** the whole app runs on the computer (GPU, AI denoise, your folders) and is drawn at the device's screen size and sharpness. Edits, presets and exports are the same as on the desktop.
+  - **Touch:** tap to click, drag to drag, long-press for the right-click menu, two fingers to scroll; ⌨ opens the keyboard, a hardware keyboard works directly (Cmd works as Ctrl).
+  - **Exports on the device:** an **Exports** button (top bar and Develop sidebar, only on the device) shows the folder's Export folder: view photos and videos, select several, **Share** (Save to Photos, AirDrop…) or **Download** (several as one zip).
+  - **Secure:** HTTPS with Photon's own certificate (install it once on the device to remove the browser warning), a password with sign-in throttling, one device at a time. Add it to the Home Screen to run it full screen.
+- **Drag to scroll** the Develop adjustments and Settings with the mouse or a finger, like the Library.
+
 ### Fixed
 
 - **Export progress** now advances while a video is being made, and the "export finished" event no longer repeats once more after each export.
@@ -31,6 +39,7 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 - New dependency: **FFmpeg** (libavcodec, libavformat, libavutil, libswscale; with libx264 for the best quality). Fedora: `ffmpeg-devel` from RPM Fusion; Ubuntu: `libavcodec-dev libavformat-dev libavutil-dev libswscale-dev`; Windows: vcpkg `ffmpeg[x264]`. `-DPHOTON_ENABLE_VIDEO_EXPORT=OFF` builds without the edit video.
 - The Instrument Sans typeface (SemiBold, SIL Open Font License) is bundled for the video's labels.
+- New dependencies for remote mode: **Qt WebSockets** and **OpenSSL** (Fedora: `qt6-qtwebsockets-devel openssl-devel`; Ubuntu: the Qt WebSockets module and `libssl-dev`; Windows: the `qtwebsockets` Qt module and vcpkg `openssl`). `-DPHOTON_ENABLE_REMOTE=OFF` builds without it.
 
 ## [v0.5.1] - 2026-11-18
 

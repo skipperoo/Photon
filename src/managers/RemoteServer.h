@@ -30,6 +30,9 @@ class RemoteSession;
 //   Export folder, read-only (files directly inside it, image and video
 //   types only), for the page's Exports view; /exports/zip?name=…&name=…
 //   downloads several as one .zip.
+// - POST /upload?t=<token>&name=<file>: a photo (a type the Library opens)
+//   into the open folder, never elsewhere; names are sanitized and never
+//   overwrite (" (2)").
 // - A WebSocket on the same port: login (password, then a session token for
 //   reconnects), frames (JPEG, newest wins: the next frame goes out once the
 //   client has drawn the previous one), input (pointer, wheel, keys, resize).
@@ -72,6 +75,14 @@ class RemoteServer : public QObject {
   static constexpr int kDefaultPort = 8443;
   static constexpr int kMinPasswordLength = 8;
   static constexpr int kPbkdf2Iterations = 210000;
+  static constexpr qint64 kMaxUploadBytes = 4LL * 1024 * 1024 * 1024;
+
+  // An uploaded file's name made safe: a plain file name (no path, control
+  // or reserved characters, no leading dot, not a reserved Windows name) with
+  // an extension Photon opens; "" when it is not one.
+  static QString sanitizeUploadName(const QString& name);
+  // The file types uploads accept (the Library's).
+  static QStringList uploadExtensions();
 
  signals:
   void stateChanged();
@@ -92,6 +103,10 @@ class RemoteServer : public QObject {
   void encodeNext();
   void sendHttp(QSslSocket* socket, int status, const QByteArray& type,
                 const QByteArray& body, const QByteArray& extraHeaders = {});
+  // POST /upload?t=…&name=…: one photo into the open folder (the body is
+  // streamed to a hidden temporary file there, then renamed).
+  void beginUpload(QSslSocket* socket, const QUrlQuery& query,
+                   const QByteArray& contentLength);
   void serveExports(QSslSocket* socket, const QByteArray& path,
                     const QUrlQuery& query, const QByteArray& range);
   // downloadName: the name the browser saves it as ("" = the file's name).

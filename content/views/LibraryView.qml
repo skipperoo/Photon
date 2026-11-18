@@ -205,6 +205,41 @@ Control {
 
             Item { Layout.fillWidth: true } // Spacer
 
+            // Photos per row (Ctrl + mouse wheel over the grid too)
+            RowLayout {
+                spacing: 8
+                Image {
+                    source: "qrc:/Main/assets/icons/layout-grid.svg"
+                    sourceSize.width: 16
+                    sourceSize.height: 16
+                    layer.enabled: true
+                    layer.effect: ShaderEffect {
+                        property color color: Theme.mutedFg
+                        fragmentShader: "qrc:/Main/shaders/ColorMask.frag.qsb"
+                    }
+                }
+                PhotonSlider {
+                    id: columnsSlider
+                    Layout.preferredWidth: 140
+                    from: 1
+                    to: 10
+                    stepSize: 1
+                    snapMode: Slider.SnapAlways
+                    showNeutralTick: false
+                    onMoved: AppState.libraryColumns = Math.round(value)
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: "Photos per row (Ctrl + mouse wheel)"
+                }
+                // Follows Ctrl+wheel and the saved setting, except while dragged.
+                Binding {
+                    target: columnsSlider
+                    property: "value"
+                    value: grid.columns
+                    when: !columnsSlider.pressed
+                }
+            }
+
             // Filter Control
             PhotonButton {
                 id: filterButton
@@ -332,11 +367,37 @@ Control {
             id: grid
             width: parent.width
             Layout.fillHeight: true
-            Layout.preferredWidth: Math.floor(parent.width / cellWidth) * cellWidth
+            Layout.preferredWidth: columns * cellWidth
             Layout.alignment: Qt.AlignHCenter
-            cellWidth: 440
-            cellHeight: 400
+            // Photos per row: the setting, or as many 440 px cells as fit. Cells
+            // keep the 440:400 proportions. Sized from the parent's width (the
+            // grid's own width follows preferredWidth).
+            readonly property int columns: AppState.libraryColumns > 0
+                                           ? AppState.libraryColumns
+                                           : Math.max(1, Math.floor(parent.width / 440))
+            cellWidth: Math.max(1, Math.floor(parent.width / columns))
+            cellHeight: Math.round(cellWidth * 400 / 440)
             clip: true
+
+            // Ctrl + wheel: up for bigger photos (fewer per row), down for more.
+            WheelHandler {
+                target: null
+                // Touchpads too (WheelHandler takes only mouse wheels by default).
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                acceptedModifiers: Qt.ControlModifier
+                property real accumulated: 0
+                onWheel: (event) => {
+                    accumulated += event.angleDelta.y
+                    while (accumulated >= 120) {
+                        accumulated -= 120
+                        AppState.libraryColumns = Math.max(1, grid.columns - 1)
+                    }
+                    while (accumulated <= -120) {
+                        accumulated += 120
+                        AppState.libraryColumns = Math.min(10, grid.columns + 1)
+                    }
+                }
+            }
             // ScrollBar.vertical: PhotonScrollBar {}
 
             model: rawFilesModel
@@ -425,7 +486,7 @@ Control {
                                         Text {
                                             text: "★"
                                             font.pixelSize: 10
-                                            color: index < itemRating ? "#eab308" : "#333333"
+                                            color: index < itemRating ? Theme.ratingStar : "#333333"
                                         }
                                     }
                                 }

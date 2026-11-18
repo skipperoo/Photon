@@ -184,7 +184,8 @@ Rectangle {
         implicitHeight: 26
         icon.width: 15
         icon.height: 15
-        icon.color: hb.active ? Theme.accent : Theme.foreground
+        // An active toggle (a favorite star) is shown by its icon colour.
+        icon.color: hb.active ? Theme.ratingStar : Theme.foreground
         display: icon.source != "" ? T.AbstractButton.IconOnly : T.AbstractButton.TextOnly
         T.ToolTip.visible: hovered && tip !== ""
         T.ToolTip.text: tip
@@ -195,17 +196,22 @@ Rectangle {
                 source: hb.icon.source
                 sourceSize.width: hb.icon.width
                 sourceSize.height: hb.icon.height
+                layer.enabled: true
+                layer.effect: ShaderEffect {
+                    property color color: hb.icon.color
+                    fragmentShader: "qrc:/Main/shaders/ColorMask.frag.qsb"
+                }
             }
             Text {
                 anchors.centerIn: parent
                 visible: hb.icon.source == ""
                 text: hb.text
                 font: Theme.fontMedium
-                color: hb.active ? Theme.accent : Theme.foreground
+                color: hb.active ? Theme.ratingStar : Theme.foreground
             }
         }
         background: Rectangle {
-            color: hb.hovered || hb.active ? Theme.secondary : "transparent"
+            color: hb.hovered ? Theme.secondary : "transparent"
             radius: 4
         }
     }

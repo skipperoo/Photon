@@ -78,6 +78,30 @@
     background: var(--panel); }
   #selectionBar[hidden] { display: none; }
   #selectionCount { flex: 1; font-size: 14px; color: var(--muted); }
+
+  /* Upload: photos from this device into the open folder. */
+  .upload-body { flex: 1; overflow-y: auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 16px;
+    align-items: center; }
+  .upload-body .pill { font-size: 16px; padding: 12px 22px; }
+  .upload-body .pill[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  #uploadList { width: min(560px, 100%); display: flex; flex-direction: column; gap: 8px; }
+  .upload-row { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+    display: flex; align-items: center; gap: 12px; }
+  .upload-row .info { flex: 1; min-width: 0; }
+  .upload-row .state { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center;
+    border: 0; background: none; padding: 0; color: var(--muted); }
+  .upload-row button.state { border-radius: 14px; }
+  .upload-row button.state:active { background: var(--border); }
+  .upload-row .state svg { width: 22px; height: 22px; }
+  .upload-row .state.done { color: #22c55e; }
+  .upload-row .state.failed { color: #ef4444; }
+  #uploadClear:disabled { opacity: .4; }
+  .upload-row .name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .upload-row .status { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .upload-row .status.error { color: #f87171; }
+  .upload-row .bar { height: 4px; border-radius: 2px; background: var(--border); margin-top: 8px; overflow: hidden; }
+  .upload-row .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
   #viewer { position: fixed; inset: 0; z-index: 4; background: #000; display: flex; flex-direction: column;
     padding: calc(env(safe-area-inset-top) + 15px) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   #viewerMedia { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
@@ -130,6 +154,19 @@
     <button class="pill" id="selectAll">Select All</button>
     <button class="pill primary-pill" id="selectionShare" disabled>Share</button>
     <button class="pill" id="selectionDownload" disabled>Download</button>
+  </div>
+</div>
+<div id="upload" class="sheet" hidden>
+  <header>
+    <div class="titles"><div class="title">Upload</div><div class="sub" id="uploadFolder"></div></div>
+    <button class="text-button" id="uploadClear" disabled>Clear history</button>
+    <button class="icon-button" id="uploadClose" title="Close" aria-label="Close">✕</button>
+  </header>
+  <div class="upload-body">
+    <label class="pill primary-pill" id="uploadChoose" for="uploadInput">Choose Photos…</label>
+    <input type="file" id="uploadInput" class="visually-hidden" multiple>
+    <div class="sub" id="uploadHint"></div>
+    <div id="uploadList"></div>
   </div>
 </div>
 <div id="viewer" hidden>
@@ -244,6 +281,8 @@ function onText(msg) {
     show("login");
   } else if (msg.type === "exports") {
     openExports();
+  } else if (msg.type === "upload") {
+    openUpload(msg);
   } else if (msg.type === "bye") {
     connected = false;
     socket.onclose = null;
@@ -429,6 +468,10 @@ canvas.addEventListener("wheel", (e) => {
 const BROWSER_KEYS = new Set(["Tab", "Backspace", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp",
   "ArrowDown", "Home", "End", "PageUp", "PageDown", " ", "Delete"]);
 function keyEvent(kind, e) {
+  if (!uploadView.hidden) {
+    if (kind === "down" && e.key === "Escape") closeUpload();
+    return;
+  }
   if (!viewer.hidden || !exportsView.hidden) {
     if (kind === "down" && e.key === "Escape") viewer.hidden ? closeExports() : closeViewer();
     return;
@@ -684,6 +727,134 @@ viewerShare.addEventListener("click", () => {
 document.getElementById("viewerClose").addEventListener("click", closeViewer);
 document.getElementById("exportsClose").addEventListener("click", closeExports);
 document.getElementById("exportsRefresh").addEventListener("click", openExports);
+
+// --- Upload -----------------------------------------------------------------
+
+const uploadView = document.getElementById("upload");
+const uploadInput = document.getElementById("uploadInput");
+const uploadList = document.getElementById("uploadList");
+const uploadChoose = document.getElementById("uploadChoose");
+let uploadQueue = Promise.resolve();
+let uploadExtensions = [];
+
+// The picker opens from a tap on "Choose Photos…" (iOS only opens it from
+// a tap in the page, not from a message).
+function openUpload(msg) {
+  uploadExtensions = msg.extensions || [];
+  // image/jpeg makes iOS convert photos (HEIC) to JPEG; RAW and TIFF files by
+  // extension.
+  uploadInput.accept = ["image/jpeg", "image/tiff"].concat(uploadExtensions.map((e) => "." + e)).join(",");
+  const hasFolder = !!msg.folder;
+  document.getElementById("uploadFolder").textContent = hasFolder ? "to " + msg.folder : "";
+  document.getElementById("uploadHint").textContent = hasFolder
+    ? "RAW, JPEG and TIFF photos are added to the open folder. Names already there get a number."
+    : "Open a folder in Photon first.";
+  uploadChoose.setAttribute("aria-disabled", hasFolder ? "false" : "true");
+  uploadView.hidden = false;
+}
+
+function closeUpload() { uploadView.hidden = true; }
+
+// Lucide icons (ISC licence).
+const ICONS = {
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  failed: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+};
+function icon(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ` +
+         `stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+}
+
+let pendingUploads = 0;  // waiting or uploading
+function updateClear() {
+  document.getElementById("uploadClear").disabled = pendingUploads > 0 || uploadList.children.length === 0;
+}
+
+// One row per file: waiting / uploading (with a cancel X), then a green check
+// or a red cross (the progress bar goes away).
+function uploadOne(file) {
+  const row = document.createElement("div");
+  row.className = "upload-row";
+  const info = document.createElement("div");
+  info.className = "info";
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = file.name;
+  const status = document.createElement("div");
+  status.className = "status";
+  status.textContent = "Waiting… · " + formatSize(file.size);
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  const fill = document.createElement("div");
+  bar.appendChild(fill);
+  info.append(name, status, bar);
+  const cancel = document.createElement("button");
+  cancel.className = "state";
+  cancel.title = "Cancel";
+  cancel.setAttribute("aria-label", "Cancel upload");
+  cancel.innerHTML = icon("x");
+  row.append(info, cancel);
+  uploadList.prepend(row);
+  pendingUploads++;
+  updateClear();
+
+  let xhr = null, cancelled = false, finished = false;
+  const finish = (ok, text) => {
+    if (finished) return;
+    finished = true;
+    bar.remove();
+    status.className = ok ? "status" : "status error";
+    status.textContent = text;
+    const mark = document.createElement("div");
+    mark.className = "state " + (ok ? "done" : "failed");
+    mark.innerHTML = icon(ok ? "check" : "failed");
+    cancel.replaceWith(mark);
+    pendingUploads--;
+    updateClear();
+  };
+  cancel.addEventListener("click", () => {
+    cancelled = true;
+    if (xhr) xhr.abort();  // the computer deletes the partial file
+    finish(false, "Cancelled");
+  });
+
+  return () => new Promise((resolve) => {
+    if (cancelled) { resolve(); return; }
+    xhr = new XMLHttpRequest();
+    xhr.open("POST", `/upload?t=${encodeURIComponent(storedToken())}&name=${encodeURIComponent(file.name)}`);
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable || finished) return;
+      fill.style.width = (100 * e.loaded / e.total).toFixed(1) + "%";
+      status.textContent = `Uploading… ${formatSize(e.loaded)} of ${formatSize(e.total)}`;
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        let saved = file.name;
+        try { saved = JSON.parse(xhr.responseText).name || saved; } catch (e) {}
+        finish(true, "Saved as " + saved);
+      } else {
+        finish(false, xhr.responseText || ("Error " + xhr.status));
+      }
+      resolve();
+    };
+    xhr.onerror = () => { finish(false, "The upload failed"); resolve(); };
+    xhr.onabort = () => { finish(false, "Cancelled"); resolve(); };
+    xhr.send(file);
+  });
+}
+
+uploadInput.addEventListener("change", () => {
+  // One after another (the computer writes them in order; the list shows progress).
+  for (const file of uploadInput.files) uploadQueue = uploadQueue.then(uploadOne(file));
+  uploadInput.value = "";
+});
+document.getElementById("uploadClear").addEventListener("click", () => {
+  if (pendingUploads > 0) return;
+  uploadList.replaceChildren();
+  updateClear();
+});
+document.getElementById("uploadClose").addEventListener("click", closeUpload);
 
 connect("");
 </script>

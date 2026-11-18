@@ -328,6 +328,8 @@ qt_add_qml_module(Photon
         assets/icons/tube.svg
         assets/icons/trash.svg
         assets/icons/download.svg
+        assets/icons/upload.svg
+        assets/icons/layout-grid.svg
         assets/icons/panorama.svg
         assets/icons/hdr.svg
         assets/icons/folder.svg

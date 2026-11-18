@@ -55,10 +55,16 @@ class RemoteSession : public QObject {
   // The remote UI's Exports buttons: the browser shows the project's Export
   // folder (RemoteServer serves it).
   Q_INVOKABLE void showExports() { emit exportsRequested(); }
+  // The remote UI's Upload buttons: the browser offers to upload photos into
+  // the open folder (RemoteServer receives them).
+  Q_INVOKABLE void showUpload() { emit uploadRequested(); }
 
  signals:
   void activeChanged();
   void exportsRequested();
+  void uploadRequested();
+  // A photo was uploaded into the open folder (the Library refreshes).
+  void photoUploaded(const QString& path);
   // A rendered frame (premultiplied RGBA, device pixels) and how long the
   // render + readback took.
   void frameReady(const QImage& frame, qint64 renderMs);

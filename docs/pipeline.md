@@ -144,3 +144,4 @@ Before any edit stage, the develop source is LibRaw's 16-bit sRGB mem image (or 
 | 2026-11-18 | Edit video export: the CPU export path renders one step per Develop group (`stepSettings`), composited into an H.264 MP4 (no pipeline change) | shareable edit clip | branch `feature/edit-video` |
 | 2026-11-18 | Preset library: folders, favorites, project presets, .json/.zip import/export (presets apply through `RawEngine::applySettings`; no pipeline change) | organized, shareable presets | branch `feature/presets` |
 | 2026-11-18 | Remote mode: the UI (and its GPU preview chain) rendered offscreen at the device's size and streamed to a browser; no pipeline change | edit from an iPad | branch `feature/remote-ui` |
+| 2026-11-18 | Remote QoL: upload from the device, Library photos per row, Crop Apply/Cancel buttons; no pipeline change | tablet workflow | branch `feature/remote-qol` |

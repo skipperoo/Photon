@@ -486,3 +486,22 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Drag to scroll: the Develop adjustments and Settings use a plain `Flickable` (ScrollView ignored mouse drags).
 - Measured (localhost, 2360×1640): frame ≈ 90 KB, render 10–40 ms, encode 11–15 ms, input → frame 60–80 ms.
 - Files: `src/managers/RemoteSession.{h,cpp}`, `RemoteServer.{h,cpp}`, `RemoteCertificates.{h,cpp}`, `assets/remote/index.html`, `content/views/App.qml`, `AppContent.qml` (was App.qml), `SettingView.qml`, `DevelopView.qml`, `WelcomeView.qml`, `ExportPanel.qml`, `PresetPanel.qml`, `src/main.cpp`, `CMakeLists.txt` (`PHOTON_ENABLE_REMOTE`), CI workflows, `tests/auto/tst_RawEngine.cpp` (shader graph read from AppContent.qml).
+
+## Upload from the device (remote mode, 2026-11-18)
+
+- Purpose: add photos from the iPad (Photos, Files, camera) to the open folder while editing remotely.
+- UI: **Upload** in the top bar and the Develop sidebar (above Exports), shown only in the remote UI (`RemoteSession.showUpload()`). The page shows an Upload sheet whose **Choose Photos…** opens the picker on a real tap (iOS opens a file picker only from a tap in the page). The picker's `accept` lists `image/jpeg`, `image/tiff` and the RAW extensions (`image/jpeg` makes iOS convert HEIC to JPEG). Files upload one at a time (XHR progress); each row has a cancel X while waiting/uploading, then a green circle-check (saved as …) or a red circle-x (reason / cancelled) and no progress bar; **Clear history** is enabled when nothing is pending.
+- Server (`RemoteServer::beginUpload`): `POST /upload?t=<token>&name=<file>` with a Content-Length; only into `AppState.currentFolder` (409 when none is open); `sanitizeUploadName` keeps the last path component, drops control characters and `<>:"|?*`, leading dots, trailing dots/spaces, caps the base at 180 characters, prefixes reserved Windows names, and requires a Library extension (`ImageDecoder::rawExtensions()` + `bitmapExtensions()`, 415 otherwise); ≤ 4 GB (413) and free space + 64 MB (507). The body streams into a hidden `.photon-upload-XXXXXX.part` (QTemporaryFile, removed if the upload stops: disconnect or 60 s idle), then is renamed to a free name (`Name (2).ext`, never overwriting). `RemoteSession::photoUploaded` makes the Library refresh at once.
+- Files: `src/managers/RemoteServer.{h,cpp}`, `RemoteSession.h`, `assets/remote/index.html`, `assets/icons/upload.svg`, `content/views/AppContent.qml`.
+
+## Library photos per row (2026-11-18)
+
+- Purpose: choose how big the Library's photos are.
+- `AppState.libraryColumns` (settings key `library/columns`, 0–10; 0 = as many 440 px cells as fit, the previous layout). The grid's cell width is ⌊width / columns⌋ and the height keeps the 440:400 proportions; sized from the parent's width so the automatic mode still grows with the window.
+- Controls: a slider (layout-grid icon) left of Filter; Ctrl + wheel over the grid (one step per 120 units: up = fewer, bigger photos). The `WheelHandler` accepts touchpads too (its default is mouse wheels only).
+- Files: `content/views/LibraryView.qml`, `src/managers/AppStateManager.{h,cpp}`, `assets/icons/layout-grid.svg`.
+
+## Crop Apply / Cancel buttons (2026-11-18)
+
+- The Crop panel ends with **Cancel** and **Apply** (`CropPanel.cancel()` / `confirm()`), the same actions as Esc / Enter, for tablets without a keyboard.
+- Files: `content/components/CropPanel.qml`, `content/views/AppContent.qml`.

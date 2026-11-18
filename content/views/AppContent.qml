@@ -408,6 +408,12 @@ Rectangle {
         }
     }
 
+    // Photos uploaded from the remote device appear at once.
+    Connections {
+        target: RemoteSession
+        function onPhotoUploaded(path) { window.refreshFiles() }
+    }
+
     // A new instance (desktop reload, remote session) opens on the current folder.
     Component.onCompleted: if (AppState.currentFolder !== "") refreshFiles()
 
@@ -435,11 +441,7 @@ Rectangle {
         // Crop panel: ESC to discard, Enter to apply
         Shortcut {
             sequence: "Escape"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
-            onActivated: {
-                cropPanel.discardCrop()
-                rawViewport.exitCropMode()
-                developLayout.activeSidebar = 1  // Back to Edit panel
-            }
+            onActivated: cropPanel.cancel()  // back to the Edit panel (cropDiscarded)
         }
         Shortcut {
             sequence: "Return"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
@@ -455,9 +457,7 @@ Rectangle {
                              cropOverlay.displayRect.y.toFixed(2) + "," +
                              cropOverlay.displayRect.width.toFixed(2) + "," +
                              cropOverlay.displayRect.height.toFixed(2) + ")");
-                cropPanel.applyCrop()
-                rawViewport.reloadWithGeometry()
-                developLayout.activeSidebar = 1  // Back to Edit panel
+                cropPanel.confirm()  // back to the Edit panel (cropConfirmed)
             }
         }
     }
@@ -1575,6 +1575,22 @@ Rectangle {
 
                                     Item { Layout.fillHeight: true }
 
+                                    // Upload photos from the remote device into the open folder.
+                                    T.Button {
+                                        visible: RemoteSession.active
+                                        Layout.preferredWidth: 48
+                                        Layout.preferredHeight: 48
+                                        flat: true
+                                        onClicked: RemoteSession.showUpload()
+                                        icon.source: "qrc:/Main/assets/icons/upload.svg"
+                                        icon.color: Theme.foreground
+                                        icon.width: 20
+                                        icon.height: 20
+                                        display: T.AbstractButton.IconOnly
+                                        T.ToolTip.visible: hovered
+                                        T.ToolTip.text: "Upload photos"
+                                    }
+
                                     // The project's Export folder, in the remote device's browser.
                                     T.Button {
                                         visible: RemoteSession.active
@@ -1885,6 +1901,18 @@ Rectangle {
                             width: parent.width * 0.4; height: 2; color: Theme.accent
                             visible: AppState.currentView === AppState.ViewState.Develop
                         }
+                    }
+
+                    // Upload photos from the remote device into the open folder.
+                    PhotonButton {
+                        visible: RemoteSession.active
+                        text: "Upload"
+                        icon.source: "qrc:/Main/assets/icons/upload.svg"
+                        icon.color: Theme.foreground
+                        icon.width: 18; icon.height: 18
+                        Layout.preferredWidth: 100
+                        variantOutline: true
+                        onClicked: RemoteSession.showUpload()
                     }
 
                     // The project's Export folder, in the remote device's browser.

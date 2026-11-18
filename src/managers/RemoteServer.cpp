@@ -41,6 +41,9 @@
 #include "LogManager.h"
 #include "RemoteCertificates.h"
 #include "RemoteSession.h"
+#ifdef PHOTON_HAS_REMOTE_VIDEO
+#include "../engine/StreamEncoder.h"
+#endif
 #include "../engine/ImageDecoder.h"
 
 namespace {
@@ -57,6 +60,9 @@ constexpr int kTokenDays = 7;
 constexpr int kMaxFailures = 5;
 constexpr int kFailureWindowSecs = 600;
 constexpr int kJpegQuality = 82;
+// The sharp still sent once the screen settles (after H.264 frames).
+constexpr int kStillJpegQuality = 92;
+constexpr int kSettleMs = 250;
 constexpr qint64 kMaxClientMessage = 64 * 1024;
 constexpr int kThumbnailSize = 480;
 constexpr qint64 kFileChunk = 256 * 1024;
@@ -195,6 +201,12 @@ RemoteServer::RemoteServer(RemoteSession* session,
     if (!m_client) m_session->stop();
   });
   connect(m_session, &RemoteSession::frameReady, this, &RemoteServer::onFrame);
+  m_settleTimer.setSingleShot(true);
+  m_settleTimer.setInterval(kSettleMs);
+  connect(&m_settleTimer, &QTimer::timeout, this, [this]() {
+    m_stillPending = true;
+    encodeNext();
+  });
   connect(m_session, &RemoteSession::exportsRequested, this, [this]() {
     if (m_client)
       m_client->sendTextMessage(QStringLiteral("{\"type\":\"exports\"}"));
@@ -243,6 +255,10 @@ RemoteServer::RemoteServer(RemoteSession* session,
     buffer.open(QIODevice::WriteOnly);
     touch.save(&buffer, "PNG");
   }
+  // The page carries the icon itself: iOS fetches a linked home-screen icon
+  // in a separate request that does not share the certificate exception the
+  // user accepted in Safari, so a linked icon would not load.
+  m_page.replace("__PHOTON_TOUCH_ICON__", "data:image/png;base64," + m_touchIcon.toBase64());
   loadSettings();
   if (m_enabled) start();
 }
@@ -589,7 +605,8 @@ void RemoteServer::onWebSocket() {
     connect(socket, &QWebSocket::disconnected, this, [this, socket]() {
       if (socket == m_client) {
         m_client.clear();
-        m_awaitingAck = false;
+        m_inFlight = 0;
+        m_settleTimer.stop();
         m_graceTimer.start();
         log("client disconnected");
         emit clientChanged();
@@ -616,8 +633,16 @@ void RemoteServer::onMessage(const QString& message) {
   }
   if (socket != m_client) return;
   if (type == QLatin1String("ack")) {
-    m_awaitingAck = false;
+    m_inFlight = std::max(0, m_inFlight - 1);
     encodeNext();
+  } else if (type == QLatin1String("keyframe")) {
+    // The client's decoder lost track (or restarted): resume from a keyframe.
+    m_needKeyframe = true;
+    m_session->requestFrame();
+  } else if (type == QLatin1String("video-failed")) {
+    log("the client cannot decode the H.264 stream, using JPEG frames", photon::PHOTON_WARNING);
+    m_videoMode = false;
+    m_session->requestFrame();
   } else if (type == QLatin1String("ping")) {
     QJsonObject pong{{"type", "pong"}, {"t", msg.value("t")}};
     socket->sendTextMessage(
@@ -695,7 +720,20 @@ void RemoteServer::handleHello(QWebSocket* socket, const QJsonObject& msg) {
     dropClient(QStringLiteral("Another device connected"));
   socket->setProperty("photonAuthenticated", true);
   m_client = socket;
-  m_awaitingAck = false;
+  m_inFlight = 0;
+  m_settleTimer.stop();
+  // The H.264 stream when the page can decode it (WebCodecs) and the build
+  // can encode it; a fresh encoder per client (its first frame is a keyframe).
+#ifdef PHOTON_HAS_REMOTE_VIDEO
+  m_videoMode = msg.value("video").toBool();
+#else
+  m_videoMode = false;
+#endif
+  m_needKeyframe = true;
+  m_videoCodec.clear();
+#ifdef PHOTON_HAS_REMOTE_VIDEO
+  m_video = std::make_shared<photon::video::StreamEncoder>();
+#endif
   m_buttons = {};
   m_graceTimer.stop();
   QJsonObject welcome{{"type", "welcome"},
@@ -722,7 +760,8 @@ void RemoteServer::dropClient(const QString& reason) {
   if (!m_client) return;
   QWebSocket* socket = m_client;
   m_client.clear();
-  m_awaitingAck = false;
+  m_inFlight = 0;
+  m_settleTimer.stop();
   QJsonObject bye{{"type", "bye"}, {"reason", reason}};
   socket->sendTextMessage(
       QString::fromUtf8(QJsonDocument(bye).toJson(QJsonDocument::Compact)));
@@ -807,45 +846,127 @@ void RemoteServer::onFrame(const QImage& frame, qint64 renderMs) {
   m_pendingFrame = frame;
   m_pendingRenderMs = renderMs;
   m_pendingSeq = m_lastInputSeq;
+  m_lastFrame = frame;
+  m_lastFrameRenderMs = renderMs;
+  m_lastFrameSeq = m_lastInputSeq;
+  m_stillPending = false;
+  if (m_videoMode) m_settleTimer.start();
   encodeNext();
 }
 
+namespace {
+struct EncodedFrame {
+  bool video = false;
+  bool still = false;
+  bool key = false;
+  QByteArray data;
+  QString codec;
+  QString encoder;
+  QString error;
+  qint64 encodeMs = 0;
+};
+
+QByteArray encodeJpeg(const QImage& frame, int quality) {
+  QByteArray jpeg;
+  QBuffer buffer(&jpeg);
+  buffer.open(QIODevice::WriteOnly);
+  QImageWriter writer(&buffer, "jpeg");
+  writer.setQuality(quality);
+  writer.write(frame.convertToFormat(QImage::Format_RGB888));
+  return jpeg;
+}
+}  // namespace
+
 void RemoteServer::encodeNext() {
-  if (!m_client || m_awaitingAck || m_encoding || m_pendingFrame.isNull())
+  const int window = m_videoMode ? 2 : 1;
+  if (!m_client || m_encoding || m_inFlight >= window) return;
+  QImage frame;
+  qint64 renderMs = 0, seq = 0;
+  bool still = false;
+  if (!m_pendingFrame.isNull()) {
+    frame = m_pendingFrame;
+    renderMs = m_pendingRenderMs;
+    seq = m_pendingSeq;
+    m_pendingFrame = QImage();
+  } else if (m_stillPending && !m_lastFrame.isNull()) {
+    frame = m_lastFrame;
+    renderMs = m_lastFrameRenderMs;
+    seq = m_lastFrameSeq;
+    still = true;
+    m_stillPending = false;
+  } else {
     return;
-  const QImage frame = m_pendingFrame;
-  const qint64 renderMs = m_pendingRenderMs, seq = m_pendingSeq;
-  m_pendingFrame = QImage();
+  }
+  const bool video = m_videoMode && !still && m_video;
+  const bool key = video && m_needKeyframe;
+  if (video) m_needKeyframe = false;
   m_encoding = true;
-  m_encoder.start([this, frame, renderMs, seq]() {
+  std::shared_ptr<photon::video::StreamEncoder> encoder = m_video;
+  m_encoder.start([this, frame, renderMs, seq, still, video, key, encoder]() {
     QElapsedTimer timer;
     timer.start();
-    QByteArray jpeg;
-    QBuffer buffer(&jpeg);
-    buffer.open(QIODevice::WriteOnly);
-    QImageWriter writer(&buffer, "jpeg");
-    writer.setQuality(kJpegQuality);
-    writer.write(frame.convertToFormat(QImage::Format_RGB888));
-    const qint64 encodeMs = timer.elapsed();
+    EncodedFrame out;
+    out.still = still;
+    out.video = video;
+#ifdef PHOTON_HAS_REMOTE_VIDEO
+    if (video) {
+      bool forceKey = key;
+      if (!encoder->isOpen() || encoder->size() != frame.size()) {
+        if (!encoder->open(frame.size(), &out.error)) out.data.clear();
+        forceKey = true;
+      }
+      if (encoder->isOpen()) {
+        out.data = encoder->encode(frame, forceKey, &out.key, &out.error);
+        out.codec = encoder->codecString();
+        out.encoder = encoder->encoderName();
+      }
+    } else
+#endif
+    {
+      out.video = false;
+      out.data = encodeJpeg(frame, still ? kStillJpegQuality : kJpegQuality);
+    }
+    out.encodeMs = timer.elapsed();
     QMetaObject::invokeMethod(
         this,
-        [this, jpeg, frame, renderMs, encodeMs, seq]() {
+        [this, out, frame, renderMs, seq]() {
           m_encoding = false;
-          if (m_client) {
-            const QJsonObject header{{"seq", double(seq)},
-                                     {"width", frame.width()},
-                                     {"height", frame.height()},
-                                     {"dpr", frame.devicePixelRatio()},
-                                     {"renderMs", double(renderMs)},
-                                     {"encodeMs", double(encodeMs)}};
-            const QByteArray json =
-                QJsonDocument(header).toJson(QJsonDocument::Compact);
-            QByteArray message(4, Qt::Uninitialized);
-            qToBigEndian<quint32>(quint32(json.size()), message.data());
-            message += json + jpeg;
-            m_client->sendBinaryMessage(message);
-            m_awaitingAck = true;
+          if (!m_client) return;
+          if (out.video && out.data.isEmpty()) {
+            // The stream failed: carry on with JPEG frames.
+            log("H.264 stream unavailable (" + out.error + "), using JPEG frames",
+                photon::PHOTON_WARNING);
+            m_videoMode = false;
+            m_pendingFrame = frame;
+            m_pendingRenderMs = renderMs;
+            m_pendingSeq = seq;
+            encodeNext();
+            return;
           }
+          if (out.video && out.key && out.codec != m_videoCodec) {
+            // The decoder configuration precedes the keyframe it applies to.
+            m_videoCodec = out.codec;
+            const QJsonObject config{
+                {"type", "video"}, {"codec", out.codec}, {"encoder", out.encoder}};
+            m_client->sendTextMessage(
+                QString::fromUtf8(QJsonDocument(config).toJson(QJsonDocument::Compact)));
+          }
+          const QJsonObject header{{"kind", out.video ? "video" : "jpeg"},
+                                   {"id", double(++m_frameId)},
+                                   {"key", out.key},
+                                   {"still", out.still},
+                                   {"seq", double(seq)},
+                                   {"width", frame.width()},
+                                   {"height", frame.height()},
+                                   {"dpr", frame.devicePixelRatio()},
+                                   {"renderMs", double(renderMs)},
+                                   {"encodeMs", double(out.encodeMs)}};
+          const QByteArray json = QJsonDocument(header).toJson(QJsonDocument::Compact);
+          QByteArray message(4, Qt::Uninitialized);
+          qToBigEndian<quint32>(quint32(json.size()), message.data());
+          message += json + out.data;
+          m_client->sendBinaryMessage(message);
+          ++m_inFlight;
           encodeNext();
         },
         Qt::QueuedConnection);

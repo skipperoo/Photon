@@ -40,6 +40,7 @@ extern "C" {
 #include "ImageDeveloper.h"
 #include "LensFun.h"
 #include "HdrMergeMath.h"
+#include "AgxToneMap.h"
 #include "CameraLook.h"
 #include "CameraLookMath.h"
 #include "WhiteBalance.h"
@@ -79,6 +80,7 @@ class TestRawEngine : public QObject {
   void testLensProfileEditState();
   void testHdrMergeRadiometric();
   void testCameraLookToneFit();
+  void testCameraLookAgxFit();
   void testWhiteBalanceKelvin();
   void testLensFunRealDatabase();
   void testOklabCreativeOps();
@@ -1067,6 +1069,38 @@ void TestRawEngine::testHdrMergeRadiometric() {
   QVERIFY(std::abs(merged[mid] - scene[mid]) / scene[mid] < 0.1f);
   // Monotone response.
   for (int p = 1; p < N; ++p) QVERIFY(merged[p] >= merged[p - 1] * 0.98f);
+}
+
+// A real RAW (PHOTON_TEST_RAW or <repo>/testphoton/_DSC7864.ARW, whose
+// camera JPEG passes the fit) gets a camera look for the AgX profile too, fitted on AgX's
+// rendering: at 100% it moves AgX's mid-grey to where the camera puts it (the
+// normal look's target), so the look does something under AgX.
+void TestRawEngine::testCameraLookAgxFit() {
+  QString sample = qEnvironmentVariable("PHOTON_TEST_RAW");
+  if (sample.isEmpty()) {
+    sample = QCoreApplication::applicationDirPath() +
+             QStringLiteral("/../../testphoton/_DSC7864.ARW");
+  }
+  if (!QFileInfo::exists(sample)) QSKIP("no sample Bayer RAW available");
+  // fitCameraLook only reads the file (no cache is written next to it).
+  const photon::cameralook::CameraLook look = photon::cameralook::fitCameraLook(sample);
+  QVERIFY(look.tone.valid);
+  QVERIFY(look.agxTone.valid);
+  QVERIFY(&look.forProfile(true) == &look.agxTone);
+  QVERIFY(&look.forProfile(false) == &look.tone);
+
+  // Mid-grey through each profile, then through its look.
+  const float grey = 0.18f;
+  float r = grey, g = grey, b = grey;
+  photon::agx::tonemap(r, g, b);
+  const float agxGrey = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+  const float cameraGrey = look.tone.apply(grey);
+  const float agxLooked = look.agxTone.apply(agxGrey);
+  qInfo("mid-grey: AgX %.4f -> with the AgX look %.4f; camera look (normal) %.4f", agxGrey,
+        agxLooked, cameraGrey);
+  QVERIFY2(std::abs(agxLooked - agxGrey) > 0.005f, "the AgX look must change the image");
+  QVERIFY2(std::abs(agxLooked - cameraGrey) < std::abs(agxGrey - cameraGrey),
+           qPrintable(QString("AgX grey %1 -> %2, camera %3").arg(agxGrey).arg(agxLooked).arg(cameraGrey)));
 }
 
 void TestRawEngine::testCameraLookToneFit() {
@@ -3549,7 +3583,7 @@ void TestRawEngine::testEditVideoGroups() {
   namespace ev = photon::editvideo;
   RawEngine engine;
   QStringList keys = engine.currentSettings().keys();
-  keys << "cameraLook" << "wbGainR" << "wbGainG" << "wbGainB" << "exifMake"
+  keys << "cameraLook" << "cameraLookAgx" << "wbGainR" << "wbGainG" << "wbGainB" << "exifMake"
        << "exifModel" << "exifLens" << "exifFocal" << "exifAperture"
        << "baseExposure" << "sceneWhite" << "denoiseMode" << "denoiseSecondPass"
        << "outputBits" << "outputColorSpace";

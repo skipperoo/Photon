@@ -11,11 +11,21 @@ namespace cameralook {
 // The version of the fit: how a raw's tone curve is chosen. Bump whenever a
 // change makes the fit give a different result for the same file; caches
 // written by an older version are refitted.
-constexpr int kCameraLookVersion = 1;
+// 2: a second curve for the AgX profile.
+constexpr int kCameraLookVersion = 2;
 
 struct CameraLook {
   int version = kCameraLookVersion;
+  // The look for the normal and black & white profiles: scene luminance ->
+  // camera luminance.
   CameraToneCurve tone;
+  // The look for the AgX profile: AgX-rendered luminance -> camera luminance
+  // (AgX is a tone map of its own, so the look is fitted on its output; at
+  // 100% both profiles land on the camera's rendering). May be invalid when
+  // AgX alone is already as close to the camera as the fit allows.
+  CameraToneCurve agxTone;
+
+  const CameraToneCurve& forProfile(bool agx) const { return agx ? agxTone : tone; }
 };
 
 // Cache location: <photoDir>/.PhotonData/cache/looks/<fileName>.json
@@ -32,8 +42,8 @@ CameraLook fitCameraLook(const QString& sourcePath);
 // purged. Blocking: for worker threads (export, library previews).
 CameraLook obtainCameraLook(const QString& sourcePath);
 
-// Sets settings["cameraLook"] for a RAW whose cameraLookAmount is > 0, so a
-// develop matches the interactive preview.
+// Sets settings["cameraLook"] (and settings["cameraLookAgx"]) for a RAW whose
+// cameraLookAmount is > 0, so a develop matches the interactive preview.
 void applyToSettings(const QString& sourcePath, QJsonObject& settings);
 
 QJsonObject toneCurveToJson(const CameraToneCurve& curve);

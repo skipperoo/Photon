@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Photon">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="__PHOTON_TOUCH_ICON__">
 <link rel="icon" href="/icon.png">
 <title>Photon</title>
 <style>
@@ -204,7 +204,8 @@ let retryDelay = 1000;
 let retryTimer = null;
 let seq = 0;
 const sentAt = new Map();          // input seq -> send time
-const stats = { frames: 0, bytes: 0, latency: 0, render: 0, encode: 0, since: performance.now(), fps: 0, kbps: 0 };
+const stats = { frames: 0, bytes: 0, latency: 0, render: 0, encode: 0, since: performance.now(), fps: 0, kbps: 0,
+                lastBytes: 0, kind: "" };
 
 // The session token, also kept in memory when storage is unavailable.
 let currentToken = "";
@@ -251,7 +252,10 @@ function connect(password) {
   statusText.textContent = "Connecting…";
   socket = new WebSocket("wss://" + location.host + "/");
   socket.binaryType = "arraybuffer";
-  socket.onopen = () => send(Object.assign({ type: "hello", password: password || "", token }, screenSize()));
+  socket.onopen = async () => {
+    const video = await videoSupport;
+    send(Object.assign({ type: "hello", password: password || "", token, video }, screenSize()));
+  };
   socket.onmessage = (e) => (typeof e.data === "string" ? onText(JSON.parse(e.data)) : onFrame(e.data));
   socket.onclose = () => {
     loginButton.disabled = false;
@@ -279,6 +283,8 @@ function onText(msg) {
     loginButton.disabled = false;
     errorText.textContent = msg.reason === "Session expired" ? "" : msg.reason;
     show("login");
+  } else if (msg.type === "video") {
+    configureVideo(msg.codec, msg.encoder);
   } else if (msg.type === "exports") {
     openExports();
   } else if (msg.type === "upload") {
@@ -295,29 +301,110 @@ function onText(msg) {
   }
 }
 
-async function onFrame(buffer) {
-  const view = new DataView(buffer);
-  const headerLength = view.getUint32(0);
-  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, headerLength)));
-  const jpeg = new Blob([new Uint8Array(buffer, 4 + headerLength)], { type: "image/jpeg" });
-  let bitmap;
-  try { bitmap = await createImageBitmap(jpeg); } catch (e) { send({ type: "ack" }); return; }
+// --- Frames: an H.264 stream (WebCodecs, hardware decoded) with sharp JPEG
+// stills once the screen settles, or JPEG frames only. Each frame is
+// acknowledged once drawn (the server keeps at most two in flight).
+
+// Whether this browser decodes the stream (checked once, before logging in).
+const videoSupport = (async () => {
+  if (typeof VideoDecoder === "undefined") return false;
+  try {
+    const r = await VideoDecoder.isConfigSupported({ codec: "avc1.640033", optimizeForLatency: true });
+    return !!r.supported;
+  } catch (e) { return false; }
+})();
+
+let decoder = null;
+let videoCodec = "";
+let videoEncoder = "";
+let waitingForKey = true;
+let lastDrawnId = 0;                 // never draw an older frame over a newer one
+const videoHeaders = new Map();      // frame id -> header, until decoded
+
+function configureVideo(codec, encoder) {
+  videoCodec = codec;
+  videoEncoder = encoder || "";
+  if (decoder && decoder.state !== "closed") decoder.close();
+  decoder = null;
+  videoHeaders.clear();
+  waitingForKey = true;
+  try {
+    decoder = new VideoDecoder({ output: onVideoFrame, error: onVideoError });
+    decoder.configure({ codec, optimizeForLatency: true, hardwareAcceleration: "prefer-hardware" });
+  } catch (e) {
+    decoder = null;
+    send({ type: "video-failed" });
+  }
+}
+
+function onVideoError() {
+  // Start over from a keyframe with a new decoder.
+  for (let i = 0; i < videoHeaders.size; i++) send({ type: "ack" });
+  configureVideo(videoCodec, videoEncoder);
+  send({ type: "keyframe" });
+}
+
+function onVideoFrame(frame) {
+  const header = videoHeaders.get(frame.timestamp);
+  videoHeaders.delete(frame.timestamp);
+  if (header) draw(header, frame);
+  frame.close();
+  send({ type: "ack" });
+}
+
+function draw(header, image) {
+  if (header.id < lastDrawnId) return;
+  lastDrawnId = header.id;
   if (canvas.width !== header.width || canvas.height !== header.height) {
     canvas.width = header.width;
     canvas.height = header.height;
   }
   frameLogical = { width: header.width / header.dpr, height: header.height / header.dpr };
-  ctx.drawImage(bitmap, 0, 0);
+  // The visible part (the encoder pads odd sizes).
+  ctx.drawImage(image, 0, 0, header.width, header.height, 0, 0, header.width, header.height);
+  if (stage.style.display !== "block") show("screen");
+  updateStats(header);
+}
+
+async function onFrame(buffer) {
+  const view = new DataView(buffer);
+  const headerLength = view.getUint32(0);
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, headerLength)));
+  const payload = new Uint8Array(buffer, 4 + headerLength);
+  stats.frames++; stats.bytes += buffer.byteLength; stats.lastBytes = buffer.byteLength;
+  stats.kind = header.kind === "video" ? "H.264" + (videoEncoder ? " (" + videoEncoder + ")" : "") : "JPEG";
+  if (header.kind === "video") {
+    if (!decoder || decoder.state !== "configured" || (waitingForKey && !header.key)) {
+      send({ type: "ack" });
+      if (waitingForKey) send({ type: "keyframe" });
+      return;
+    }
+    waitingForKey = false;
+    videoHeaders.set(header.id, header);
+    try {
+      decoder.decode(new EncodedVideoChunk({ type: header.key ? "key" : "delta", timestamp: header.id, data: payload }));
+    } catch (e) {
+      videoHeaders.delete(header.id);
+      send({ type: "ack" });
+      onVideoError();
+    }
+    return;
+  }
+  // JPEG: a frame, or the sharp still after the stream settled.
+  let bitmap;
+  try { bitmap = await createImageBitmap(new Blob([payload], { type: "image/jpeg" })); }
+  catch (e) { send({ type: "ack" }); return; }
+  draw(header, bitmap);
   bitmap.close && bitmap.close();
   send({ type: "ack" });
-  if (stage.style.display !== "block") show("screen");
+}
 
+function updateStats(header) {
   const now = performance.now();
   if (sentAt.has(header.seq)) {
     stats.latency = now - sentAt.get(header.seq);
     for (const k of sentAt.keys()) if (k <= header.seq) sentAt.delete(k);
   }
-  stats.frames++; stats.bytes += buffer.byteLength;
   stats.render = header.renderMs; stats.encode = header.encodeMs;
   if (now - stats.since >= 1000) {
     stats.fps = stats.frames * 1000 / (now - stats.since);
@@ -325,9 +412,10 @@ async function onFrame(buffer) {
     stats.frames = 0; stats.bytes = 0; stats.since = now;
   }
   statsView.textContent =
-    `${header.width}×${header.height}  ${stats.fps.toFixed(1)} fps  ${(stats.kbps / 1000).toFixed(1)} Mbit/s\n` +
+    `${header.width}×${header.height}  ${stats.kind}${header.still ? " still" : ""}  ` +
+    `${stats.fps.toFixed(1)} fps  ${(stats.kbps / 1000).toFixed(1)} Mbit/s\n` +
     `input→frame ${stats.latency.toFixed(0)} ms  render ${stats.render} ms  encode ${stats.encode} ms  ` +
-    `${(buffer.byteLength / 1024).toFixed(0)} KB`;
+    `${((stats.lastBytes || 0) / 1024).toFixed(0)} KB`;
 }
 
 // --- Input ------------------------------------------------------------------

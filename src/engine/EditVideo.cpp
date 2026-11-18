@@ -20,7 +20,8 @@ const std::vector<EditGroup>& editGroups() {
        {QStringLiteral("profile"), QStringLiteral("tonemappingEnabled")},
        {}},
       {QStringLiteral("Camera Look"),
-       {QStringLiteral("cameraLookAmount"), QStringLiteral("cameraLook")},
+       {QStringLiteral("cameraLookAmount"), QStringLiteral("cameraLook"),
+        QStringLiteral("cameraLookAgx")},
        {}},
       // White balance lives in Light; the exporter's Kelvin gains go with it.
       {QStringLiteral("Light"),

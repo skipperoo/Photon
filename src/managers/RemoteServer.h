@@ -12,6 +12,7 @@
 #include <QStringList>
 #include <QThreadPool>
 #include <QTimer>
+#include <memory>
 
 class QJsonObject;
 class QPointingDevice;
@@ -21,6 +22,9 @@ class QTcpServer;
 class QWebSocket;
 class QWebSocketServer;
 class RemoteSession;
+namespace photon::video {
+class StreamEncoder;
+}
 
 // Remote mode: serves Photon's UI to a browser over HTTPS on one port.
 // - GET /: the client page (a canvas that shows the streamed UI and sends
@@ -34,8 +38,10 @@ class RemoteSession;
 //   into the open folder, never elsewhere; names are sanitized and never
 //   overwrite (" (2)").
 // - A WebSocket on the same port: login (password, then a session token for
-//   reconnects), frames (JPEG, newest wins: the next frame goes out once the
-//   client has drawn the previous one), input (pointer, wheel, keys, resize).
+//   reconnects), frames, input (pointer, wheel, keys, resize). Frames are an
+//   H.264 stream when the client can decode it (WebCodecs) and the build has
+//   FFmpeg: two in flight, then a sharp JPEG still once the screen settles;
+//   otherwise JPEG, newest wins (the next once the client drew the previous).
 // One client at a time (a new login takes over). The UI runs in
 // RemoteSession while a client is connected and for a grace period after it
 // drops, so a device waking from sleep resumes where it was.
@@ -152,8 +158,22 @@ class RemoteServer : public QObject {
   // the previous one and the encoder is free.
   QImage m_pendingFrame;
   qint64 m_pendingRenderMs = 0;
-  bool m_awaitingAck = false;
+  int m_inFlight = 0;  // frames sent, not yet drawn by the client
   bool m_encoding = false;
+  quint64 m_frameId = 0;
+
+  // H.264 stream (when the client can decode it): two frames in flight, a
+  // keyframe only when needed, and a sharp JPEG still once the screen has
+  // settled (H.264 at streaming rates is soft and 4:2:0).
+  bool m_videoMode = false;
+  bool m_needKeyframe = true;
+  QString m_videoCodec;  // announced to the client
+  std::shared_ptr<photon::video::StreamEncoder> m_video;
+  QTimer m_settleTimer;
+  QImage m_lastFrame;
+  qint64 m_lastFrameRenderMs = 0;
+  qint64 m_lastFrameSeq = 0;
+  bool m_stillPending = false;
   QThreadPool m_encoder;
   // Exports view thumbnails (JPEG), by path + modification time.
   QCache<QString, QByteArray> m_thumbnails{64 * 1024 * 1024};

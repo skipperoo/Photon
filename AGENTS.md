@@ -15,7 +15,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 
 - **Language:** C++17
 - **Framework:** Qt 6.8+ (Quick, ShaderTools, Gui, RHI)
-- **Libraries:** LibRaw (RAW decoding), Vulkan, OpenCV, ncnn (AI denoise; fetched from a pinned source release at configure time), FFmpeg (edit video: libavcodec/libavformat/libavutil/libswscale, libx264 preferred), Qt WebSockets + OpenSSL libcrypto (remote mode)
+- **Libraries:** LibRaw (RAW decoding), Vulkan, OpenCV, ncnn (AI denoise; fetched from a pinned source release at configure time), FFmpeg (edit video and the remote H.264 stream: libavcodec/libavformat/libavutil/libswscale, libx264 / hardware encoders), Qt WebSockets + OpenSSL libcrypto (remote mode)
 - **Bundled font:** Instrument Sans SemiBold (`assets/fonts`, SIL OFL; licence file next to it) for the edit video's labels
 - **QML types from C++:** register them in `main.cpp` (`qmlRegisterType<…>("Main", 1, 0, …)`) like `RawViewport`; the generated module registration does not take effect for this app
 - **UI root:** `App.qml` is only the desktop window; the UI is `AppContent.qml`, which remote mode instantiates a second time in an offscreen window. Keep app state in the C++ singletons/sidecars (a new instance must restore it), and give dialogs `popupType: Popup.Item` (in-scene when non-native)

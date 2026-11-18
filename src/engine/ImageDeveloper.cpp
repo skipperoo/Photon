@@ -1,5 +1,7 @@
 #include "ImageDeveloper.h"
 
+#include "AgxToneMap.h"
+
 #include <algorithm>
 #include <array>
 #include <QColorSpace>
@@ -47,39 +49,6 @@ static float linear_to_srgb_f(float c) {
                             : (1.055f * std::pow(cl, 1.0f / 2.4f) - 0.055f);
 }
 
-// --- AgX Tone Mapping Math ---
-static float agx_sigmoid(float x, float power) {
-  return x / std::pow(1.0f + std::pow(x, power), 1.0f / power);
-}
-
-static float agx_scaled_sigmoid(float x, float scale, float slope, float power,
-                                float tx, float ty) {
-  return scale * agx_sigmoid(slope * (x - tx) / scale, power) + ty;
-}
-
-static float agx_apply_curve_channel(float x) {
-  const float TOE_TX = 0.6060606f;
-  const float TOE_TY = 0.43446f;
-  const float SLOPE = 2.3843f;
-  const float TOE_SCALE = -1.0359f;
-  const float TOE_POWER = 1.5f;
-
-  const float SH_TX = 0.6060606f;
-  const float SH_TY = 0.43446f;
-  const float SH_SCALE = 1.3475f;
-  const float SH_POWER = 1.5f;
-
-  const float INTERCEPT = -1.0112f;
-
-  if (x < TOE_TX) {
-    return agx_scaled_sigmoid(x, TOE_SCALE, SLOPE, TOE_POWER, TOE_TX, TOE_TY);
-  } else if (x <= SH_TX) {
-    return SLOPE * x + INTERCEPT;
-  } else {
-    return agx_scaled_sigmoid(x, SH_SCALE, SLOPE, SH_POWER, SH_TX, SH_TY);
-  }
-}
-
 static void davinci_tonemap(float& r, float& g, float& b, float adaptation) {
   const float input_white = 16.0f;
   const float output_white = 1.0f;
@@ -100,48 +69,6 @@ static void davinci_tonemap(float& r, float& g, float& b, float adaptation) {
   r = std::clamp(r, 0.0f, output_white);
   g = std::clamp(g, 0.0f, output_white);
   b = std::clamp(b, 0.0f, output_white);
-}
-
-static void agx_tonemap(float& r, float& g, float& b) {
-  // Inset matrix (Column-major in GLSL, correctly applied here)
-  float r_in =
-      r * 0.856627153315983f + g * 0.098403403513892f + b * 0.044970474436218f;
-  float g_in =
-      r * 0.137318972929847f + g * 0.826432433318306f + b * 0.036252551516413f;
-  float b_in =
-      r * 0.11189821299995f + g * 0.083220990554183f + b * 0.804880733512495f;
-
-  r = std::max(r_in, 1e-10f);
-  g = std::max(g_in, 1e-10f);
-  b = std::max(b_in, 1e-10f);
-
-  // Log encoding
-  auto encode = [](float x) {
-    float x_rel = x / 0.18f;
-    float log_encoded = (std::log2(x_rel) - (-15.2f)) / (8.0f - (-15.2f));
-    return std::clamp(log_encoded, 0.0f, 1.0f);
-  };
-
-  r = agx_apply_curve_channel(encode(r));
-  g = agx_apply_curve_channel(encode(g));
-  b = agx_apply_curve_channel(encode(b));
-
-  // Return to linear
-  r = std::pow(r, 2.4f);
-  g = std::pow(g, 2.4f);
-  b = std::pow(b, 2.4f);
-
-  // Out matrix (Column-major in GLSL, correctly applied here)
-  float r_out =
-      r * 1.19687900512017f + g * -0.052896851757456f + b * -0.05514323170335f;
-  float g_out =
-      r * -0.098420828164883f + g * 1.15190312990417f + b * -0.053382142916275f;
-  float b_out =
-      r * -0.099837617823979f + g * -0.098961176844843f + b * 1.19837733946797f;
-
-  r = r_out;
-  g = g_out;
-  b = b_out;
 }
 
 static float dither_noise(int x, int y) {
@@ -1321,10 +1248,12 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
 
   // The fitted camera look (a per-photo cache entry injected by the export
   // manager) runs before the user curves, on luminance, like on the GPU, and
-  // is scaled by the photo's look amount.
-  if (!agx_enabled && obj.contains("cameraLook")) {
+  // is scaled by the photo's look amount. AgX has its own curve (fitted on
+  // AgX's output).
+  const QString lookKey = agx_enabled ? QStringLiteral("cameraLookAgx") : QStringLiteral("cameraLook");
+  if (obj.contains(lookKey)) {
     const photon::cameralook::CameraToneCurve look =
-        photon::cameralook::toneCurveFromJson(obj["cameraLook"].toObject());
+        photon::cameralook::toneCurveFromJson(obj[lookKey].toObject());
     if (look.valid) {
       const float amount =
           float(obj.value("cameraLookAmount").toDouble(0.0) / 100.0);
@@ -1790,7 +1719,7 @@ QImage ImageDeveloper::develop(const ushort* src, int width, int height,
         const float y = get_luma_cpp(r, g, b);
         photon::colorspace::rec2020ToSrgb(r, g, b);
         photon::colorspace::gamutMapToPositive(r, g, b, y);
-        agx_tonemap(r, g, b);
+        photon::agx::tonemap(r, g, b);
       }
 
       // 8.7. Black & White conversion with per-band luminance mix

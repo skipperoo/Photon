@@ -14,6 +14,11 @@ All notable changes to Photon. Each release's section is published as its GitHub
   - **Aspect ratio:** Original, 4:5, 5:4, 16:9 or 9:16. Space around the photo is filled with a soft blurred extension of it, like on the iPhone.
   - **Resolution:** Full HD (1080p) or 4K. Crop, rotation and lens corrections apply from the first frame.
   - Videos are H.264 MP4 at near-lossless quality with standard colour tags, ready to share anywhere.
+- **Preset library:**
+  - **Folders:** organize presets into folders (one level). Create, rename and delete them, and move presets by dragging them onto a folder or with *Move to folder*.
+  - **Favorites:** star a preset to pin it in a Favorites section at the top; the header star shows favorites only.
+  - **Presets for this folder:** save a preset to *This folder* to keep it with the photos (in `.PhotonData/presets`). It only appears while that folder is open, so it does not clutter other projects. It can be copied or moved to all presets later.
+  - **Import / export:** import `.json` presets or `.zip` collections, into all presets or into this folder. Export one preset as `.json`, or a folder, your favorites, all presets or this folder's presets as `.zip` with the folders kept. Names already in use get " (2)"; invalid files are skipped and counted.
 
 ### Fixed
 

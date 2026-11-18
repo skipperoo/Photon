@@ -732,7 +732,12 @@ Status legend: `TODO` · `IN PROGRESS` · `AWAITING VISUAL CONFIRMATION` · `DON
 | 40.15 | Clarity fitted to Reference (large-scale) | DONE | `b17ba0e` |
 | 40.16 | Denoise after the decode change (AI cache key + 16-bit, noise-adaptive Classic BM3D, base-exposure domain, Rec.2020 Y'CbCr), camera look in library previews, Camera Look above Light, Settings ▸ Clear Cache | DONE | `887324a` |
 | 40.17 | AI denoise for non-Bayer RAWs (RawNIND linear model: X-Trans, Foveon, linear DNGs); shorter AI status text | DONE | `7fe9e38` |
-| 40.18 | Edit video export (MP4): preview dialog (playable; aspect, resolution, label style/shape/position, slider line on/off, edits shown one by one, the rest as Tweaks); before/after slider ending (rest right, eased sweeps back left and right at twice the speed); house dropdowns style-free; 5 aspect ratios with blurred extension; FFmpeg/libx264 | DONE | (this commit) |
+| 40.18 | Edit video export (MP4): preview dialog (playable; aspect, resolution, label style/shape/position, slider line on/off, edits shown one by one, the rest as Tweaks); before/after slider ending (rest right, eased sweeps back left and right at twice the speed); house dropdowns style-free; 5 aspect ratios with blurred extension; FFmpeg/libx264 | DONE | `e0f75cb` |
+| 40.19 | Preset library: one-level folders (menu + drag), favorites (pinned section + favorites-only filter), project presets in `<folder>/.PhotonData/presets`, import/export (.json / .zip) | DONE | (this commit) |
+
+## 40.19 Preset library — DONE
+
+> Implemented 2026-11-18, confirmed visually. `PresetManager` (C++) owns two libraries: global (`<app data>/presets`) and project (`<open folder>/.PhotonData/presets`, following `AppStateManager::currentFolder` via `main.cpp`). Each holds unfiled presets plus one level of folders (sub-directories). Favorites and the favorites-only filter are stored in `<global>/.presets-state`. Import/export uses Qt's private `QZipReader`/`QZipWriter`. `PresetPanel.qml` was rewritten with Favorites / This folder / All presets sections, drag-to-folder, context menus and save/import/export dialogs. Tests: `tst_PresetManager` (9 tests).
 
 ## 40.1 Calibration panel — DONE
 

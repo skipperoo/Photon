@@ -234,6 +234,31 @@ target_include_directories(tst_ImageDecoder PRIVATE
     ${LCMS2_INCLUDE_DIRS}
 )
 
+add_executable(tst_PresetManager
+    auto/tst_PresetManager.cpp
+    ../src/managers/PresetManager.cpp
+    ../src/managers/PresetManager.h
+    ../src/managers/CrashReporter.cpp
+    ../src/managers/CrashReporter.h
+    ../src/managers/LogManager.cpp
+    ../src/managers/LogManager.h
+)
+
+target_link_libraries(tst_PresetManager
+    PRIVATE Qt6::Test Qt6::Gui Qt6::GuiPrivate Qt6::Qml
+)
+
+if(WIN32)
+    target_link_libraries(tst_PresetManager PRIVATE Dbghelp)
+endif()
+
+target_include_directories(tst_PresetManager PRIVATE
+    ../src
+    ../src/managers
+    ${CMAKE_BINARY_DIR}
+)
+
 add_test(NAME tst_RawEngine COMMAND tst_RawEngine)
+add_test(NAME tst_PresetManager COMMAND tst_PresetManager)
 add_test(NAME tst_AppStateManager COMMAND tst_AppStateManager)
 add_test(NAME tst_ImageDecoder COMMAND tst_ImageDecoder)

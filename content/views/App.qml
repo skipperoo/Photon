@@ -1488,6 +1488,7 @@ Window {
                                 PresetPanel {
                                     viewport: rawViewport
                                     viewTopPadding: 10
+                                    onNotify: (message, type) => toaster.show(message, type)
                                 }
 
                                 // 5: Export

@@ -4,6 +4,35 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 ## [Unreleased]
 
+## [v0.6.2] - 2026-11-19
+
+### Highlights
+
+- **Photon fits every screen.** On an iPad in portrait, a phone or a narrow window, the photo now takes the full width on top and the adjustments slide up as a sheet below it (a third of the screen, drag to resize), with the panel icons as tabs. On an iPad in portrait a landscape photo gets about three times the room it had. Phones are supported for editing.
+- **A tidier remote screen.** The remote tools collapse into one toolbox button you can drag anywhere; tap it and they fan out. A new Ctrl/Shift tool selects several photos with a tap.
+
+### Added
+
+- **Layouts by width** (phones below 640 px, tablets and small windows below 1024 px, wide from 1024 px), the same in a desktop window and on a streamed device:
+  - **Develop:** on narrow screens the photo on top, the panel icons as a row of tabs and the panel as a sheet (⅓ of the height, drag the grabber to resize, double-click for ⅓). On wide screens the panel is 280 px below 1280 px.
+  - **Focus mode:** Tab (or the toolbar button) hides the panels for a full view of the photo.
+  - **Filmstrip:** shown and hidden from the toolbar; hidden by default on screens under 900 px tall.
+  - **Histogram over the photo** on narrow screens (top right, hidden from the toolbar); the panels leave out the histogram and the camera info there, so the sheet starts with the adjustments.
+  - **Top bar:** icons only below 1024 px.
+  - **Library:** two photos per row on phones, with the name over the photo on small cards.
+  - **Dialogs** fill the screen on phones.
+- **Remote toolbox:** one round button (drag it anywhere; remembered per device). Tapped, its tools fan out: connection info, keyboard, panels (Tab) and **Ctrl/Shift for the next tap**, to pick photos one by one (Ctrl) or a range (Shift).
+- **Presets:** the list scrolls by dragging; moving presets into folders by dragging is turned on with **Drag to rearrange** in the presets ⋯ menu (on by default on wide screens).
+
+### Fixed
+
+- **Keyboard shortcuts in remote mode** (ratings, arrows, B/Y, crop Enter/Esc, Tab) never worked.
+- **The histogram stayed empty after opening a photo** until the first edit.
+- **The remote screen was squeezed into a corner** on screens whose width in pixels is odd (some iPhones).
+- **Remote mode on browsers without hardware H.264 decoding** could loop asking for keyframes; such browsers now get JPEG frames.
+- **The iPhone's bottom bar:** the remote screen now reaches the bottom edge.
+- **Upload on small phones** no longer scrolls sideways.
+
 ## [v0.6.1] - 2026-11-19
 
 ### Highlights

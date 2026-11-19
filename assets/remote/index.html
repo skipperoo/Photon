@@ -15,11 +15,12 @@
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); overflow: hidden;
     font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-user-select: none; user-select: none;
     -webkit-touch-callout: none; overscroll-behavior: none; }
-  /* The stage is the visible area inside the safe areas (not 100vh, which on
-     iPad Safari includes the space under the toolbar). The server renders at
-     exactly its size; the canvas fills it. */
+  /* The stage is the visible area inside the side and top safe areas, down to
+     the bottom edge (under the home indicator, as native apps draw; not 100vh,
+     which on iPad Safari includes the space under the toolbar). The server
+     renders at exactly its size; the canvas fills it. */
   #stage { position: fixed; top: calc(env(safe-area-inset-top) + 15px); right: env(safe-area-inset-right);
-    bottom: env(safe-area-inset-bottom); left: env(safe-area-inset-left); display: none; }
+    bottom: 0; left: env(safe-area-inset-left); display: none; }
   #screen { display: block; width: 100%; height: 100%; touch-action: none; }
   .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
   .card { width: min(360px, 100%); background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
@@ -38,9 +39,26 @@
   .hint { margin-top: 14px; font-size: 12px; color: var(--muted); }
   .hint a { color: var(--fg); }
   #status { color: var(--muted); }
-  #tools { position: fixed; right: 12px; bottom: 12px; display: none; gap: 6px; z-index: 2; }
-  #tools button { width: 40px; height: 40px; border-radius: 20px; border: 1px solid var(--border);
-    background: rgba(24,24,27,.85); color: var(--fg); font-size: 18px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  /* The toolbox: one draggable button; tapped, its tools fan out around it. */
+  #toolbox { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2; display: none; }
+  #toolbox button { position: absolute; display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; border: 1px solid var(--border); background: rgba(24,24,27,.88); color: var(--fg);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); padding: 0; touch-action: none; }
+  #toolbox svg { width: 20px; height: 20px; }
+  #toolboxButton { width: 48px; height: 48px; left: -24px; top: -24px; z-index: 1; cursor: grab;
+    transition: transform .2s; }
+  #toolbox.open #toolboxButton { transform: rotate(-12deg); background: var(--panel); }
+  #toolbox.dragging #toolboxButton { cursor: grabbing; transform: scale(1.06); }
+  .tool-badge { position: absolute; top: -8px; right: -10px; padding: 1px 6px; border-radius: 8px; font-size: 10px;
+    font-weight: 700; background: var(--accent); color: #fff; }
+  .tool-badge[hidden] { display: none; }
+  #toolbox .fan-item { width: 44px; height: 44px; left: -22px; top: -22px; font-size: 12px; font-weight: 600;
+    opacity: 0; transform: translate(0, 0) scale(.3); pointer-events: none;
+    transition: transform .32s cubic-bezier(.2, .9, .3, 1.25), opacity .18s ease;
+    transition-delay: calc(var(--i, 0) * 28ms); }
+  #toolbox.open .fan-item { opacity: 1; transform: translate(var(--dx), var(--dy)) scale(1); pointer-events: auto; }
+  #toolbox .fan-item.armed, #toolbox .fan-item.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  @media (prefers-reduced-motion: reduce) { #toolbox button, #toolbox .fan-item { transition: none; } }
   #stats { position: fixed; left: 8px; bottom: 8px; padding: 4px 8px; border-radius: 6px; background: rgba(0,0,0,.7);
     font: 11px/1.4 ui-monospace, monospace; color: #d4d4d8; display: none; z-index: 2; pointer-events: none; white-space: pre; }
   #keys { position: fixed; left: -1000px; top: 0; width: 10px; height: 10px; opacity: 0; }
@@ -85,6 +103,8 @@
   .upload-body .pill { font-size: 16px; padding: 12px 22px; }
   .upload-body .pill[aria-disabled="true"] { opacity: .5; pointer-events: none; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  /* The hint wraps (the .sub style is one line, which scrolled small phones sideways). */
+  #uploadHint { white-space: normal; text-align: center; max-width: min(560px, 100%); overflow-wrap: anywhere; }
   #uploadList { width: min(560px, 100%); display: flex; flex-direction: column; gap: 8px; }
   .upload-row { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
     display: flex; align-items: center; gap: 12px; }
@@ -134,9 +154,22 @@
 </div>
 <div class="overlay" id="connecting"><div id="status">Connecting…</div></div>
 
-<div id="tools">
-  <button id="keyboardButton" title="Keyboard" aria-label="Keyboard">⌨</button>
-  <button id="statsButton" title="Connection info" aria-label="Connection info">ⓘ</button>
+<div id="toolbox">
+  <!-- Lucide icons (ISC licence). -->
+  <button class="fan-item" id="panelsButton" title="Hide or show the panels (Tab)" aria-label="Hide or show the panels">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
+  </button>
+  <button class="fan-item" id="modButton" title="Ctrl or Shift for the next tap" aria-label="Modifier for the next tap: off">Ctrl</button>
+  <button class="fan-item" id="keyboardButton" title="Keyboard" aria-label="Keyboard">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>
+  </button>
+  <button class="fan-item" id="statsButton" title="Connection info" aria-label="Connection info">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+  </button>
+  <button id="toolboxButton" title="Tools (drag to move)" aria-label="Tools" aria-expanded="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 12v4"/><path d="M16 6a2 2 0 0 1 1.414.586l4 4A2 2 0 0 1 22 12v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 .586-1.414l4-4A2 2 0 0 1 8 6z"/><path d="M16 6V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M2 14h20"/><path d="M8 12v4"/></svg>
+    <span class="tool-badge" id="toolBadge" hidden></span>
+  </button>
 </div>
 <div id="stats"></div>
 
@@ -190,7 +223,7 @@ const statusText = document.getElementById("status");
 const errorText = document.getElementById("error");
 const passwordInput = document.getElementById("password");
 const loginButton = document.getElementById("loginButton");
-const tools = document.getElementById("tools");
+const toolbox = document.getElementById("toolbox");
 const statsView = document.getElementById("stats");
 const keys = document.getElementById("keys");
 
@@ -222,7 +255,7 @@ function show(view) {
   loginView.style.display = view === "login" ? "flex" : "none";
   connectingView.style.display = view === "connecting" ? "flex" : "none";
   stage.style.display = view === "screen" ? "block" : "none";
-  tools.style.display = view === "screen" ? "flex" : "none";
+  toolbox.style.display = view === "screen" ? "block" : "none";
   if (view === "login") setTimeout(() => passwordInput.focus(), 0);
 }
 
@@ -309,7 +342,8 @@ function onText(msg) {
 const videoSupport = (async () => {
   if (typeof VideoDecoder === "undefined") return false;
   try {
-    const r = await VideoDecoder.isConfigSupported({ codec: "avc1.640033", optimizeForLatency: true });
+    const r = await VideoDecoder.isConfigSupported({ codec: "avc1.640033", optimizeForLatency: true,
+                                                     hardwareAcceleration: "no-preference" });
     return !!r.supported;
   } catch (e) { return false; }
 })();
@@ -318,6 +352,8 @@ let decoder = null;
 let videoCodec = "";
 let videoEncoder = "";
 let waitingForKey = true;
+let keyframeRequested = false;   // one request per recovery
+let decodeFailures = 0;          // in a row; two and the stream gives way to JPEG
 let lastDrawnId = 0;                 // never draw an older frame over a newer one
 const videoHeaders = new Map();      // frame id -> header, until decoded
 
@@ -330,7 +366,9 @@ function configureVideo(codec, encoder) {
   waitingForKey = true;
   try {
     decoder = new VideoDecoder({ output: onVideoFrame, error: onVideoError });
-    decoder.configure({ codec, optimizeForLatency: true, hardwareAcceleration: "prefer-hardware" });
+    // The browser uses hardware decoding where it has it (no-preference):
+    // prefer-hardware fails outright where there is none.
+    decoder.configure({ codec, optimizeForLatency: true, hardwareAcceleration: "no-preference" });
   } catch (e) {
     decoder = null;
     send({ type: "video-failed" });
@@ -338,13 +376,28 @@ function configureVideo(codec, encoder) {
 }
 
 function onVideoError() {
-  // Start over from a keyframe with a new decoder.
   for (let i = 0; i < videoHeaders.size; i++) send({ type: "ack" });
+  if (++decodeFailures >= 2) {
+    // This browser cannot decode the stream after all: JPEG frames instead.
+    if (decoder && decoder.state !== "closed") decoder.close();
+    decoder = null;
+    videoHeaders.clear();
+    send({ type: "video-failed" });
+    return;
+  }
+  // Start over from a keyframe with a new decoder.
   configureVideo(videoCodec, videoEncoder);
+  requestKeyframe();
+}
+
+function requestKeyframe() {
+  if (keyframeRequested) return;
+  keyframeRequested = true;
   send({ type: "keyframe" });
 }
 
 function onVideoFrame(frame) {
+  decodeFailures = 0;
   const header = videoHeaders.get(frame.timestamp);
   videoHeaders.delete(frame.timestamp);
   if (header) draw(header, frame);
@@ -376,10 +429,11 @@ async function onFrame(buffer) {
   if (header.kind === "video") {
     if (!decoder || decoder.state !== "configured" || (waitingForKey && !header.key)) {
       send({ type: "ack" });
-      if (waitingForKey) send({ type: "keyframe" });
+      if (decoder && waitingForKey) requestKeyframe();
       return;
     }
     waitingForKey = false;
+    keyframeRequested = false;
     videoHeaders.set(header.id, header);
     try {
       decoder.decode(new EncodedVideoChunk({ type: header.key ? "key" : "delta", timestamp: header.id, data: payload }));
@@ -430,6 +484,8 @@ function sendInput(msg) {
   sentAt.set(seq, performance.now());
   if (sentAt.size > 200) sentAt.delete(sentAt.keys().next().value);
   send(msg);
+  // The armed modifier lasts one tap or click.
+  if (pendingMods && msg.type === "pointer" && msg.kind === "up") setPendingMods(0);
 }
 
 // Pointer position in the frame's logical pixels: what is under the finger,
@@ -456,8 +512,30 @@ const touches = new Map();
 let touchState = null;  // { id, start, last, mode: "pending"|"drag"|"done", timer }
 const LONG_PRESS_MS = 500, DRAG_SLOP = 8;
 
+// The modifier armed with the toolbar button (1 Shift, 2 Ctrl), for the next
+// tap or click only: Ctrl adds one photo to the selection, Shift a range.
+let pendingMods = 0;
+const modButton = document.getElementById("modButton");
+function setPendingMods(mods) {
+  pendingMods = mods;
+  const name = mods === 2 ? "Ctrl" : mods === 1 ? "Shift" : "";
+  modButton.textContent = name || "Ctrl";
+  modButton.classList.toggle("armed", mods !== 0);
+  modButton.setAttribute("aria-label", "Modifier for the next tap: " + (name || "off"));
+  // While the tools are closed, the toolbox shows the armed modifier.
+  const badge = document.getElementById("toolBadge");
+  badge.textContent = name;
+  badge.hidden = !name;
+}
+modButton.addEventListener("click", () => {
+  setPendingMods(pendingMods === 0 ? 2 : pendingMods === 2 ? 1 : 0);
+  // Armed: close the tools so the next tap goes to Photon (the toolbox shows
+  // the modifier until then). Cycling on (Ctrl, then Shift) keeps them open.
+  if (pendingMods === 0) setToolsOpen(false);
+});
+
 function pointerMsg(kind, p, button, buttons, e) {
-  return { type: "pointer", kind, x: p.x, y: p.y, button, buttons, mods: e ? modifiers(e) : 0 };
+  return { type: "pointer", kind, x: p.x, y: p.y, button, buttons, mods: (e ? modifiers(e) : 0) | pendingMods };
 }
 
 canvas.addEventListener("pointerdown", (e) => {
@@ -587,10 +665,126 @@ keys.addEventListener("input", (e) => {
 });
 document.getElementById("keyboardButton").addEventListener("click", () => {
   if (document.activeElement === keys) keys.blur(); else keys.focus();
+  setToolsOpen(false);
 });
 document.getElementById("statsButton").addEventListener("click", () => {
-  statsView.style.display = statsView.style.display === "block" ? "none" : "block";
+  const on = statsView.style.display !== "block";
+  statsView.style.display = on ? "block" : "none";
+  document.getElementById("statsButton").classList.toggle("active", on);
 });
+document.getElementById("panelsButton").addEventListener("click", () => {
+  // Tab hides / shows Photon's panels (focus mode).
+  sendInput({ type: "key", kind: "down", key: "Tab", text: "", mods: 0 });
+  sendInput({ type: "key", kind: "up", key: "Tab", text: "", mods: 0 });
+  setToolsOpen(false);
+});
+
+// --- Toolbox: a button you can drag anywhere; tapped, its tools fan out on
+// an arc turned toward the middle of the screen (clear of the edges).
+const toolboxButton = document.getElementById("toolboxButton");
+const fanItems = [...toolbox.querySelectorAll(".fan-item")];
+const TOOLBOX_KEY = "photon-remote-toolbox";
+const FAN_RADIUS = 72;          // button 48 + item 44: about 10 px of gap
+const FAN_SPREAD = Math.PI * 0.62;
+let toolboxPos = null;          // centre, in CSS pixels
+
+function safeInsets() {
+  const cs = getComputedStyle(stage);
+  return { top: parseFloat(cs.top) || 0, right: parseFloat(cs.right) || 0, bottom: parseFloat(cs.bottom) || 0,
+           left: parseFloat(cs.left) || 0 };
+}
+function clampToolbox(p) {
+  const s = safeInsets(), m = 30;
+  return { x: Math.min(window.innerWidth - s.right - m, Math.max(s.left + m, p.x)),
+           y: Math.min(window.innerHeight - s.bottom - m, Math.max(s.top + m, p.y)) };
+}
+function placeToolbox(p) {
+  toolboxPos = clampToolbox(p);
+  toolbox.style.transform = `translate(${toolboxPos.x}px, ${toolboxPos.y}px)`;
+  layoutFan();
+}
+function layoutFan() {
+  // Fan out toward the screen's centre. Near a corner (a quarter turn of room
+  // or less), turn the arc and narrow it, pushing it outward so the tools keep
+  // ~50 px apart, until every tool is on screen.
+  const toward = Math.atan2(window.innerHeight / 2 - toolboxPos.y, window.innerWidth / 2 - toolboxPos.x);
+  const n = fanItems.length, margin = 26;
+  const layout = (centre, spread) => {
+    const radius = n === 1 ? FAN_RADIUS : Math.max(FAN_RADIUS, 50 / (spread / (n - 1)));
+    return fanItems.map((_, i) => {
+      const a = centre + (n === 1 ? 0 : (i / (n - 1) - 0.5) * spread);
+      return { dx: Math.cos(a) * radius, dy: Math.sin(a) * radius };
+    });
+  };
+  const fits = (list) => list.every(({ dx, dy }) => {
+    const x = toolboxPos.x + dx, y = toolboxPos.y + dy;
+    return x >= margin && x <= window.innerWidth - margin && y >= margin && y <= window.innerHeight - margin;
+  });
+  let chosen = null;
+  for (const spread of [FAN_SPREAD, Math.PI * 0.5, Math.PI * 0.4]) {
+    for (let step = 0; step <= 12 && !chosen; step++) {
+      const turn = Math.ceil(step / 2) * (Math.PI / 24) * (step % 2 ? 1 : -1);  // 0, ±7.5°, ±15°, …
+      const candidate = layout(toward + turn, spread);
+      if (fits(candidate)) chosen = candidate;
+    }
+    if (chosen) break;
+  }
+  (chosen || layout(toward, FAN_SPREAD)).forEach(({ dx, dy }, i) => {
+    fanItems[i].style.setProperty("--dx", dx.toFixed(1) + "px");
+    fanItems[i].style.setProperty("--dy", dy.toFixed(1) + "px");
+    fanItems[i].style.setProperty("--i", String(i));
+  });
+}
+function setToolsOpen(open) {
+  toolbox.classList.toggle("open", open);
+  toolboxButton.setAttribute("aria-expanded", String(open));
+}
+function restoreToolbox() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(TOOLBOX_KEY) || "null"); } catch (e) {}
+  const s = safeInsets();
+  placeToolbox(saved && typeof saved.fx === "number"
+    ? { x: saved.fx * window.innerWidth, y: saved.fy * window.innerHeight }
+    : { x: window.innerWidth - s.right - 40, y: window.innerHeight - s.bottom - 40 });
+}
+
+// Drag (when closed) or tap (open / close).
+let toolDrag = null;
+toolboxButton.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  toolboxButton.setPointerCapture(e.pointerId);
+  toolDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, start: { ...toolboxPos }, moved: false };
+});
+toolboxButton.addEventListener("pointermove", (e) => {
+  if (!toolDrag || toolDrag.id !== e.pointerId || toolbox.classList.contains("open")) return;
+  const dx = e.clientX - toolDrag.x, dy = e.clientY - toolDrag.y;
+  if (!toolDrag.moved && Math.hypot(dx, dy) < 6) return;
+  toolDrag.moved = true;
+  toolbox.classList.add("dragging");
+  placeToolbox({ x: toolDrag.start.x + dx, y: toolDrag.start.y + dy });
+});
+function endToolDrag(e) {
+  if (!toolDrag || toolDrag.id !== e.pointerId) return;
+  const moved = toolDrag.moved;
+  toolDrag = null;
+  toolbox.classList.remove("dragging");
+  if (moved) {
+    try {
+      localStorage.setItem(TOOLBOX_KEY, JSON.stringify({ fx: toolboxPos.x / window.innerWidth,
+                                                          fy: toolboxPos.y / window.innerHeight }));
+    } catch (err) {}
+  } else if (e.type === "pointerup") {
+    setToolsOpen(!toolbox.classList.contains("open"));
+  }
+}
+toolboxButton.addEventListener("pointerup", endToolDrag);
+toolboxButton.addEventListener("pointercancel", endToolDrag);
+// A tap anywhere else closes the tools.
+document.addEventListener("pointerdown", (e) => {
+  if (toolbox.classList.contains("open") && !toolbox.contains(e.target)) setToolsOpen(false);
+}, true);
+window.addEventListener("resize", () => toolboxPos && placeToolbox(toolboxPos));
+restoreToolbox();
 
 // The remote screen follows the stage: rotation, Safari's toolbar, Split View.
 let resizeTimer = null;

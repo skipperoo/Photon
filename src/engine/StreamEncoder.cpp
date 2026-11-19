@@ -230,6 +230,9 @@ QByteArray StreamEncoder::encode(const QImage& image, bool keyframe,
     // Odd sizes: pad to the coded size (the client shows the visible part).
     QImage padded(d->codedSize, QImage::Format_RGBA8888);
     padded.fill(Qt::black);
+    // Pixel for pixel: a frame with a device pixel ratio (the remote screen's)
+    // would otherwise be painted at its logical size, a third of it at 3x.
+    rgba.setDevicePixelRatio(1.0);
     QPainter painter(&padded);
     painter.drawImage(0, 0, rgba);
     painter.end();

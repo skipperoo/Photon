@@ -11,6 +11,9 @@ Control {
     property var viewport: null
     property real viewTopPadding: 0
     property bool maskAltPressed: false
+    // Vertical layouts: no histogram or quick info here (the histogram is
+    // shown over the photo instead), so the sheet starts with the adjustments.
+    property bool compact: false
 
     readonly property string profileValue: (root.viewport && root.viewport.profile) ? root.viewport.profile : "normal"
     readonly property int profileIndex: root.viewport ? root.viewport.profileIndex : 0
@@ -31,6 +34,7 @@ Control {
         // Pinned Histogram at the top
         Histogram {
             id: headerHistogram
+            visible: !root.compact
             Layout.fillWidth: true
             Layout.preferredHeight: 120
             Layout.margins: 12
@@ -41,6 +45,7 @@ Control {
         }
         // --- Metadata Section ---
         Rectangle {
+            visible: !root.compact
             Layout.fillWidth: true
             Layout.preferredHeight: 80
             Layout.margins: 12
@@ -89,15 +94,29 @@ Control {
             Layout.fillWidth: true
             Layout.leftMargin: 12
             Layout.rightMargin: 12
-            Layout.bottomMargin: 12
+            Layout.topMargin: root.compact ? 2 : 0
+            Layout.bottomMargin: root.compact ? 6 : 12
             spacing: 12
 
             Text {
                 text: "Profile"
                 font: Theme.fontRegular
                 color: Theme.foreground
-                Layout.fillWidth: true
             }
+
+            // Vertical layouts: loading / denoise status here, instead of the
+            // row below (it would take room from the sliders).
+            Text {
+                Layout.fillWidth: true
+                visible: root.compact
+                text: !root.viewport ? ""
+                      : root.viewport.isLoading ? "Loading\u2026"
+                      : (root.viewport.isDenoising || root.viewport.aiDenoiseRunning) ? "Denoising\u2026" : ""
+                color: Theme.mutedFg
+                font: Theme.fontSmall
+                elide: Text.ElideRight
+            }
+            Item { Layout.fillWidth: true; visible: !root.compact }
 
             PhotonComboBox {
                 id: profileCombo
@@ -123,8 +142,10 @@ Control {
             }
         }
           
-          // Background Loading & Denoise Indicators
+          // Background Loading & Denoise Indicators (vertical layouts show the
+          // status next to Profile instead)
         RowLayout {
+            visible: !root.compact
             Layout.fillWidth: true
             Layout.margins: 12
             spacing: 10

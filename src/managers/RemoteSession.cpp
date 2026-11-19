@@ -3,6 +3,7 @@
 #include <rhi/qrhi.h>
 
 #include <QCoreApplication>
+#include <QPointer>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -13,7 +14,35 @@
 
 #include "LogManager.h"
 
+// Qt Quick's shortcut context matcher hook (exported by QtQuick; Qt Quick
+// Controls installs its own matcher through it).
+using ShortcutMatcher = bool (*)(QObject*, Qt::ShortcutContext);
+ShortcutMatcher qt_quick_shortcut_context_matcher();
+void qt_quick_set_shortcut_context_matcher(ShortcutMatcher matcher);
+
 namespace {
+
+// The window shortcuts of the remote UI: Qt Quick Controls' matcher wants
+// the shortcut's window active (and visible for application shortcuts),
+// which an offscreen window never is (it has no platform window). While a
+// session runs, the offscreen window counts as the focused window for its
+// own shortcuts; every other shortcut goes to the previous matcher.
+QPointer<QQuickWindow> g_remoteWindow;
+ShortcutMatcher g_previousMatcher = nullptr;
+
+bool remoteShortcutMatcher(QObject* obj, Qt::ShortcutContext context) {
+  if (g_remoteWindow &&
+      (context == Qt::WindowShortcut || context == Qt::ApplicationShortcut)) {
+    QObject* o = obj;
+    while (o && !o->isWindowType()) {
+      o = o->parent();
+      if (auto* item = qobject_cast<QQuickItem*>(o)) o = item->window();
+    }
+    if (o == g_remoteWindow.data()) return true;
+  }
+  return g_previousMatcher ? g_previousMatcher(obj, context) : false;
+}
+
 void log(const QString& msg, photon::LogLevel level = photon::PHOTON_INFO) {
   photon::LogManager::instance()->log("[ RemoteSession.cpp ] - " + msg, level);
 }
@@ -61,6 +90,13 @@ bool RemoteSession::start(const QSize& size, qreal devicePixelRatio) {
 
   // Dialogs are drawn inside the UI (and streamed), not as desktop windows.
   QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+  // Before the UI exists: each shortcut keeps the matcher in place when it
+  // registers.
+  g_remoteWindow = m_window.get();
+  if (qt_quick_shortcut_context_matcher() != remoteShortcutMatcher) {
+    g_previousMatcher = qt_quick_shortcut_context_matcher();
+    qt_quick_set_shortcut_context_matcher(remoteShortcutMatcher);
+  }
   // The desktop window unloads its UI first, so one UI runs at a time.
   emit activeChanged();
   QQmlComponent component(
@@ -110,6 +146,10 @@ void RemoteSession::teardown() {
   if (!m_window) return;
   m_stopping = false;
   m_renderTimer.stop();
+  if (qt_quick_shortcut_context_matcher() == remoteShortcutMatcher &&
+      g_previousMatcher)
+    qt_quick_set_shortcut_context_matcher(g_previousMatcher);
+  g_remoteWindow.clear();
   delete m_content;  // before its window and renderer
   m_content = nullptr;
   releaseTarget();

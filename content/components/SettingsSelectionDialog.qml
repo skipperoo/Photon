@@ -9,8 +9,10 @@ T.Dialog {
     modal: true
     closePolicy: T.Popup.CloseOnEscape
     padding: 0
-    width: Math.min(1120, T.Overlay.overlay ? T.Overlay.overlay.width - 40 : 1120)
-    height: Math.min(760, T.Overlay.overlay ? T.Overlay.overlay.height - 40 : 760)
+    // Phones (overlay under 640 px): the whole screen.
+    readonly property bool fullScreen: T.Overlay.overlay ? T.Overlay.overlay.width < 640 : false
+    width: fullScreen ? T.Overlay.overlay.width : Math.min(1120, T.Overlay.overlay ? T.Overlay.overlay.width - 40 : 1120)
+    height: fullScreen ? T.Overlay.overlay.height : Math.min(760, T.Overlay.overlay ? T.Overlay.overlay.height - 40 : 760)
 
     property var sourceSettings: ({})
     property var selectedState: ({})

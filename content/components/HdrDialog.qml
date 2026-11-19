@@ -9,8 +9,10 @@ T.Dialog {
     modal: true
     closePolicy: T.Popup.CloseOnEscape
     padding: 0
-    width: Math.min(1000, T.Overlay.overlay ? T.Overlay.overlay.width - 40 : 1000)
-    height: Math.min(660, T.Overlay.overlay ? T.Overlay.overlay.height - 60 : 660)
+    // Phones (overlay under 640 px): the whole screen.
+    readonly property bool fullScreen: T.Overlay.overlay ? T.Overlay.overlay.width < 640 : false
+    width: fullScreen ? T.Overlay.overlay.width : Math.min(1000, T.Overlay.overlay ? T.Overlay.overlay.width - 40 : 1000)
+    height: fullScreen ? T.Overlay.overlay.height : Math.min(660, T.Overlay.overlay ? T.Overlay.overlay.height - 60 : 660)
 
     property int photoCount: 0
     property string previewSource: ""

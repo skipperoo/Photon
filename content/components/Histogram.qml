@@ -39,8 +39,9 @@ Item {
         Shape {
             anchors.fill: parent
             opacity: 0.5
-            layer.enabled: true
-            layer.samples: 4
+            // Antialiased without a multisampled layer (those do not render
+            // in the remote session's offscreen window).
+            preferredRendererType: Shape.CurveRenderer
             ShapePath {
                 fillColor: Theme.foreground
                 strokeWidth: 0
@@ -65,8 +66,9 @@ Item {
         Shape {
             anchors.fill: parent
             opacity: 0.6
-            layer.enabled: true
-            layer.samples: 4
+            // Antialiased without a multisampled layer (those do not render
+            // in the remote session's offscreen window).
+            preferredRendererType: Shape.CurveRenderer
             ShapePath {
                 fillColor: "#ef4444"
                 strokeWidth: 0
@@ -91,8 +93,9 @@ Item {
         Shape {
             anchors.fill: parent
             opacity: 0.6
-            layer.enabled: true
-            layer.samples: 4
+            // Antialiased without a multisampled layer (those do not render
+            // in the remote session's offscreen window).
+            preferredRendererType: Shape.CurveRenderer
             ShapePath {
                 fillColor: "#22c55e"
                 strokeWidth: 0
@@ -117,8 +120,9 @@ Item {
         Shape {
             anchors.fill: parent
             opacity: 0.6
-            layer.enabled: true
-            layer.samples: 4
+            // Antialiased without a multisampled layer (those do not render
+            // in the remote session's offscreen window).
+            preferredRendererType: Shape.CurveRenderer
             ShapePath {
                 fillColor: "#3b82f6"
                 strokeWidth: 0

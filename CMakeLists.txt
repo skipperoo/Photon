@@ -330,6 +330,10 @@ qt_add_qml_module(Photon
         assets/icons/download.svg
         assets/icons/upload.svg
         assets/icons/layout-grid.svg
+        assets/icons/film.svg
+        assets/icons/maximize.svg
+        assets/icons/histogram.svg
+        assets/icons/check.svg
         assets/icons/panorama.svg
         assets/icons/hdr.svg
         assets/icons/folder.svg

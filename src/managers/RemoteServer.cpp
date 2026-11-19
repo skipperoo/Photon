@@ -20,12 +20,12 @@
 #include <QNetworkInterface>
 #include <QPainter>
 #include <QPointer>
-#include <QStorageInfo>
 #include <QPointingDevice>
 #include <QQuickWindow>
 #include <QSettings>
 #include <QSslConfiguration>
 #include <QSslSocket>
+#include <QStorageInfo>
 #include <QTcpServer>
 #include <QTemporaryFile>
 #include <QUrl>
@@ -258,7 +258,8 @@ RemoteServer::RemoteServer(RemoteSession* session,
   // The page carries the icon itself: iOS fetches a linked home-screen icon
   // in a separate request that does not share the certificate exception the
   // user accepted in Safari, so a linked icon would not load.
-  m_page.replace("__PHOTON_TOUCH_ICON__", "data:image/png;base64," + m_touchIcon.toBase64());
+  m_page.replace("__PHOTON_TOUCH_ICON__",
+                 "data:image/png;base64," + m_touchIcon.toBase64());
   loadSettings();
   if (m_enabled) start();
 }
@@ -550,9 +551,10 @@ void RemoteServer::onEncryptedRequest(QSslSocket* socket) {
   socket->setProperty("photonAnswered", true);
   if (req.method == "POST" && req.path.split('?').first() == "/upload") {
     const int q = req.path.indexOf('?');
-    beginUpload(socket,
-                QUrlQuery(q < 0 ? QString() : QString::fromUtf8(req.path.mid(q + 1))),
-                req.headers.value("content-length"));
+    beginUpload(
+        socket,
+        QUrlQuery(q < 0 ? QString() : QString::fromUtf8(req.path.mid(q + 1))),
+        req.headers.value("content-length"));
     return;
   }
   if (req.method != "GET") {
@@ -636,11 +638,15 @@ void RemoteServer::onMessage(const QString& message) {
     m_inFlight = std::max(0, m_inFlight - 1);
     encodeNext();
   } else if (type == QLatin1String("keyframe")) {
-    // The client's decoder lost track (or restarted): resume from a keyframe.
-    m_needKeyframe = true;
-    m_session->requestFrame();
+    // The client's decoder lost track (or restarted): resume from a keyframe
+    // (one frame for any number of requests).
+    if (!m_needKeyframe) {
+      m_needKeyframe = true;
+      m_session->requestFrame();
+    }
   } else if (type == QLatin1String("video-failed")) {
-    log("the client cannot decode the H.264 stream, using JPEG frames", photon::PHOTON_WARNING);
+    log("the client cannot decode the H.264 stream, using JPEG frames",
+        photon::PHOTON_WARNING);
     m_videoMode = false;
     m_session->requestFrame();
   } else if (type == QLatin1String("ping")) {
@@ -934,7 +940,8 @@ void RemoteServer::encodeNext() {
           if (!m_client) return;
           if (out.video && out.data.isEmpty()) {
             // The stream failed: carry on with JPEG frames.
-            log("H.264 stream unavailable (" + out.error + "), using JPEG frames",
+            log("H.264 stream unavailable (" + out.error +
+                    "), using JPEG frames",
                 photon::PHOTON_WARNING);
             m_videoMode = false;
             m_pendingFrame = frame;
@@ -946,10 +953,11 @@ void RemoteServer::encodeNext() {
           if (out.video && out.key && out.codec != m_videoCodec) {
             // The decoder configuration precedes the keyframe it applies to.
             m_videoCodec = out.codec;
-            const QJsonObject config{
-                {"type", "video"}, {"codec", out.codec}, {"encoder", out.encoder}};
-            m_client->sendTextMessage(
-                QString::fromUtf8(QJsonDocument(config).toJson(QJsonDocument::Compact)));
+            const QJsonObject config{{"type", "video"},
+                                     {"codec", out.codec},
+                                     {"encoder", out.encoder}};
+            m_client->sendTextMessage(QString::fromUtf8(
+                QJsonDocument(config).toJson(QJsonDocument::Compact)));
           }
           const QJsonObject header{{"kind", out.video ? "video" : "jpeg"},
                                    {"id", double(++m_frameId)},
@@ -961,7 +969,8 @@ void RemoteServer::encodeNext() {
                                    {"dpr", frame.devicePixelRatio()},
                                    {"renderMs", double(renderMs)},
                                    {"encodeMs", double(out.encodeMs)}};
-          const QByteArray json = QJsonDocument(header).toJson(QJsonDocument::Compact);
+          const QByteArray json =
+              QJsonDocument(header).toJson(QJsonDocument::Compact);
           QByteArray message(4, Qt::Uninitialized);
           qToBigEndian<quint32>(quint32(json.size()), message.data());
           message += json + out.data;
@@ -1248,31 +1257,40 @@ void RemoteServer::sendFile(QSslSocket* socket, const QString& path,
   pump();
 }
 
-// --- Upload ---------------------------------------------------------------------------
+// --- Upload
+// ---------------------------------------------------------------------------
 
 QStringList RemoteServer::uploadExtensions() {
-  return photon::ImageDecoder::rawExtensions() + photon::ImageDecoder::bitmapExtensions();
+  return photon::ImageDecoder::rawExtensions() +
+         photon::ImageDecoder::bitmapExtensions();
 }
 
 QString RemoteServer::sanitizeUploadName(const QString& name) {
   // The last path component only (browsers send a bare name; never trust it).
-  QString n = name.mid(qMax(name.lastIndexOf(QLatin1Char('/')), name.lastIndexOf(QLatin1Char('\\'))) + 1);
+  QString n = name.mid(qMax(name.lastIndexOf(QLatin1Char('/')),
+                            name.lastIndexOf(QLatin1Char('\\'))) +
+                       1);
   QString clean;
   for (const QChar c : n) {
-    if (c.unicode() < 0x20 || c.unicode() == 0x7f || QStringLiteral("<>:\"|?*").contains(c)) continue;
+    if (c.unicode() < 0x20 || c.unicode() == 0x7f ||
+        QStringLiteral("<>:\"|?*").contains(c))
+      continue;
     clean += c;
   }
   clean = clean.trimmed();
   while (clean.startsWith(QLatin1Char('.'))) clean.remove(0, 1);
-  while (clean.endsWith(QLatin1Char('.')) || clean.endsWith(QLatin1Char(' '))) clean.chop(1);
+  while (clean.endsWith(QLatin1Char('.')) || clean.endsWith(QLatin1Char(' ')))
+    clean.chop(1);
   const int dot = clean.lastIndexOf(QLatin1Char('.'));
   if (dot <= 0) return QString();
   const QString ext = clean.mid(dot + 1);
   QString base = clean.left(dot).trimmed().left(180);
-  if (base.isEmpty() || !uploadExtensions().contains(ext.toLower())) return QString();
-  static const QStringList reserved = {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
-                                       "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
-                                       "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"};
+  if (base.isEmpty() || !uploadExtensions().contains(ext.toLower()))
+    return QString();
+  static const QStringList reserved = {
+      "CON",  "PRN",  "AUX",  "NUL",  "COM1", "COM2", "COM3", "COM4",
+      "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
+      "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"};
   if (reserved.contains(base.toUpper())) base.prepend(QLatin1Char('_'));
   return base + QLatin1Char('.') + ext;
 }
@@ -1288,7 +1306,8 @@ void RemoteServer::beginUpload(QSslSocket* socket, const QUrlQuery& query,
     sendHttp(socket, 409, "text/plain", "Open a folder in Photon first");
     return;
   }
-  const QString name = sanitizeUploadName(query.queryItemValue("name", QUrl::FullyDecoded));
+  const QString name =
+      sanitizeUploadName(query.queryItemValue("name", QUrl::FullyDecoded));
   if (name.isEmpty()) {
     sendHttp(socket, 415, "text/plain", "Not a photo Photon can open");
     return;
@@ -1308,7 +1327,9 @@ void RemoteServer::beginUpload(QSslSocket* socket, const QUrlQuery& query,
     return;
   }
   // Hidden while it arrives (the Library lists photo extensions only).
-  auto* file = new QTemporaryFile(QDir(folder).filePath(QStringLiteral(".photon-upload-XXXXXX.part")), socket);
+  auto* file = new QTemporaryFile(
+      QDir(folder).filePath(QStringLiteral(".photon-upload-XXXXXX.part")),
+      socket);
   if (!file->open()) {
     sendHttp(socket, 500, "text/plain", "The file could not be created");
     return;
@@ -1327,17 +1348,23 @@ void RemoteServer::beginUpload(QSslSocket* socket, const QUrlQuery& query,
     const QFileInfo fi(name);
     QString finalName = name;
     for (int i = 2; QFileInfo::exists(QDir(folder).filePath(finalName)); ++i)
-      finalName = QStringLiteral("%1 (%2).%3").arg(fi.completeBaseName()).arg(i).arg(fi.suffix());
+      finalName = QStringLiteral("%1 (%2).%3")
+                      .arg(fi.completeBaseName())
+                      .arg(i)
+                      .arg(fi.suffix());
     const QString finalPath = QDir(folder).filePath(finalName);
     if (!file->rename(finalPath)) {
       sendHttp(socket, 500, "text/plain", "The file could not be saved");
       return;
     }
     file->setAutoRemove(false);
-    log(QString("uploaded %1 (%2 bytes)").arg(finalPath).arg(QFileInfo(finalPath).size()));
+    log(QString("uploaded %1 (%2 bytes)")
+            .arg(finalPath)
+            .arg(QFileInfo(finalPath).size()));
     emit m_session->photoUploaded(finalPath);
     sendHttp(socket, 200, "application/json",
-             QJsonDocument(QJsonObject{{"name", finalName}}).toJson(QJsonDocument::Compact));
+             QJsonDocument(QJsonObject{{"name", finalName}})
+                 .toJson(QJsonDocument::Compact));
   };
   auto receive = [socket, file, remaining, idle, finish, this]() {
     while (*remaining > 0 && socket->bytesAvailable() > 0) {

@@ -3468,6 +3468,10 @@ QImage RawEngine::getProcessedImage() {
     m_processedImage = m_processor->dcraw_make_mem_image(&ret);
     if (!m_processedImage) return QImage();
     applyAiBlendLocked();
+    // The histogram reads this image: the request made when the photo
+    // finished loading came before it existed (it is built on first paint,
+    // possibly on the render thread).
+    QMetaObject::invokeMethod(this, &RawEngine::requestHistogramUpdate, Qt::QueuedConnection);
   }
 
   const int width = m_processedImage->width;

@@ -20,6 +20,11 @@ Rectangle {
     Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
 
     property var viewport: null
+    // Vertical layouts: no histogram here (it is shown over the photo instead).
+    property bool compact: false
+    // Presets move to folders by dragging only when this is on (the ⋯ menu);
+    // off, a drag scrolls the list. Off by default in vertical layouts.
+    property bool dragToRearrange: !compact
     property real viewTopPadding: 0
     property var pendingPresetSettings: ({})
     property var collapsed: ({})  // "scope/folder" -> true when collapsed
@@ -139,7 +144,31 @@ Rectangle {
             anchors.fill: parent
             anchors.margins: 2
         }
+        // Checkable items: a checkbox on the right (replaces the style's tick).
+        indicator: Rectangle {
+            visible: item.checkable
+            x: item.width - width - 12
+            y: (item.height - height) / 2
+            width: 16
+            height: 16
+            radius: 4
+            color: item.checked ? Theme.accent : "transparent"
+            border.color: item.checked ? Theme.accent : Theme.mutedFg
+            Image {
+                anchors.centerIn: parent
+                visible: item.checked
+                source: "qrc:/Main/assets/icons/check.svg"
+                sourceSize.width: 12
+                sourceSize.height: 12
+                layer.enabled: true
+                layer.effect: ShaderEffect {
+                    property color color: "white"
+                    fragmentShader: "qrc:/Main/shaders/ColorMask.frag.qsb"
+                }
+            }
+        }
         contentItem: Text {
+            rightPadding: item.checkable ? 28 : 0
             text: item.text
             font: Theme.fontSmall
             color: item.enabled ? Theme.foreground : Theme.mutedFg
@@ -329,8 +358,8 @@ Rectangle {
             id: rowMouse
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton
-            preventStealing: true
-            drag.target: ghost
+            preventStealing: row.panel.dragToRearrange
+            drag.target: row.panel.dragToRearrange ? ghost : null
             drag.threshold: 10
             onPressed: {
                 row.dragged = false
@@ -459,6 +488,7 @@ Rectangle {
         // Pinned Histogram at the top
         Histogram {
             id: headerHistogram
+            visible: !root.compact
             Layout.fillWidth: true
             Layout.preferredHeight: 120
             Layout.margins: 12
@@ -516,16 +546,21 @@ Rectangle {
                 }
             }
 
-            T.ScrollView {
+            // A plain Flickable: a drag on the list scrolls it (unless a preset
+            // is being dragged to a folder).
+            Flickable {
                 id: scroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                contentWidth: availableWidth
+                contentWidth: width
+                contentHeight: presetColumn.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
                 T.ScrollBar.vertical: PhotonScrollBar {}
 
                 ColumnLayout {
-                    width: scroll.availableWidth
+                    id: presetColumn
+                    width: scroll.width
                     spacing: 2
 
                     // Favorites
@@ -735,6 +770,13 @@ Rectangle {
 
     StyledMenu {
         id: moreMenu
+        StyledMenuItem {
+            text: "Drag to rearrange"
+            checkable: true
+            checked: root.dragToRearrange
+            onTriggered: root.dragToRearrange = !root.dragToRearrange
+        }
+        StyledSeparator {}
         StyledMenuItem {
             text: "Import presets…"
             onTriggered: root.startImport(root.scopeGlobal)

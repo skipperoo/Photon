@@ -523,3 +523,28 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Measured: 2360×1640 with NVENC 14–17 ms per frame, P-frames 1–9 KB (JPEG 180–345 KB); iPad on cellular 5–6 → 25–30 fps.
 - Also: the home-screen icon is embedded in the page as a data URL (iOS fetches a linked icon without the certificate exception accepted in Safari); photos per row capped so cells stay ≥ 200 px.
 - Files: `src/engine/StreamEncoder.{h,cpp}`, `src/managers/RemoteServer.{h,cpp}`, `assets/remote/index.html`, `CMakeLists.txt` (`PHOTON_HAS_REMOTE_VIDEO` when FFmpeg is on), `content/views/LibraryView.qml`.
+
+## Responsive layout (2026-11-19)
+
+- Purpose: one layout for every screen: desktop windows of any width and remote devices (iPad portrait and landscape, phones), which render the UI at their own logical size.
+- Size classes (`AppContent.qml`): `sizeClass` = compact below 640, medium below 1024, wide from 1024 logical px (Tailwind sm 640 / lg 1024 / xl 1280, close to Material 3's window size classes); `narrowLayout` = not wide.
+- Develop (`developGrid`, a `GridLayout`):
+  - **Wide:** photo | panel (280 px below 1280, 320 px above) | 48 px rail.
+  - **Narrow:** photo (full width), an 18 px grabber, the rail as a row of 48 px tabs (horizontal Flickable when they do not fit), the panel stack as a sheet of `window.height × sheetFraction` (default ⅓; drag 0.2–0.7; double-click resets). The size comes from the window, not from an enclosing layout (that made the layouts rearrange recursively).
+  - **Focus mode:** Tab (a window shortcut; while typing in a field Tab moves to the next field) or the toolbar's maximize button hides panel and rail (sheet and tabs); a toast says how to bring them back.
+  - **Filmstrip:** the toolbar's film button; `filmstripShown` starts true only when wide and at least 900 px tall.
+  - **Histogram:** on narrow layouts a `Histogram` over the photo's top right corner (toolbar button to hide it); `DevelopView.compact` / `PresetPanel.compact` drop the histogram, the camera info and the spinner row there (the loading / denoise status shows next to Profile).
+  - **Toolbar:** on phones without the zoom slider and the file name.
+- Top bar: icon-only buttons (tooltips) below 1024 px, 40 px with 2 px gaps and no wordmark on phones.
+- Library: `columns` = the setting (at most cells of 150 px), else 2 below 600 px wide, else 440 px cells; cards under 240 px put the name over the photo; the per-row slider hides when at most two fit.
+- Dialogs (settings selection, HDR, edit video) fill the overlay when it is under 640 px wide.
+- Presets: `dragToRearrange` (⋯ menu checkbox; default on when wide); off, rows do not start a drag and the list (a plain Flickable) scrolls.
+- Files: `content/views/AppContent.qml`, `DevelopView.qml`, `LibraryView.qml`, `content/components/PresetPanel.qml`, `Histogram.qml`, the three dialogs, icons `film`, `maximize`, `histogram`, `check`.
+
+## Remote toolbox and fixes (2026-11-19)
+
+- Toolbox (`assets/remote/index.html`): one 48 px button (Lucide toolbox); drag it when closed (clamped to the safe areas, position stored per device as a share of the screen); tap to fan out the tools on an arc of radius 72 px turned toward the screen's centre — near a corner the arc turns (±7.5° steps) and narrows (112° → 90° → 72°, pushed outward to keep ~50 px between tools) until all fit. Tools: connection info, keyboard (hidden text area), panels (sends Tab), modifier (off → Ctrl → Shift, applied to the next tap or click only; a badge on the toolbox while armed). Staggered spring transition; none under reduced motion.
+- Remote keyboard shortcuts: Qt Quick Controls' shortcut matcher requires the shortcut's window to be active (window shortcuts) or visible (application shortcuts); the offscreen window is neither. `RemoteSession` installs its own matcher (`qt_quick_set_shortcut_context_matcher`, exported by QtQuick) before creating the remote UI — each shortcut stores the matcher current when it registers — accepting the offscreen window's shortcuts and passing others to the previous matcher; restored at teardown.
+- Histogram on open: the processed image is built lazily on first paint, after the load-time histogram request had found no source; `getProcessedImage()` now queues `requestHistogramUpdate()` when it builds the image. Histogram shapes draw with `Shape.CurveRenderer` (multisampled layers do not render offscreen).
+- Stream: odd-width frames are padded pixel for pixel (a frame with a device pixel ratio of 3 was painted at a third of its size); the page decodes with `hardwareAcceleration: "no-preference"`, asks for one keyframe per recovery and switches to JPEG after two decode failures in a row; the server renders one frame per keyframe request burst.
+- Page: the stage reaches the bottom edge (under the home indicator); the upload hint wraps.

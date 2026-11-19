@@ -12,8 +12,10 @@ T.Dialog {
     modal: true
     closePolicy: T.Popup.CloseOnEscape
     padding: 0
-    width: Math.min(1100, T.Overlay.overlay ? T.Overlay.overlay.width - 40 : 1100)
-    height: Math.min(760, T.Overlay.overlay ? T.Overlay.overlay.height - 60 : 760)
+    // Phones (overlay under 640 px): the whole screen.
+    readonly property bool fullScreen: T.Overlay.overlay ? T.Overlay.overlay.width < 640 : false
+    width: fullScreen ? T.Overlay.overlay.width : Math.min(1100, T.Overlay.overlay ? T.Overlay.overlay.width - 40 : 1100)
+    height: fullScreen ? T.Overlay.overlay.height : Math.min(760, T.Overlay.overlay ? T.Overlay.overlay.height - 60 : 760)
 
     property string photoPath: ""
     property string outputFolder: ""

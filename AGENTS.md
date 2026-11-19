@@ -19,6 +19,7 @@ Photon is a high-performance, native RAW image editor built with C++ and Qt Quic
 - **Bundled font:** Instrument Sans SemiBold (`assets/fonts`, SIL OFL; licence file next to it) for the edit video's labels
 - **QML types from C++:** register them in `main.cpp` (`qmlRegisterType<…>("Main", 1, 0, …)`) like `RawViewport`; the generated module registration does not take effect for this app
 - **UI root:** `App.qml` is only the desktop window; the UI is `AppContent.qml`, which remote mode instantiates a second time in an offscreen window. Keep app state in the C++ singletons/sidecars (a new instance must restore it), and give dialogs `popupType: Popup.Item` (in-scene when non-native)
+- **Responsive layout:** views read `window.sizeClass` / `narrowLayout` / `compactLayout` (compact < 640, medium < 1024, wide; logical px). Do not size a layout's child from that layout's own size (recursive rearrange): use the window. Window shortcuts work in remote sessions through `RemoteSession`'s shortcut matcher
 - **AI models:** RawNIND UtNet2 (GPL-3.0 weights), Bayer and Linear variants (Linear for X-Trans, Foveon, linear DNGs) — downloaded, SHA-256-verified and converted to ncnn with pnnx at configure time by `cmake/AiDenoiseModel.cmake`, staged in `build/models` and installed to `bin/models`; never committed to git
 - **Build System:** CMake 3.16+
 

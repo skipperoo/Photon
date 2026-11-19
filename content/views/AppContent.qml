@@ -13,6 +13,31 @@ Rectangle {
 
     property bool showTopbar: true
     property bool altKeyPressed: KeyTracker.altPressed
+
+    // Layout by width, in logical pixels (the same for a desktop window and a
+    // streamed device), on the common breakpoints (Tailwind sm 640 / lg 1024 /
+    // xl 1280, close to Material 3's window size classes): compact below 640
+    // (phones), medium below 1024 (tablets in portrait, small windows), wide
+    // from 1024.
+    readonly property string sizeClass: width >= 1024 ? "wide" : width >= 640 ? "medium" : "compact"
+    readonly property bool narrowLayout: sizeClass !== "wide"
+    readonly property bool compactLayout: sizeClass === "compact"
+    // Develop: the panels hidden for a full view of the photo (Tab, or the
+    // toolbar button).
+    property bool focusMode: false
+    // The filmstrip, shown and hidden from the toolbar; starts shown only on
+    // wide screens at least 900 px tall (until the button is used).
+    property bool filmstripShown: width >= 1024 && height >= 900
+    // Vertical layouts: the histogram over the photo (the panels leave it out).
+    property bool histogramOverlay: true
+    // Narrow: the panel sheet's share of the Develop area's height.
+    property real sheetFraction: 1 / 3
+
+    function toggleFocusMode() {
+        window.focusMode = !window.focusMode
+        if (window.focusMode)
+            toaster.show("Panels hidden. Tab or the toolbar button shows them again.", "info", 2500)
+    }
     property bool showOriginal: false
     property int compareMode: 0 // 0 = off, 1 = split wipe, 2 = side-by-side
     property real splitPos: 0.5
@@ -438,6 +463,21 @@ Rectangle {
         Shortcut { sequence: "Y"; context: Qt.WindowShortcut; onActivated: window.toggleCompareMode(2) }
         Shortcut { sequence: "Shift+Y"; context: Qt.WindowShortcut; onActivated: window.toggleCompareMode(1) }
 
+        // Develop: Tab hides / shows the panels. While typing in a field, Tab
+        // keeps moving to the next field.
+        Shortcut {
+            sequence: "Tab"; context: Qt.WindowShortcut
+            onActivated: {
+                const item = window.Window.activeFocusItem
+                if (AppState.currentView !== AppState.ViewState.Develop || (item && item.cursorPosition !== undefined)) {
+                    const next = item.nextItemInFocusChain(true)
+                    if (next) next.forceActiveFocus(Qt.TabFocusReason)
+                    return
+                }
+                window.toggleFocusMode()
+            }
+        }
+
         // Crop panel: ESC to discard, Enter to apply
         Shortcut {
             sequence: "Escape"; context: Qt.WindowShortcut; enabled: developLayout.activeSidebar === 2
@@ -546,14 +586,22 @@ Rectangle {
                                  dr.width.toFixed(2) + "," + dr.height.toFixed(2) + ")");
                 }
 
-                RowLayout {
-                    spacing: 0
+                // Wide: photo | panel | rail. Narrow: photo, sheet grabber, the
+                // rail as a row of tabs, the panel as a sheet (a third of the
+                // height, drag to resize). Focus mode hides panel and rail.
+                GridLayout {
+                    id: developGrid
+                    columns: window.narrowLayout ? 1 : 3
+                    rowSpacing: 0
+                    columnSpacing: 0
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
                     // The Viewport
                     Rectangle {
                         id: viewportContainer
+                        Layout.row: 0
+                        Layout.column: 0
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         color: Theme.background
@@ -1257,6 +1305,31 @@ Rectangle {
                             }
                         }
 
+                        // Vertical layouts (photo above the sheet): the histogram in the
+                        // photo's top right corner (the panels leave it out there);
+                        // hidden from the toolbar.
+                        Rectangle {
+                            visible: window.narrowLayout && window.histogramOverlay
+                            anchors.top: parent.top
+                            anchors.right: parent.right
+                            anchors.margins: 8
+                            width: Math.min(168, parent.width * 0.45)
+                            height: width * 0.55
+                            z: 15
+                            radius: 6
+                            color: Theme.background
+                            opacity: 0.85
+                            border.color: Theme.border
+                            Histogram {
+                                anchors.fill: parent
+                                anchors.margins: 4
+                                histogramRed: rawViewport.histogramRed
+                                histogramGreen: rawViewport.histogramGreen
+                                histogramBlue: rawViewport.histogramBlue
+                                histogramLuma: rawViewport.histogramLuma
+                            }
+                        }
+
                         // Bottom Toolbar
                         Rectangle {
                             anchors.bottom: parent.bottom
@@ -1271,11 +1344,12 @@ Rectangle {
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.leftMargin: 20
-                                anchors.rightMargin: 20
-                                spacing: 12
+                                anchors.leftMargin: window.compactLayout ? 10 : 20
+                                anchors.rightMargin: window.compactLayout ? 10 : 20
+                                spacing: window.compactLayout ? 8 : 12
 
                                 T.Button {
+                                    visible: !window.compactLayout  // phones: no room for the zoom slider
                                     icon.source: "qrc:/Main/assets/icons/search.svg"
                                     icon.width: 16
                                     icon.height: 16
@@ -1290,6 +1364,7 @@ Rectangle {
 
                                 PhotonSlider {
                                     id: zoomSlider
+                                    visible: !window.compactLayout
                                     Layout.preferredWidth: 200
                                     enabled: developLayout.activeSidebar !== 2
                                     opacity: enabled ? 1.0 : 0.5
@@ -1431,29 +1506,113 @@ Rectangle {
 
                                 Item { Layout.fillWidth: true }
 
+                                // Vertical layouts: the histogram over the photo.
+                                T.Button {
+                                    visible: window.narrowLayout
+                                    icon.source: "qrc:/Main/assets/icons/histogram.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: window.histogramOverlay ? Theme.accent : Theme.foreground
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: window.histogramOverlay = !window.histogramOverlay
+                                    flat: true
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: window.histogramOverlay ? "Hide histogram" : "Show histogram"
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
+                                // The filmstrip.
+                                T.Button {
+                                    icon.source: "qrc:/Main/assets/icons/film.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: window.filmstripShown ? Theme.accent : Theme.foreground
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: window.filmstripShown = !window.filmstripShown
+                                    flat: true
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: window.filmstripShown ? "Hide filmstrip" : "Show filmstrip"
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
+                                // Focus mode: the panels hidden (Tab).
+                                T.Button {
+                                    icon.source: "qrc:/Main/assets/icons/maximize.svg"
+                                    icon.width: 16
+                                    icon.height: 16
+                                    icon.color: window.focusMode ? Theme.accent : Theme.foreground
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    onClicked: window.toggleFocusMode()
+                                    flat: true
+                                    T.ToolTip.visible: hovered
+                                    T.ToolTip.text: window.focusMode ? "Show panels (Tab)" : "Hide panels (Tab)"
+                                    display: T.AbstractButton.IconOnly
+                                    padding: 0
+                                    background: null
+                                }
+
                                 Text {
+                                    visible: !window.compactLayout
                                     text: AppState.currentImage !== "" ? AppState.currentImage.split('/').pop() : "No file loaded"
                                     color: Theme.mutedFg
                                     font: Theme.fontSmall
+                                    elide: Text.ElideMiddle
+                                    Layout.maximumWidth: 260
                                 }
                             }
                         }
                     }
 
-                    // --- Right Side Tool Stack & Switcher ---
-                    Item {
-                        Layout.preferredWidth: 320 + 48
-                        Layout.fillHeight: true
-                        
-                        RowLayout {
+                    // Narrow: drag to resize the sheet (double-click: a third).
+                    Rectangle {
+                        Layout.row: 1
+                        Layout.column: 0
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 18
+                        visible: window.narrowLayout && !window.focusMode
+                        color: Theme.background
+                        Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Theme.border }
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 36; height: 4; radius: 2
+                            color: sheetDrag.pressed ? Theme.foreground : Theme.mutedFg
+                        }
+                        MouseArea {
+                            id: sheetDrag
                             anchors.fill: parent
-                            spacing: 0
+                            cursorShape: Qt.SizeVerCursor
+                            preventStealing: true
+                            onPositionChanged: (mouse) => {
+                                if (!pressed) return
+                                // The sheet's top follows the finger (the tabs sit between the
+                                // grabber and the sheet).
+                                const y = mapToItem(window, 0, mouse.y).y
+                                const sheetTop = y + height / 2 + 48
+                                window.sheetFraction = Math.max(0.2, Math.min(0.7, (window.height - sheetTop) / window.height))
+                            }
+                            onDoubleClicked: window.sheetFraction = 1 / 3
+                        }
+                    }
 
-                            // 1. Tool Stack (320px)
+                            // The panels: a side column (wide) or the sheet (narrow).
                             StackLayout {
                                 id: toolStack
-                                Layout.preferredWidth: 320
-                                Layout.fillHeight: true
+                                Layout.row: window.narrowLayout ? 3 : 0
+                                Layout.column: window.narrowLayout ? 0 : 1
+                                Layout.preferredWidth: window.narrowLayout ? -1 : (window.width >= 1280 ? 320 : 280)
+                                Layout.fillWidth: window.narrowLayout
+                                // A share of the window (Develop fills it), not of a layout: a size
+                                // taken from the enclosing layout makes it rearrange recursively.
+                                Layout.preferredHeight: window.narrowLayout ? Math.round(window.height * window.sheetFraction) : -1
+                                Layout.fillHeight: !window.narrowLayout
+                                visible: !window.focusMode
                                 currentIndex: developLayout.activeSidebar
                                 clip: true
 
@@ -1468,6 +1627,7 @@ Rectangle {
                                     viewport: rawViewport
                                     viewTopPadding: 10
                                     maskAltPressed: window.altKeyPressed
+                                    compact: window.narrowLayout
                                 }
 
                                 // 2: Crop
@@ -1489,6 +1649,7 @@ Rectangle {
                                 PresetPanel {
                                     viewport: rawViewport
                                     viewTopPadding: 10
+                                    compact: window.narrowLayout
                                     onNotify: (message, type) => toaster.show(message, type)
                                 }
 
@@ -1504,18 +1665,44 @@ Rectangle {
                                 }
                             }
 
-                            // 2. Section Switcher (48px)
+                            // The section switcher: a 48 px rail (wide) or a row of
+                            // tabs that scrolls sideways when it does not fit (narrow).
                             Rectangle {
-                                Layout.preferredWidth: 48
-                                Layout.fillHeight: true
+                                Layout.row: window.narrowLayout ? 2 : 0
+                                Layout.column: window.narrowLayout ? 0 : 2
+                                Layout.preferredWidth: window.narrowLayout ? -1 : 48
+                                Layout.fillWidth: window.narrowLayout
+                                Layout.preferredHeight: window.narrowLayout ? 48 : -1
+                                Layout.fillHeight: !window.narrowLayout
+                                visible: !window.focusMode
                                 color: Theme.background
-                                
-                                Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.border }
 
-                                ColumnLayout {
+                                Rectangle {
+                                    width: window.narrowLayout ? parent.width : 1
+                                    height: window.narrowLayout ? 1 : parent.height
+                                    color: Theme.border
+                                    z: 1
+                                }
+
+                                Flickable {
+                                    id: railFlick
                                     anchors.fill: parent
-                                    spacing: 0
-                                    anchors.topMargin: 10
+                                    anchors.topMargin: window.narrowLayout ? 0 : 10
+                                    clip: true
+                                    interactive: window.narrowLayout && contentWidth > width
+                                    flickableDirection: Flickable.HorizontalFlick
+                                    contentWidth: railGrid.width
+                                    contentHeight: railGrid.height
+
+                                GridLayout {
+                                    id: railGrid
+                                    flow: window.narrowLayout ? GridLayout.LeftToRight : GridLayout.TopToBottom
+                                    rows: window.narrowLayout ? 1 : 32
+                                    columns: window.narrowLayout ? 32 : 1
+                                    rowSpacing: 0
+                                    columnSpacing: 0
+                                    width: window.narrowLayout ? Math.max(railFlick.width, implicitWidth) : railFlick.width
+                                    height: railFlick.height
 
                                     // Mode Buttons
                                     property var modes: [
@@ -1529,7 +1716,7 @@ Rectangle {
                                     ]
 
                                     Repeater {
-                                        model: parent.modes
+                                        model: railGrid.modes
                                         T.Button {
                                             Layout.preferredWidth: 48
                                             Layout.preferredHeight: 48
@@ -1561,8 +1748,10 @@ Rectangle {
                                             background: Rectangle {
                                                 color: (developLayout.activeSidebar === modelData.index) ? Theme.secondary : "transparent"
                                                 Rectangle {
-                                                    anchors.right: parent.right; width: 2; height: 24
-                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    x: window.narrowLayout ? (parent.width - width) / 2 : parent.width - width
+                                                    y: window.narrowLayout ? parent.height - height : (parent.height - height) / 2
+                                                    width: window.narrowLayout ? 24 : 2
+                                                    height: window.narrowLayout ? 2 : 24
                                                     color: Theme.accent
                                                     visible: developLayout.activeSidebar === modelData.index
                                                 }
@@ -1573,7 +1762,10 @@ Rectangle {
                                         }
                                     }
 
-                                    Item { Layout.fillHeight: true }
+                                    Item {
+                                        Layout.fillHeight: !window.narrowLayout
+                                        Layout.fillWidth: window.narrowLayout
+                                    }
 
                                     // Upload photos from the remote device into the open folder.
                                     T.Button {
@@ -1636,15 +1828,15 @@ Rectangle {
                                         T.ToolTip.text: "Settings"
                                     }
                                 }
+                                }
                             }
-                        }
-                    }
                 }
 
                 // Filmstrip
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 120
+                    visible: !window.focusMode && window.filmstripShown
                     color: Theme.background
                     border.color: Theme.border
                     border.width: 0
@@ -1846,6 +2038,7 @@ Rectangle {
                         // Text { anchors.centerIn: parent; text: "P"; color: Theme.background; font.bold: true }
                     }
                     Text {
+                        visible: !window.compactLayout
                         text: "PHOTON"
                         font.pixelSize: 18
                         font.bold: true
@@ -1858,7 +2051,7 @@ Rectangle {
 
                 // Navigation Controls
                 RowLayout {
-                    spacing: 4
+                    spacing: window.compactLayout ? 2 : 4
 
                     // Home button to return to Welcome view
                     PhotonButton {
@@ -1868,7 +2061,10 @@ Rectangle {
                         icon.width: 18; icon.height: 18
                         variantOutline: true
                         onClicked: AppState.setCurrentView(AppState.ViewState.Welcome)
-                        Layout.preferredWidth: 100
+                        Layout.preferredWidth: window.compactLayout ? 40 : window.narrowLayout ? 44 : 100
+                        display: window.narrowLayout ? T.AbstractButton.IconOnly : T.AbstractButton.TextBesideIcon
+                        T.ToolTip.visible: window.narrowLayout && hovered
+                        T.ToolTip.text: text
                     }
                     
                     PhotonButton {
@@ -1876,7 +2072,10 @@ Rectangle {
                         icon.source: "qrc:/Main/assets/icons/library.svg"
                         icon.color: AppState.currentView === AppState.ViewState.Library ? Theme.background : Theme.foreground
                         icon.width: 18; icon.height: 18
-                        Layout.preferredWidth: 100
+                        Layout.preferredWidth: window.compactLayout ? 40 : window.narrowLayout ? 44 : 100
+                        display: window.narrowLayout ? T.AbstractButton.IconOnly : T.AbstractButton.TextBesideIcon
+                        T.ToolTip.visible: window.narrowLayout && hovered
+                        T.ToolTip.text: text
                         onClicked: AppState.setCurrentView(AppState.ViewState.Library)
                         variantOutline: AppState.currentView !== AppState.ViewState.Library
                         
@@ -1892,7 +2091,10 @@ Rectangle {
                         icon.source: "qrc:/Main/assets/icons/tube.svg"
                         icon.color: Theme.foreground
                         icon.width: 18; icon.height: 18
-                        Layout.preferredWidth: 100
+                        Layout.preferredWidth: window.compactLayout ? 40 : window.narrowLayout ? 44 : 100
+                        display: window.narrowLayout ? T.AbstractButton.IconOnly : T.AbstractButton.TextBesideIcon
+                        T.ToolTip.visible: window.narrowLayout && hovered
+                        T.ToolTip.text: text
                         onClicked: AppState.setCurrentView(AppState.ViewState.Develop)
                         variantOutline: AppState.currentView !== AppState.ViewState.Develop
 
@@ -1910,7 +2112,10 @@ Rectangle {
                         icon.source: "qrc:/Main/assets/icons/upload.svg"
                         icon.color: Theme.foreground
                         icon.width: 18; icon.height: 18
-                        Layout.preferredWidth: 100
+                        Layout.preferredWidth: window.compactLayout ? 40 : window.narrowLayout ? 44 : 100
+                        display: window.narrowLayout ? T.AbstractButton.IconOnly : T.AbstractButton.TextBesideIcon
+                        T.ToolTip.visible: window.narrowLayout && hovered
+                        T.ToolTip.text: text
                         variantOutline: true
                         onClicked: RemoteSession.showUpload()
                     }
@@ -1922,7 +2127,10 @@ Rectangle {
                         icon.source: "qrc:/Main/assets/icons/folder.svg"
                         icon.color: Theme.foreground
                         icon.width: 18; icon.height: 18
-                        Layout.preferredWidth: 100
+                        Layout.preferredWidth: window.compactLayout ? 40 : window.narrowLayout ? 44 : 100
+                        display: window.narrowLayout ? T.AbstractButton.IconOnly : T.AbstractButton.TextBesideIcon
+                        T.ToolTip.visible: window.narrowLayout && hovered
+                        T.ToolTip.text: text
                         variantOutline: true
                         onClicked: RemoteSession.showExports()
                     }
@@ -1932,7 +2140,10 @@ Rectangle {
                         icon.source: "qrc:/Main/assets/icons/settings.svg"
                         icon.color: AppState.currentView === AppState.ViewState.Settings ? Theme.background : Theme.foreground
                         icon.width: 18; icon.height: 18
-                        Layout.preferredWidth: 100
+                        Layout.preferredWidth: window.compactLayout ? 40 : window.narrowLayout ? 44 : 100
+                        display: window.narrowLayout ? T.AbstractButton.IconOnly : T.AbstractButton.TextBesideIcon
+                        T.ToolTip.visible: window.narrowLayout && hovered
+                        T.ToolTip.text: text
                         onClicked: AppState.setCurrentView(AppState.ViewState.Settings)
                         variantOutline: AppState.currentView !== AppState.ViewState.Settings
 

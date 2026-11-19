@@ -205,8 +205,10 @@ Control {
 
             Item { Layout.fillWidth: true } // Spacer
 
-            // Photos per row (Ctrl + mouse wheel over the grid too)
+            // Photos per row (Ctrl + mouse wheel over the grid too); hidden when
+            // at most two fit (phones).
             RowLayout {
+                visible: grid.maxColumns > 2
                 spacing: 8
                 Image {
                     source: "qrc:/Main/assets/icons/layout-grid.svg"
@@ -372,12 +374,12 @@ Control {
             // Photos per row: the setting, or as many 440 px cells as fit. Cells
             // keep the 440:400 proportions. Sized from the parent's width (the
             // grid's own width follows preferredWidth).
-            // At most as many as leave cells 200 px wide (smaller cards have no
-            // room for the photo next to their text).
-            readonly property int maxColumns: Math.max(1, Math.min(10, Math.floor(parent.width / 200)))
+            // At most as many as leave cells 150 px wide (below 240 px the cards
+            // put the name over the photo); phones start at two per row.
+            readonly property int maxColumns: Math.max(1, Math.min(10, Math.floor(parent.width / 150)))
             readonly property int columns: AppState.libraryColumns > 0
                                            ? Math.min(AppState.libraryColumns, maxColumns)
-                                           : Math.max(1, Math.floor(parent.width / 440))
+                                           : (parent.width < 600 ? 2 : Math.max(1, Math.floor(parent.width / 440)))
             cellWidth: Math.max(1, Math.floor(parent.width / columns))
             cellHeight: Math.round(cellWidth * 400 / 440)
             clip: true
@@ -408,11 +410,13 @@ Control {
             delegate: Item {
                 width: grid.cellWidth; height: grid.cellHeight
                 property bool isSelected: AppState.selectedImages.indexOf(model.path) !== -1
+                // Small cells: the name over the photo instead of below it.
+                readonly property bool compactCard: grid.cellWidth < 240
                 property int itemRating: (model && typeof model.rating !== 'undefined') ? model.rating : 0
 
                 Card {
                     anchors.fill: parent
-                    anchors.margins: 10
+                    anchors.margins: compactCard ? 4 : 10
                     border.color: isSelected ? Theme.accent : Theme.border
                     border.width: isSelected ? 2 : 1
                     
@@ -455,10 +459,33 @@ Control {
                                 opacity: 0.1
                                 visible: isSelected
                             }
+
+                            // Small cards: the file name over the bottom of the photo.
+                            Rectangle {
+                                visible: compactCard
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 24
+                                color: Theme.background
+                                opacity: 0.8
+                                radius: Theme.radius
+                                Text {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 6
+                                    anchors.rightMargin: 6
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: (model && model.path) ? model.path.split('/').pop() : ""
+                                    color: Theme.foreground
+                                    font: Theme.fontSmall
+                                    elide: Text.ElideMiddle
+                                }
+                            }
                         }
 
                         // Info
                         ColumnLayout {
+                            visible: !compactCard
                             Layout.fillWidth: true
                             Layout.preferredHeight: 50
                             Layout.leftMargin: 8

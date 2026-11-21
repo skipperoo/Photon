@@ -49,8 +49,10 @@
     transition: transform .2s; }
   #toolbox.open #toolboxButton { transform: rotate(-12deg); background: var(--panel); }
   #toolbox.dragging #toolboxButton { cursor: grabbing; transform: scale(1.06); }
-  .tool-badge { position: absolute; top: -8px; right: -10px; padding: 1px 6px; border-radius: 8px; font-size: 10px;
-    font-weight: 700; background: var(--accent); color: #fff; }
+  .tool-badge { position: absolute; top: -8px; right: -4px; padding: 1px 6px; border-radius: 8px; font-size: 10px;
+    font-weight: 700; background: var(--accent); color: #fff; white-space: nowrap; }
+  /* On the left half the pill grows to the right, so a long combination stays on screen. */
+  #toolbox.west .tool-badge { right: auto; left: -4px; }
   .tool-badge[hidden] { display: none; }
   #toolbox .fan-item { width: 44px; height: 44px; left: -22px; top: -22px; font-size: 12px; font-weight: 600;
     opacity: 0; transform: translate(0, 0) scale(.3); pointer-events: none;
@@ -159,7 +161,9 @@
   <button class="fan-item" id="panelsButton" title="Hide or show the panels (Tab)" aria-label="Hide or show the panels">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
   </button>
-  <button class="fan-item" id="modButton" title="Ctrl or Shift for the next tap" aria-label="Modifier for the next tap: off">Ctrl</button>
+  <button class="fan-item mod-button" data-mod="2" title="Ctrl for the next tap" aria-label="Ctrl for the next tap" aria-pressed="false">Ctrl</button>
+  <button class="fan-item mod-button" data-mod="4" title="Alt for the next tap" aria-label="Alt for the next tap" aria-pressed="false">Alt</button>
+  <button class="fan-item mod-button" data-mod="1" title="Shift for the next tap" aria-label="Shift for the next tap" aria-pressed="false">Shift</button>
   <button class="fan-item" id="keyboardButton" title="Keyboard" aria-label="Keyboard">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>
   </button>
@@ -512,27 +516,27 @@ const touches = new Map();
 let touchState = null;  // { id, start, last, mode: "pending"|"drag"|"done", timer }
 const LONG_PRESS_MS = 500, DRAG_SLOP = 8;
 
-// The modifier armed with the toolbar button (1 Shift, 2 Ctrl), for the next
-// tap or click only: Ctrl adds one photo to the selection, Shift a range.
+// The modifiers armed with the toolbox's Ctrl / Alt / Shift buttons (bits as in
+// modifiers(): 1 Shift, 2 Ctrl, 4 Alt), combinable, for the next tap or click
+// only: Ctrl adds one photo to the selection, Shift a range. The tools stay
+// open while toggling; the tap on Photon closes them and carries the mods.
 let pendingMods = 0;
-const modButton = document.getElementById("modButton");
+const modButtons = [...document.querySelectorAll(".mod-button")];
+const MOD_NAMES = [[2, "Ctrl"], [4, "Alt"], [1, "Shift"]];
 function setPendingMods(mods) {
   pendingMods = mods;
-  const name = mods === 2 ? "Ctrl" : mods === 1 ? "Shift" : "";
-  modButton.textContent = name || "Ctrl";
-  modButton.classList.toggle("armed", mods !== 0);
-  modButton.setAttribute("aria-label", "Modifier for the next tap: " + (name || "off"));
-  // While the tools are closed, the toolbox shows the armed modifier.
+  for (const b of modButtons) {
+    const on = (mods & Number(b.dataset.mod)) !== 0;
+    b.classList.toggle("armed", on);
+    b.setAttribute("aria-pressed", String(on));
+  }
+  // The toolbox shows the armed combination until the tap.
   const badge = document.getElementById("toolBadge");
-  badge.textContent = name;
-  badge.hidden = !name;
+  badge.textContent = MOD_NAMES.filter(([bit]) => mods & bit).map(([, name]) => name).join("+");
+  badge.hidden = mods === 0;
 }
-modButton.addEventListener("click", () => {
-  setPendingMods(pendingMods === 0 ? 2 : pendingMods === 2 ? 1 : 0);
-  // Armed: close the tools so the next tap goes to Photon (the toolbox shows
-  // the modifier until then). Cycling on (Ctrl, then Shift) keeps them open.
-  if (pendingMods === 0) setToolsOpen(false);
-});
+for (const b of modButtons)
+  b.addEventListener("click", () => setPendingMods(pendingMods ^ Number(b.dataset.mod)));
 
 function pointerMsg(kind, p, button, buttons, e) {
   return { type: "pointer", kind, x: p.x, y: p.y, button, buttons, mods: (e ? modifiers(e) : 0) | pendingMods };
@@ -701,6 +705,7 @@ function clampToolbox(p) {
 function placeToolbox(p) {
   toolboxPos = clampToolbox(p);
   toolbox.style.transform = `translate(${toolboxPos.x}px, ${toolboxPos.y}px)`;
+  toolbox.classList.toggle("west", toolboxPos.x < window.innerWidth / 2);
   layoutFan();
 }
 function layoutFan() {

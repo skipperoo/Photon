@@ -160,6 +160,8 @@ class RawViewport : public QQuickItem {
                  setCameraLookAmount NOTIFY cameraLookAmountChanged)
   Q_PROPERTY(bool cameraLookAvailable READ cameraLookAvailable NOTIFY
                  cameraLookAvailableChanged)
+  Q_PROPERTY(bool cameraLookUnavailable READ cameraLookUnavailable NOTIFY
+                 cameraLookAvailableChanged)
   Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
   Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
   Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
@@ -523,6 +525,9 @@ class RawViewport : public QQuickItem {
   float cameraLookAmount() const { return m_engine.cameraLookAmount(); }
   void setCameraLookAmount(float val);
   bool cameraLookAvailable() const { return m_engine.cameraLookAvailable(); }
+  bool cameraLookUnavailable() const {
+    return m_engine.cameraLookUnavailable();
+  }
 
   float clarity() const { return m_engine.clarity(); }
   void setClarity(float val);

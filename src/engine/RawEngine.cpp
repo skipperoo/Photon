@@ -851,7 +851,7 @@ void RawEngine::setSource(const QString& source) {
   m_currentLoadId++;
 
   m_source = source;
-  const bool hadCameraLook = m_cameraLook.tone.valid;
+  const bool hadCameraLook = m_cameraLook.tone.valid || m_cameraLook.unavailable;
   m_cameraLook = photon::cameralook::CameraLook();
   m_cameraLookSource.clear();
   if (hadCameraLook) emit cameraLookAvailableChanged();
@@ -1328,7 +1328,7 @@ void RawEngine::setCameraLookAmount(float val) {
   rebuildToneLut();
   // Opt-in: the fit runs when the amount is raised, not on every photo open.
   if (m_cameraLookAmount > 0.0f && !m_cameraLook.tone.valid &&
-      !m_cameraLookFitting) {
+      !m_cameraLook.unavailable && !m_cameraLookFitting) {
     startAsyncCameraLookFit();
   }
   emit cameraLookAmountChanged();
@@ -2547,6 +2547,11 @@ void RawEngine::loadCameraLookForSource() {
 
   photon::cameralook::CameraLook cached =
       photon::cameralook::loadCameraLook(m_source);
+  if (cached.unavailable) {
+    m_cameraLook = cached;
+    emit cameraLookAvailableChanged();
+    return;
+  }
   if (cached.tone.valid) {
     m_cameraLook = cached;
     emit cameraLookAvailableChanged();
@@ -2572,11 +2577,12 @@ void RawEngine::startAsyncCameraLookFit() {
             if (loadId != m_currentLoadId.load()) return;
             const photon::cameralook::CameraLook look =
                 m_cameraLookWatcher.result();
-            if (!look.tone.valid) return;
+            if (!look.tone.valid && !look.unavailable) return;
 
             m_cameraLook = look;
             photon::cameralook::saveCameraLook(m_source, look);
             emit cameraLookAvailableChanged();
+            if (look.unavailable) return;
             LogManager::instance()->log(
                 QString("[ RawEngine ] - camera look ready for %1")
                     .arg(m_source),

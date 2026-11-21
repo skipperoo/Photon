@@ -12,7 +12,8 @@ namespace cameralook {
 // change makes the fit give a different result for the same file; caches
 // written by an older version are refitted.
 // 2: a second curve for the AgX profile.
-constexpr int kCameraLookVersion = 2;
+// 3: relaxed improvement gate; photos without a usable look are cached too.
+constexpr int kCameraLookVersion = 3;
 
 struct CameraLook {
   int version = kCameraLookVersion;
@@ -24,6 +25,10 @@ struct CameraLook {
   // 100% both profiles land on the camera's rendering). May be invalid when
   // AgX alone is already as close to the camera as the fit allows.
   CameraToneCurve agxTone;
+  // The fit ran and this photo has no usable look (no embedded JPEG, a JPEG
+  // that does not match the sensor, too few samples, or a rejected fit). It is
+  // cached so the fit is not repeated; transient decode errors leave it false.
+  bool unavailable = false;
 
   const CameraToneCurve& forProfile(bool agx) const { return agx ? agxTone : tone; }
 };
@@ -39,7 +44,8 @@ bool saveCameraLook(const QString& sourcePath, const CameraLook& look);
 CameraLook fitCameraLook(const QString& sourcePath);
 
 // The cached look, or a fresh fit (saved) when the cache is missing, stale or
-// purged. Blocking: for worker threads (export, library previews).
+// purged; a cached "unavailable" result is returned without refitting.
+// Blocking: for worker threads (export, library previews).
 CameraLook obtainCameraLook(const QString& sourcePath);
 
 // Sets settings["cameraLook"] (and settings["cameraLookAgx"]) for a RAW whose

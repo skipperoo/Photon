@@ -548,3 +548,12 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Histogram on open: the processed image is built lazily on first paint, after the load-time histogram request had found no source; `getProcessedImage()` now queues `requestHistogramUpdate()` when it builds the image. Histogram shapes draw with `Shape.CurveRenderer` (multisampled layers do not render offscreen).
 - Stream: odd-width frames are padded pixel for pixel (a frame with a device pixel ratio of 3 was painted at a third of its size); the page decodes with `hardwareAcceleration: "no-preference"`, asks for one keyframe per recovery and switches to JPEG after two decode failures in a row; the server renders one frame per keyframe request burst.
 - Page: the stage reaches the bottom edge (under the home indicator); the upload hint wraps.
+
+## Camera look acceptance gate (2026-11-21)
+
+- Purpose: on some photos (e.g. `_DSC9128`, `_DSC8808`, `_DSC8711`) the Camera Look slider did nothing. The camera had applied its curve; the fit was rejected.
+- Cause: the improvement gate required a ≥ 30 % cut of the held-out error in both linear and gamma-encoded values. When Photon's base exposure already lands the mid-tones where the camera does, the camera's remaining S-curve sits mostly in the shadows, where linear errors are tiny, and per-pixel scatter a global curve cannot remove (local DRO, misregistration) dominates. `_DSC9128`: rank correlation 0.974, error ratio 0.88 linear / 0.63 encoded, curve 0.030 → 0.016 in the deep shadows.
+- Change: `kMinImprovement` 0.7 → 1.0 (the fit must not be worse than the current rendering). The rank-correlation gate (≥ 0.5) still rejects a JPEG of a different picture. The 30 % rule came from the reference's shared profile store; per photo it is too strict.
+- Unavailable looks: determinate failures (no embedded JPEG, aspect mismatch, too few samples, rejected fit) set `CameraLook::unavailable`, are saved as `{"unavailable": true}` in `.PhotonData/cache/looks/<file>.json` and are not refitted on every slider move or export; transient decode errors are not cached. `RawEngine`/`RawViewport` expose `cameraLookUnavailable`; the panel says the amount has no effect for that photo.
+- Key constants: `kMinImprovement` 1.0, `kCameraLookVersion` 3.
+- Files: `src/engine/CameraLookMath.h`, `src/engine/CameraLook.{h,cpp}`, `src/engine/RawEngine.{h,cpp}`, `src/components/RawViewport.h`, `content/views/DevelopView.qml`, `tests/auto/tst_RawEngine.cpp`.

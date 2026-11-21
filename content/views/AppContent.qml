@@ -411,6 +411,27 @@ Rectangle {
         }
     }
 
+    // Develop always shows a photo: with nothing selected (or a current image
+    // from another folder), select the current image if it is listed, else the
+    // first photo.
+    function ensureDevelopPhoto() {
+        if (rawFilesModel.count === 0) return;
+        var currentPath = AppState.currentImage;
+        if (currentPath && AppState.selectionCount > 0) return;
+        var idx = 0;
+        for (var i = 0; i < rawFilesModel.count; i++) {
+            if (rawFilesModel.get(i).path === currentPath) {
+                idx = i;
+                break;
+            }
+        }
+        var path = rawFilesModel.get(idx).path;
+        AppState.clearSelection();
+        AppState.toggleSelection(path);
+        AppState.setCurrentImage(path);
+        if (filmstripList) filmstripList.positionViewAtIndex(idx, ListView.Beginning);
+    }
+
     // Refresh files when the folder changes or rating is updated
     Connections {
         target: AppState
@@ -421,6 +442,7 @@ Rectangle {
             // Strictly hide topbar in Develop view
             if (AppState.currentView === AppState.ViewState.Develop) {
                 window.showTopbar = false
+                window.ensureDevelopPhoto()
             } else {
                 window.showTopbar = true
             }

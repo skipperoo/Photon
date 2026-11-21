@@ -12,10 +12,13 @@ namespace cameralook {
 
 constexpr int kToneKnots = 32;
 constexpr std::size_t kMinPairs = 256;
-// Submission gates (ported from the reference implementation): a fitted look
-// must cut the held-out error to below this share of the current rendering's,
-// and the two images must clearly show the same picture.
-constexpr float kMinImprovement = 0.7f;
+// Acceptance gates: the two images must clearly show the same picture (rank
+// correlation), and the fitted look must not be worse than the current
+// rendering on the held-out pairs. The reference's 30 % improvement gate was a
+// guard for a shared profile store; per photo it rejected real camera curves
+// whenever the base exposure already matched the camera's mid-grey (the
+// remaining S-curve lives in the shadows, where the linear error is tiny).
+constexpr float kMinImprovement = 1.0f;
 constexpr float kMinRankCorrelation = 0.5f;
 
 inline float srgbToLinearF(float c) {
@@ -167,9 +170,9 @@ inline CameraToneCurve fitCameraToneCurve(
   if (curve.knots[kToneKnots - 1][0] < curve.knots[0][0] * 1.5f) return curve;
   if (!curve.validate()) return CameraToneCurve();
 
-  // Submission gate: the fitted curve must clearly beat the current linear
-  // rendering on the held-out third of the pairs, in linear display values and
-  // in gamma-encoded (perceptual) values.
+  // Acceptance gate: the fitted curve must beat the current linear rendering
+  // on the held-out third of the pairs, in linear display values and in
+  // gamma-encoded (perceptual) values.
   const auto encoded = [](float v) {
     return std::pow(std::max(v, 0.0f), 1.0f / 2.2f);
   };

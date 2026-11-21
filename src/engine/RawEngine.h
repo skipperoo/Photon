@@ -125,6 +125,8 @@ class RawEngine : public QObject {
                  setCameraLookAmount NOTIFY cameraLookAmountChanged)
   Q_PROPERTY(bool cameraLookAvailable READ cameraLookAvailable NOTIFY
                  cameraLookAvailableChanged)
+  Q_PROPERTY(bool cameraLookUnavailable READ cameraLookUnavailable NOTIFY
+                 cameraLookAvailableChanged)
   Q_PROPERTY(float clarity READ clarity WRITE setClarity NOTIFY clarityChanged)
   Q_PROPERTY(float dehaze READ dehaze WRITE setDehaze NOTIFY dehazeChanged)
   Q_PROPERTY(float structure READ structure WRITE setStructure NOTIFY
@@ -485,6 +487,7 @@ class RawEngine : public QObject {
   float cameraLookAmount() const { return m_cameraLookAmount; }
   void setCameraLookAmount(float val);
   bool cameraLookAvailable() const { return m_cameraLook.tone.valid; }
+  bool cameraLookUnavailable() const { return m_cameraLook.unavailable; }
 
   float clarity() const { return m_clarity; }
   void setClarity(float val);

@@ -119,6 +119,10 @@ CameraLook loadCameraLook(const QString& sourcePath) {
   if (obj.value("version").toInt() != kCameraLookVersion ||
       obj.value("decode").toInt() != photon::raw::kDevelopDecodeVersion)
     return look;
+  if (obj.value("unavailable").toBool()) {
+    look.unavailable = true;
+    return look;
+  }
   look.tone = toneCurveFromJson(obj);
   if (!look.tone.valid) return CameraLook();
   look.agxTone = toneCurveFromJson(obj.value("agx").toObject());
@@ -126,11 +130,16 @@ CameraLook loadCameraLook(const QString& sourcePath) {
 }
 
 bool saveCameraLook(const QString& sourcePath, const CameraLook& look) {
-  if (!look.tone.valid) return false;
+  if (!look.tone.valid && !look.unavailable) return false;
   const QString path = cameraLookCachePath(sourcePath);
   if (!QDir().mkpath(QFileInfo(path).absolutePath())) return false;
-  QJsonObject obj = toneCurveToJson(look.tone);
-  if (look.agxTone.valid) obj["agx"] = toneCurveToJson(look.agxTone);
+  QJsonObject obj;
+  if (look.tone.valid) {
+    obj = toneCurveToJson(look.tone);
+    if (look.agxTone.valid) obj["agx"] = toneCurveToJson(look.agxTone);
+  } else {
+    obj["unavailable"] = true;
+  }
   obj["version"] = kCameraLookVersion;
   obj["decode"] = photon::raw::kDevelopDecodeVersion;
   QFile file(path);
@@ -163,7 +172,15 @@ CameraLook fitCameraLook(const QString& sourcePath) {
 
   // The camera JPEG supplies the correspondences only, never output pixels.
   const QImage reference = extractCameraJpeg(sourcePath);
-  if (reference.isNull()) return look;
+  if (reference.isNull()) {
+    LogManager::instance()->log(
+        QString("[ CameraLook.cpp ] - %1: no embedded camera JPEG, skipping "
+                "the look")
+            .arg(QFileInfo(sourcePath).fileName()),
+        PHOTON_DEBUG);
+    look.unavailable = true;
+    return look;
+  }
 
   const int sensorWidth = int(raw->width);
   const int sensorHeight = int(raw->height);
@@ -176,6 +193,7 @@ CameraLook fitCameraLook(const QString& sourcePath) {
                 "match the sensor, skipping the look")
             .arg(QFileInfo(sourcePath).fileName()),
         PHOTON_DEBUG);
+    look.unavailable = true;
     return look;
   }
 
@@ -278,6 +296,7 @@ CameraLook fitCameraLook(const QString& sourcePath) {
             .arg(QFileInfo(sourcePath).fileName())
             .arg(pairs.size()),
         PHOTON_DEBUG);
+    look.unavailable = true;
     return look;
   }
   look.tone = fitCameraToneCurve(pairs);
@@ -289,6 +308,8 @@ CameraLook fitCameraLook(const QString& sourcePath) {
             .arg(QFileInfo(sourcePath).fileName())
             .arg(pairs.size()),
         PHOTON_DEBUG);
+    look.agxTone = CameraToneCurve();
+    look.unavailable = true;
     return look;
   }
   LogManager::instance()->log(
@@ -305,9 +326,9 @@ CameraLook fitCameraLook(const QString& sourcePath) {
 
 CameraLook obtainCameraLook(const QString& sourcePath) {
   CameraLook look = loadCameraLook(sourcePath);
-  if (look.tone.valid) return look;
+  if (look.tone.valid || look.unavailable) return look;
   look = fitCameraLook(sourcePath);
-  if (look.tone.valid) saveCameraLook(sourcePath, look);
+  saveCameraLook(sourcePath, look);
   return look;
 }
 

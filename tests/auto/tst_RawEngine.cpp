@@ -1101,6 +1101,16 @@ void TestRawEngine::testCameraLookAgxFit() {
   QVERIFY2(std::abs(agxLooked - agxGrey) > 0.005f, "the AgX look must change the image");
   QVERIFY2(std::abs(agxLooked - cameraGrey) < std::abs(agxGrey - cameraGrey),
            qPrintable(QString("AgX grey %1 -> %2, camera %3").arg(agxGrey).arg(agxLooked).arg(cameraGrey)));
+
+  // A night shot whose base exposure already matches the camera's mid-grey:
+  // the camera's S-curve (darker shadows) must still be fitted.
+  const QString night = QFileInfo(sample).absolutePath() + QStringLiteral("/_DSC9128.ARW");
+  if (QFileInfo::exists(night)) {
+    const photon::cameralook::CameraLook nightLook = photon::cameralook::fitCameraLook(night);
+    QVERIFY(nightLook.tone.valid);
+    QVERIFY(!nightLook.unavailable);
+    QVERIFY(nightLook.tone.apply(0.02f) < 0.02f * 0.8f);
+  }
 }
 
 void TestRawEngine::testCameraLookToneFit() {
@@ -1148,6 +1158,27 @@ void TestRawEngine::testCameraLookToneFit() {
       shuffled.emplace_back(pairs[i].first,
                             pairs[(i * 7919) % pairs.size()].second);
     QVERIFY(!photon::cameralook::fitCameraToneCurve(shuffled).valid);
+  }
+  // A camera S-curve that crosses the current rendering at mid-grey (the base
+  // exposure already matches the camera), seen through per-pixel scatter a
+  // global curve cannot remove (local DRO, misregistration): the fit only cuts
+  // the held-out error to ~0.83 (linear) / ~0.77 (encoded). It must still be
+  // accepted (it was rejected by the old 30 % gate, e.g. _DSC9128).
+  {
+    std::vector<std::pair<float, float>> sCurve;
+    sCurve.reserve(kCount);
+    for (int i = 0; i < kCount; ++i) {
+      const float scene = 0.01f * std::pow(60.0f, float(i) / float(kCount - 1));
+      const float cameraY = scene * std::pow(scene / 0.2f, 0.15f);
+      const float scatter = 1.0f + 0.3f * std::sin(float(i) * 12.9898f);
+      sCurve.emplace_back(scene, std::min(cameraY * scatter, 0.95f));
+    }
+    const photon::cameralook::CameraToneCurve sFit =
+        photon::cameralook::fitCameraToneCurve(sCurve);
+    QVERIFY(sFit.valid);
+    QVERIFY(sFit.apply(0.02f) < 0.02f * 0.8f);              // darker shadows
+    QVERIFY(std::abs(sFit.apply(0.2f) - 0.2f) < 0.02f);     // mid-grey kept
+    QVERIFY(sFit.apply(0.5f) > 0.5f);                       // brighter highlights
   }
   // Too little scene range (knots[31] < knots[0] * 1.5): rejected.
   {
@@ -1223,6 +1254,31 @@ void TestRawEngine::testCameraLookToneFit() {
     std::vector<float> zero = lut;
     photon::cameralook::prependToneCurveToLut(zero, curve, 0.0f);
     QVERIFY(zero == lut);
+  }
+
+  // A photo without a usable look is cached as such (no refit on every
+  // slider move or export); a look with a curve round-trips its curve.
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString source = dir.filePath(QStringLiteral("none.ARW"));
+    photon::cameralook::CameraLook none;
+    QVERIFY(!photon::cameralook::saveCameraLook(source, none));  // nothing known
+    none.unavailable = true;
+    QVERIFY(photon::cameralook::saveCameraLook(source, none));
+    const photon::cameralook::CameraLook loadedNone =
+        photon::cameralook::loadCameraLook(source);
+    QVERIFY(loadedNone.unavailable);
+    QVERIFY(!loadedNone.tone.valid);
+
+    const QString fitted = dir.filePath(QStringLiteral("fitted.ARW"));
+    photon::cameralook::CameraLook look;
+    look.tone = curve;
+    QVERIFY(photon::cameralook::saveCameraLook(fitted, look));
+    const photon::cameralook::CameraLook loaded =
+        photon::cameralook::loadCameraLook(fitted);
+    QVERIFY(loaded.tone.valid);
+    QVERIFY(!loaded.unavailable);
   }
 
   // JSON round-trip (per-photo cache and the export-side composition).

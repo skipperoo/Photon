@@ -19,6 +19,7 @@
 #include <QJsonObject>
 #include <QNetworkInterface>
 #include <QPainter>
+#include <QEventLoop>
 #include <QPointer>
 #include <QPointingDevice>
 #include <QQuickWindow>
@@ -265,6 +266,19 @@ RemoteServer::RemoteServer(RemoteSession* session,
 }
 
 RemoteServer::~RemoteServer() {
+  // Quitting with a device connected: no event loop runs any more, and a
+  // socket closed with unread data is reset, which discards anything still
+  // unsent. Say goodbye and wait (briefly) for the device to complete the
+  // closing handshake, so it shows that Photon was closed.
+  if (QPointer<QWebSocket> socket = m_client) {
+    dropClient(QStringLiteral("Photon was closed"));
+    if (socket && socket->state() != QAbstractSocket::UnconnectedState) {
+      QEventLoop wait;
+      QTimer::singleShot(1000, &wait, &QEventLoop::quit);
+      connect(socket, &QWebSocket::disconnected, &wait, &QEventLoop::quit);
+      wait.exec();
+    }
+  }
   stop();
   m_encoder.waitForDone();
   m_thumbnailer.waitForDone();

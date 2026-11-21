@@ -4,6 +4,25 @@ All notable changes to Photon. Each release's section is published as its GitHub
 
 ## [Unreleased]
 
+## [v0.6.3] - 2026-11-21
+
+### Highlights
+
+- **Camera Look works on more photos.** On some photos, often night or low-key shots, the Camera Look slider did nothing even though the camera had applied its tone curve. These photos now get the camera's curve.
+- **Ctrl, Alt and Shift on the remote screen**, each its own button and combinable.
+
+### Changed
+
+- **Remote toolbox modifiers:** Ctrl, Alt and Shift are now separate buttons. Turn on any combination; it applies to the next tap or click, and the toolbox shows it (e.g. `Ctrl+Shift`).
+- **Develop always opens on a photo:** with nothing selected it opens the first photo of the folder instead of an empty view.
+
+### Fixed
+
+- **Camera Look did nothing on some photos.** When Photon's automatic exposure already matched the camera's mid-tones, the fitted curve was thrown away even though the camera's contrast (deeper shadows, brighter highlights) differed. Photos with no usable camera JPEG are now remembered instead of being refitted on every slider move, and the panel says the look is not available for them. Cached looks are refitted once.
+- **Alt from the remote toolbox** now shows the sharpening mask while dragging Masking, Feather or Focus, as Alt does on the desktop.
+- **Photon crashed when closed with a remote session active.**
+- **The remote device kept showing the last screen after Photon was closed.** It now shows "Photon was closed" with a Reconnect link.
+
 ## [v0.6.2] - 2026-11-19
 
 ### Highlights

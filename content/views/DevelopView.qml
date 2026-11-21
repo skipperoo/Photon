@@ -257,8 +257,11 @@ Control {
                             onReleased: if(root.viewport) root.viewport.commitEdit()
                         }
                         Text {
-                            text: root.viewport && root.viewport.cameraLookAvailable
+                            text: !root.viewport ? ""
+                                  : root.viewport.cameraLookAvailable
                                   ? "The camera's tone curve, fitted from this photo's embedded JPEG. Lower the amount to keep more highlight headroom."
+                                  : root.viewport.cameraLookUnavailable
+                                  ? "No camera look for this photo: its embedded JPEG is missing or does not match the RAW, so the amount has no effect."
                                   : "Raise the amount to fit this photo's camera tone curve from its embedded JPEG; photos without one keep the standard rendering."
                             font: Theme.fontSmall
                             color: Theme.mutedFg

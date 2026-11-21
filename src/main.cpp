@@ -19,6 +19,8 @@
 #include <QSysInfo>
 #include <QVulkanFunctions>
 #include <QVulkanInstance>
+
+#include <memory>
 #include <vector>
 
 #include "components/RawViewport.h"
@@ -295,14 +297,18 @@ int main(int argc, char* argv[]) {
   engine.rootContext()->setContextProperty("thumbnailProvider", thumbProvider);
   qmlRegisterType<FileScanner>("Main", 1, 0, "FileScanner");
 
-  auto* remote = new RemoteSession(&engine, &vulkanInstance, &app);
-  qmlRegisterSingletonInstance("Main", 1, 0, "RemoteSession", remote);
+  // Owned here, not by the application: locals are destroyed in reverse
+  // order, so the remote server and session (its offscreen window, renderer
+  // and the UI it created) go before the QML engine and the Vulkan instance.
+  // As children of the application they outlived both, and quitting with a
+  // remote session active crashed in the session's renderer teardown.
+  const auto remote = std::make_unique<RemoteSession>(&engine, &vulkanInstance);
+  qmlRegisterSingletonInstance("Main", 1, 0, "RemoteSession", remote.get());
 #ifdef PHOTON_HAS_REMOTE
-  auto* remoteServer = new RemoteServer(
-      remote,
-      QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/remote",
-      &app);
-  qmlRegisterSingletonInstance("Main", 1, 0, "RemoteServer", remoteServer);
+  const auto remoteServer = std::make_unique<RemoteServer>(
+      remote.get(),
+      QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/remote");
+  qmlRegisterSingletonInstance("Main", 1, 0, "RemoteServer", remoteServer.get());
 #endif
 
   const QUrl url(QStringLiteral("qrc:/Main/content/views/App.qml"));

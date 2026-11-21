@@ -563,3 +563,10 @@ Short entries for features that predate this document; details live in `TASKS.md
 - Alt from the remote toolbox: the sharpening mask preview (Alt while dragging Masking / Feather / Focus) follows `KeyTracker.altPressed`, which only saw Alt key events; the toolbox sends Alt as a modifier of the pointer events. `KeyTracker` now also holds Alt while a mouse press or drag carries the modifier (released with the button; releasing the Alt key clears both).
 - Develop always shows a photo: entering Develop with no current image or an empty selection selects the current image when it is listed, else the first photo of the filtered list (`ensureDevelopPhoto`, `AppContent.qml`), and scrolls the filmstrip to it.
 - Files: `assets/remote/index.html`, `src/managers/KeyTracker.h`, `content/views/AppContent.qml`.
+
+## Quitting with a remote session (2026-11-21)
+
+- Crash: `RemoteSession` / `RemoteServer` were children of the application, so they were destroyed after the QML engine and the `QVulkanInstance` (locals in `main`); the session's offscreen `QRhi` was then torn down on a destroyed instance (segfault in `QQuickRenderControl` / the NVIDIA driver). `main` now owns both with `std::unique_ptr` declared after the engine: server, session (with the UI it created), engine, Vulkan instance, in that order.
+- Device left showing the UI: the goodbye was only queued (no event loop after `exec()`), and closing a socket with unread data resets it, discarding unsent data. `~RemoteServer` now sends `bye` ("Photon was closed") and waits up to 1 s in a local event loop for the WebSocket closing handshake.
+- Verified with a scripted client (isolated config, XWayland window closed with `wmctrl`): exit 139 → 0; reset → clean close, JPEG and H.264 (NVENC).
+- Files: `src/main.cpp`, `src/managers/RemoteServer.cpp`.
